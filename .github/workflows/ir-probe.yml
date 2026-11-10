@@ -10,9 +10,10 @@ jobs:
         run: |
           set -x
           pip install numpy >/dev/null
+          echo "--- webfiles cert check"; curl -sSI https://webfiles.york.ac.uk/OPENAIR/IRs/heslington-church-vaa-group-2/Read%20Me.txt | head -3 || echo "webfiles cert FAILED"
           for id in 683 696 797 571; do
             echo "=== page $id"
-            curl -sSL "https://www.openair.hosted.york.ac.uk/?page_id=$id" -o page_$id.html || true
+            curl -sSLk "https://www.openair.hosted.york.ac.uk/?page_id=$id" -o page_$id.html || true
             grep -oE 'https?://[^"'"'"' )]*webfiles[^"'"'"' )]*' page_$id.html | sort -u | tee links_$id.txt
             grep -oiE 'href="[^"]*\.(zip|wav)"' page_$id.html | sort -u
           done
@@ -21,7 +22,7 @@ jobs:
           wc -l all.txt
           while read -r u; do
             f="dl/$(echo "$u" | md5sum | cut -c1-8)_$(basename "$u" | tr ' %' '__')"
-            curl -sSL --fail "$u" -o "$f" && echo "OK $u -> $f ($(stat -c %s "$f") bytes)" || echo "FAIL $u"
+            (curl -sSL --fail "$u" -o "$f" || curl -sSLk --fail "$u" -o "$f") && echo "OK $u -> $f ($(stat -c %s "$f") bytes)" || echo "FAIL $u"
           done < all.txt
           cd dl
           for z in *.zip; do [ -e "$z" ] && { echo "=== $z"; unzip -l "$z" | head -60; mkdir -p "x_$z"; unzip -q -o "$z" -d "x_$z"; }; done
@@ -34,4 +35,5 @@ jobs:
                   sz=os.path.getsize(p); print(f"{p}: fmt={fmt} ch={ch} sr={sr} bits={bits} secs~{sz/max(1,br):.1f}")
               except Exception as e: print(p, 'unparsed', e)
           PY
+          sha256sum *.zip *.wav 2>/dev/null || true
           find . -iname '*.txt' -exec sh -c 'echo "--- $1"; head -40 "$1"' _ {} \;
