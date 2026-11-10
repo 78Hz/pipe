@@ -1,0 +1,156 @@
+diff --git a/distrho/src/DistrhoPluginCLAP.cpp b/distrho/src/DistrhoPluginCLAP.cpp
+index 59390921..7f1bbd2c 100644
+--- a/distrho/src/DistrhoPluginCLAP.cpp
++++ b/distrho/src/DistrhoPluginCLAP.cpp
+@@ -1000,8 +1000,17 @@ public:
+                        #endif
+                         break;
+                     case CLAP_EVENT_NOTE_CHOKE:
++                       #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
++                        // chokes the matching voices: same as releasing them
++                        addNoteEvent(reinterpret_cast<const clap_event_note_t*>(event), false);
++                       #endif
++                        break;
+                     case CLAP_EVENT_NOTE_END:
++                        break;
+                     case CLAP_EVENT_NOTE_EXPRESSION:
++                       #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
++                        addNoteExpression(reinterpret_cast<const clap_event_note_expression_t*>(event));
++                       #endif
+                         break;
+                     case CLAP_EVENT_PARAM_VALUE:
+                         DISTRHO_SAFE_ASSERT_UINT2_BREAK(event->size == sizeof(clap_event_param_value_t),
+@@ -1318,19 +1327,100 @@ public:
+     // ----------------------------------------------------------------------------------------------------------------
+ 
+    #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
+-    void addNoteEvent(const clap_event_note_t* const event, const bool isOn) noexcept
++    // CLAP notes are voices identified by note_id or by (port, channel, key), and note expressions
++    // target those voices (-1 = wildcard). MIDI has no per-note expression for notes sharing a
++    // channel, so each expression is delivered to the plugin as a private per-note event for every
++    // matching sounding note: [0xF4, type, channel, key, v0, v1, v2], value 21-bit in 0..1.
++    struct ClapNote { int32_t id; int16_t channel, key; };
++    ClapNote fClapNotes[256];
++    uint32_t fClapNoteCount = 0;
++    uint8_t fExprData[kMaxMidiEvents][7];
++
++    static bool clapNoteMatches(const ClapNote& n, int32_t id, int16_t channel, int16_t key) noexcept
+     {
+-        DISTRHO_SAFE_ASSERT_UINT_RETURN(event->port_index == 0, event->port_index,);
++        if (id >= 0 && n.id >= 0)
++            return n.id == id;
++        return (channel < 0 || n.channel == channel) && (key < 0 || n.key == key);
++    }
+ 
++    void addMidiNote(const uint32_t frame, const bool isOn, const int channel, const int key, const double velocity) noexcept
++    {
+         if (fMidiEventCount == kMaxMidiEvents)
+             return;
+-
+         MidiEvent& midiEvent(fMidiEvents[fMidiEventCount++]);
+-        midiEvent.frame = event->header.time;
++        midiEvent.frame = frame;
+         midiEvent.size  = 3;
+-        midiEvent.data[0] = (isOn ? 0x90 : 0x80) | (event->channel & 0x0F);
+-        midiEvent.data[1] = std::max(0, std::min(127, static_cast<int>(event->key)));
+-        midiEvent.data[2] = std::max(0, std::min(127, static_cast<int>(event->velocity * 127 + 0.5)));
++        midiEvent.data[0] = (isOn ? 0x90 : 0x80) | (channel & 0x0F);
++        midiEvent.data[1] = key & 0x7F;
++        int v = std::max(0, std::min(127, static_cast<int>(velocity * 127 + 0.5)));
++        // CLAP: a NOTE_ON with velocity 0 is a note; in MIDI velocity 0 would mean Note Off
++        if (isOn && v == 0)
++            v = 1;
++        midiEvent.data[2] = v;
++    }
++
++    void addNoteEvent(const clap_event_note_t* const event, const bool isOn) noexcept
++    {
++        if (event->port_index > 0)
++            return;
++
++        if (isOn)
++        {
++            if (event->channel < 0 || event->key < 0)
++                return;
++            addMidiNote(event->header.time, true, event->channel, event->key, event->velocity);
++            // remember the voice so expressions can find it
++            for (uint32_t i = 0; i < fClapNoteCount; ++i)
++                if (fClapNotes[i].channel == event->channel && fClapNotes[i].key == event->key)
++                    { fClapNotes[i] = fClapNotes[--fClapNoteCount]; break; }
++            if (fClapNoteCount < 256)
++                fClapNotes[fClapNoteCount++] = { event->note_id, event->channel, event->key };
++            return;
++        }
++
++        // off / choke: every matching voice (channel and key may be -1)
++        for (uint32_t i = 0; i < fClapNoteCount;)
++        {
++            if (clapNoteMatches(fClapNotes[i], event->note_id, event->channel, event->key))
++            {
++                addMidiNote(event->header.time, false, fClapNotes[i].channel, fClapNotes[i].key, event->velocity);
++                fClapNotes[i] = fClapNotes[--fClapNoteCount];
++            }
++            else
++                ++i;
++        }
++    }
++
++    void addNoteExpression(const clap_event_note_expression_t* const event) noexcept
++    {
++        if (event->port_index > 0)
++            return;
++        int type;
++        double v;
++        switch (event->expression_id)
++        {
++        case CLAP_NOTE_EXPRESSION_PRESSURE:   type = 1; v = event->value; break;
++        case CLAP_NOTE_EXPRESSION_BRIGHTNESS: type = 2; v = event->value; break;
++        case CLAP_NOTE_EXPRESSION_TUNING:     type = 3; v = (event->value + 120.0) / 240.0; break;
++        default: return;
++        }
++        const int q = std::max(0, std::min(2097151, static_cast<int>(v * 2097151.0 + 0.5)));
++        for (uint32_t i = 0; i < fClapNoteCount; ++i)
++        {
++            const ClapNote& n(fClapNotes[i]);
++            if (! clapNoteMatches(n, event->note_id, event->channel, event->key))
++                continue;
++            if (fMidiEventCount == kMaxMidiEvents)
++                return;
++            uint8_t* const d = fExprData[fMidiEventCount];
++            d[0] = 0xF4; d[1] = static_cast<uint8_t>(type);
++            d[2] = static_cast<uint8_t>(n.channel & 0x0F); d[3] = static_cast<uint8_t>(n.key & 0x7F);
++            d[4] = q & 0x7F; d[5] = (q >> 7) & 0x7F; d[6] = (q >> 14) & 0x7F;
++            MidiEvent& midiEvent(fMidiEvents[fMidiEventCount++]);
++            midiEvent.frame = event->header.time;
++            midiEvent.size = 7;
++            midiEvent.dataExt = d;
++        }
+     }
+ 
+     void addMidiEvent(const clap_event_midi_t* const event) noexcept
+diff --git a/distrho/src/DistrhoPluginInternal.hpp b/distrho/src/DistrhoPluginInternal.hpp
+index d0bef80a..f596f510 100644
+--- a/distrho/src/DistrhoPluginInternal.hpp
++++ b/distrho/src/DistrhoPluginInternal.hpp
+@@ -30,7 +30,7 @@ START_NAMESPACE_DISTRHO
+ // -----------------------------------------------------------------------
+ // Maxmimum values
+ 
+-static const uint32_t kMaxMidiEvents = 512;
++static const uint32_t kMaxMidiEvents = 8192;   // MPE controllers send continuous per-note data on 16 channels
+ 
+ // -----------------------------------------------------------------------
+ // Static data, see DistrhoPlugin.cpp
+diff --git a/distrho/src/DistrhoPluginVST3.cpp b/distrho/src/DistrhoPluginVST3.cpp
+index 7295c892..ab7b9473 100644
+--- a/distrho/src/DistrhoPluginVST3.cpp
++++ b/distrho/src/DistrhoPluginVST3.cpp
+@@ -359,7 +359,7 @@ class PluginVst3
+                     midiEvent.size = 3;
+                     midiEvent.data[0] = 0x90 | (eventStorage.noteOn.channel & 0xf);
+                     midiEvent.data[1] = eventStorage.noteOn.pitch;
+-                    midiEvent.data[2] = std::max(0, std::min(127, d_roundToIntPositive(eventStorage.noteOn.velocity * 127)));
++                    midiEvent.data[2] = std::max(1, std::min(127, d_roundToIntPositive(eventStorage.noteOn.velocity * 127)));   // a note-on, never velocity 0 (= Note Off)
+                     midiEvent.data[3] = 0;
+                     break;
+                 case NoteOff:

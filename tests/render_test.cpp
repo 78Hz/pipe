@@ -110,111 +110,138 @@ int main(int argc, char** argv) {
         en->setParameter(kParamTuning, kTun12); en->setParameter(kParamRoom, kRoomDry); en->setParameter(kParamAgeDrift, 0.f);
         en->setParameter(kParamZoneLoDiv, kGreat); en->setParameter(kParamPedalSplit, 0.f);
     };
-    {   // Osmose (MPE): pressure travel then aftertouch on CC74
-        auto en = std::make_unique<Engine>(); setup(en);
-        uint8_t on[3] = { 0x91, 60, 90 }; en->midi(on, 3);
-        run(en, fs / 50);                                   // before any pressure arrives
-        const float waiting = en->getParameter(kOutDstPallet);
-        for (int v = 0; v <= 127; v += 16) { uint8_t m[2] = { 0xD1, (uint8_t)v }; en->midi(m, 2); run(en, 256); }
-        uint8_t full[2] = { 0xD1, 127 }; en->midi(full, 2);
-        uint8_t cc0[3] = { 0xB1, 74, 0 }; en->midi(cc0, 3);
-        auto a = run(en, fs);
-        const float footVoiced = en->getParameter(kOutDstFoot);
-        const double hz = measureHz(a, fs / 2, fs, 261.63);
-        uint8_t cc1[3] = { 0xB1, 74, 127 }; en->midi(cc1, 3);
-        run(en, fs / 2);
-        const float footBoost = en->getParameter(kOutDstFoot);
-        uint8_t offA[3] = { 0x81, 60, 64 }; en->midi(offA, 3); run(en, fs / 4);
-        uint8_t on2[3] = { 0x92, 64, 90 }; en->midi(on2, 3); run(en, 480);
-        const float waiting2 = en->getParameter(kOutDstPallet);
-        printf("Osmose MPE: second note waits for its pressure: pallet %.0f%%\n", waiting2);
-        if (waiting2 > 5.f) ++failures;
-        printf("Osmose MPE: pallet %.0f%% before pressure arrives, foot %.0f mm at full key travel (%+.1f c), %.0f mm deep in aftertouch\n",
-               waiting, footVoiced, 1200 * std::log2(hz / 261.63), footBoost);
-        if (std::fabs(footVoiced - 78.f) > 3.f || footBoost < 100.f || std::fabs(1200 * std::log2(hz / 261.63)) > 8) ++failures;
-    }
-    {   // keyboard with polyphonic aftertouch
-        auto en = std::make_unique<Engine>(); setup(en);
-        uint8_t on[3] = { 0x90, 60, 100 }; en->midi(on, 3); run(en, fs / 4);
-        const float f0 = en->getParameter(kOutDstFoot);
-        uint8_t at[3] = { 0xA0, 60, 64 }; en->midi(at, 3); run(en, fs / 4);
-        const float f1 = en->getParameter(kOutDstFoot);
-        printf("poly aftertouch keyboard: %.0f mm, with half aftertouch %.0f mm\n", f0, f1);
-        if (std::fabs(f0 - 78.f) > 3.f || f1 <= f0) ++failures;
-    }
-    {   // plain keyboard: no expression data at all
-        auto en = std::make_unique<Engine>(); setup(en);
-        uint8_t on[3] = { 0x90, 60, 64 }; en->midi(on, 3); run(en, fs / 4);
-        printf("plain keyboard: %.0f mm\n", en->getParameter(kOutDstFoot));
-        if (std::fabs(en->getParameter(kOutDstFoot) - 78.f) > 3.f) ++failures;
-    }
-
-    // ---- 4b. Real-world MPE streams: how the Osmose sends, how a host may flatten it
+    // ---- 4. MIDI / MPE input, rule by rule (MMA/AMEI RP-053; MIDI 1.0). Each check names its clause.
     auto send = [&](std::unique_ptr<Engine>& en, int a0, int a1, int a2 = -1) { uint8_t m[3] = { (uint8_t)a0, (uint8_t)a1, (uint8_t)(a2 < 0 ? 0 : a2) }; en->midi(m, a2 < 0 ? 2 : 3); };
-    {   // Osmose MPE: channels 2-16, pressure starts before the note-on and keeps rising, CC74 for the second stage
+    auto check = [&](bool ok, const char* rule, const std::string& detail) { printf("  %-4s %s: %s\n", ok ? "ok" : "FAIL", rule, detail.c_str()); if (!ok) ++failures; };
+    auto fmt = [](const char* f, double a, double b = 0, double c = 0) { char buf[200]; snprintf(buf, sizeof buf, f, a, b, c); return std::string(buf); };
+    auto mcm = [&](std::unique_ptr<Engine>& en, int ch, int n) { send(en, 0xB0 | ch, 101, 0); send(en, 0xB0 | ch, 100, 6); send(en, 0xB0 | ch, 6, n); };
+    auto rpnBend = [&](std::unique_ptr<Engine>& en, int ch, int semis) { send(en, 0xB0 | ch, 101, 0); send(en, 0xB0 | ch, 100, 0); send(en, 0xB0 | ch, 6, semis); };
+    const int G = kGreat;
+    printf("MIDI / MPE input:\n");
+    {   // §2.1.3 power-on layout; §3.2 notes on the Master Channel; §2.4 default bend ranges
         auto en = std::make_unique<Engine>(); setup(en);
-        send(en, 0xB0, 101, 0); send(en, 0xB0, 100, 6); send(en, 0xB0, 6, 15);   // MCM: lower zone, 15 channels
-        int ok = 0; float worstBoost = 0.f;
+        int open = 0;
+        for (int ch = 0; ch < 16; ++ch) { send(en, 0x90 | ch, 40 + ch, 80); }
+        run(en, fs / 10);
+        for (int ch = 0; ch < 16; ++ch) open += en->debugAperture(G, 40 + ch) > 0.95f;
+        check(open == 16, "§2.1.3 + §3.2", fmt("notes on all 16 channels sound (Master Channel 1 and Members 2-16): %.0f of 16", open));
+        send(en, 0xE4, 127, 127); send(en, 0xE0, 127, 127); run(en, 64);
+        const double mb = en->debugBendSemis(4, 44), ms = en->debugBendSemis(0, 40);
+        check(std::fabs(mb - (48 + 2)) < 0.1 && std::fabs(ms - 2) < 0.1, "§2.4", fmt("full bend: member note %.1f st (48 + master 2), note on master %.1f st", mb, ms));
+    }
+    {   // §2.4 Pitch Bend Sensitivity on one Member applies to all Members (incl. channel 16); Master separate
+        auto en = std::make_unique<Engine>(); setup(en);
+        rpnBend(en, 3, 24); rpnBend(en, 0, 12);
+        send(en, 0x9F, 60, 80); send(en, 0xEF, 127, 127); run(en, 64);
+        check(std::fabs(en->debugBendSemis(15, 60) - 24) < 0.1, "§2.4", fmt("sensitivity 24 sent on ch 4 reaches ch 16: %.1f st", en->debugBendSemis(15, 60)));
+        send(en, 0x90, 50, 80); send(en, 0xE0, 127, 127); run(en, 64);
+        check(std::fabs(en->debugBendSemis(0, 50) - 12) < 0.1, "§2.4", fmt("Master sensitivity set separately: %.1f st", en->debugBendSemis(0, 50)));
+    }
+    {   // §2.1 MCM layouts; §2.1.4 notes on changed channels stop; channels in no zone are MIDI 1.0 (bend ±2)
+        auto en = std::make_unique<Engine>(); setup(en);
+        en->setParameter(kParamZoneHiDiv, kSwell); en->setParameter(18, 1.f);   // a Swell stop for the upper zone
+        send(en, 0x9A, 62, 80); run(en, fs / 20);
+        mcm(en, 0, 7); run(en, fs / 10);
+        check(en->debugHolds(G, 62) == 0, "§2.1.4", "a note held on ch 11 stops when an MCM takes ch 11 out of the zone");
+        send(en, 0x9B, 63, 80); send(en, 0xEB, 127, 127); run(en, 64);
+        check(std::fabs(en->debugBendSemis(11, 63) - 2) < 0.1, "§2.1 / MIDI 1.0", fmt("ch 12 is in no zone: plain MIDI bend range %.1f st", en->debugBendSemis(11, 63)));
+        mcm(en, 15, 3); run(en, 64);
+        send(en, 0x9D, 64, 80); run(en, fs / 10);
+        check(en->debugHolds(kSwell, 64) == 1, "§2.1", "MCM on ch 16 makes an Upper Zone: a note on member ch 14 plays the upper division (Swell)");
+    }
+    {   // §3.3 values sent before a Note On set the new note's start; §2.4 Master bend adds
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0xE4, 0, 80); send(en, 0x94, 60, 80); run(en, 64);
+        const double pre = en->debugBendSemis(4, 60);
+        check(std::fabs(pre - (80 * 128 - 8192) / 8192.0 * 48) < 0.1, "§3.3", fmt("bend sent before the Note On is the note's starting pitch: %+.2f st", pre));
+        send(en, 0xE0, 127, 127); run(en, 64);
+        check(std::fabs(en->debugBendSemis(4, 60) - pre - 2) < 0.1, "§2.4", "Master Channel bend adds to the member note");
+    }
+    {   // §2.5 per-note pressure; §3.3.4 pressure to zero before Note Off must not touch other notes
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0xD1, 0); send(en, 0x91, 60, 80); send(en, 0xD1, 127);
+        send(en, 0xD2, 0); send(en, 0x92, 64, 80); send(en, 0xD2, 40);
+        run(en, fs / 5);
+        const float a = en->debugAperture(G, 60), b = en->debugAperture(G, 64);
+        check(a > 0.95f && b > 0.3f && b < 0.45f, "§2.5", fmt("each note follows its own channel's pressure: %.0f%% and %.0f%%", a * 100, b * 100));
+        send(en, 0xD2, 0); send(en, 0x82, 64, 64); run(en, fs / 5);
+        check(en->debugAperture(G, 60) > 0.95f, "§3.3.4", fmt("releasing the other note (pressure to 0, Note Off) leaves this one at %.0f%%", en->debugAperture(G, 60) * 100));
+    }
+    {   // §2.2.1 Channel messages affect every note on their channel
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x93, 60, 80); send(en, 0x93, 67, 80); send(en, 0xD3, 50); run(en, fs / 5);
+        const float a = en->debugAperture(G, 60), b = en->debugAperture(G, 67);
+        check(std::fabs(a - b) < 0.02f && a < 0.6f, "§2.2.1", fmt("two notes on one Member Channel both follow its pressure: %.0f%% %.0f%%", a * 100, b * 100));
+    }
+    {   // pressure exists only once the zone sends it: an MPE controller without pressure plays at voiced wind
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x95, 60, 80); run(en, fs / 5);
+        check(std::fabs(en->debugFootMm(G, 60) - 78.f) < 3.f, "MpeInput", fmt("no pressure ever sent: pipe at voiced wind %.0f mm", en->debugFootMm(G, 60)));
+    }
+    {   // a complete MPE controller stream (Osmose MPE mode): pressure on members, CC74 for the second stage
+        auto en = std::make_unique<Engine>(); setup(en);
+        mcm(en, 0, 15);
+        int voiced = 0; float worstBoost = 0.f;
         for (int i = 0; i < 20; ++i) {
             const int ch = 1 + i % 15, key = 48 + (i * 5) % 24;
-            for (int v = 0; v <= 127; v += 8) { if (v == 32) send(en, 0x90 | ch, key, 90); send(en, 0xD0 | ch, v); run(en, 96); }
+            send(en, 0xD0 | ch, 0); send(en, 0xB0 | ch, 74, 0);             // §3.3.4: pressure zero before Note On
+            send(en, 0x90 | ch, key, 70);
+            for (int v = 8; v <= 127; v += 8) { send(en, 0xD0 | ch, v); run(en, 96); }
             send(en, 0xD0 | ch, 127); run(en, fs / 10);
-            const float foot = en->getParameter(kOutDstFoot);
-            worstBoost = std::max(worstBoost, std::fabs(en->getParameter(kOutDstBoost)));
-            if (std::fabs(foot - 78.f) < 3.f && en->getParameter(kOutLiveAftertouch) < 0.f) ++ok;
+            voiced += std::fabs(en->debugFootMm(G, key) - 78.f) < 3.f;
+            worstBoost = std::max(worstBoost, std::fabs(en->debugBoostMm(G, key)));
             for (int v = 127; v >= 0; v -= 16) { send(en, 0xD0 | ch, v); run(en, 64); }
             send(en, 0xD0 | ch, 0); send(en, 0x80 | ch, key, 64); run(en, fs / 20);
         }
-        printf("Osmose MPE stream: %d of 20 notes on channels 2-16 at voiced wind, no boost without the second stage (worst %.1f mm), channel 16 bend range %.0f\n",
-               ok, worstBoost, en->getParameter(kOutBendLo));
-        if (ok != 20 || worstBoost > 1.f) ++failures;
-        // channel 16 must be a note channel with the members' bend range, not an upper-zone master
-        send(en, 0xEF, 0, 127); send(en, 0x9F, 60, 90); send(en, 0xDF, 127); run(en, fs / 10);
-        const float bent = en->getParameter(kOutDstPitch);
-        printf("  channel 16 full bend: %+.0f cents (members bend +-48, strict limit applies)\n", bent);
-        if (bent < 40.f) ++failures;
-        send(en, 0x8F, 60, 64); send(en, 0xEF, 0, 64); run(en, fs / 10);
+        check(voiced == 20 && worstBoost < 0.5f, "MPE stream", fmt("20 notes on ch 2-16 at voiced wind at full key travel: %.0f of 20, no boost without CC74 (%.1f mm)", voiced, worstBoost));
+        send(en, 0xD7, 0); send(en, 0x97, 60, 70); send(en, 0xD7, 127); send(en, 0xB7, 74, 127); run(en, fs / 5);
+        check(en->debugBoostMm(G, 60) > 25.f, "MPE stream", fmt("CC74 (second stage) adds wind: %+.0f mm", en->debugBoostMm(G, 60)));
+        send(en, 0xD8, 0); send(en, 0x98, 64, 70); send(en, 0xD8, 38); run(en, fs / 5);
+        check(en->debugAperture(G, 64) < 0.36f, "strict", fmt("a light press (30%% of the travel) opens the pallet only %.0f%%", en->debugAperture(G, 64) * 100));
     }
-    {   // a host that is not in MPE mode for the plugin: every note on channel 1, key pressure as poly aftertouch
+    {   // MIDI 1.0 keyboard on channel 1: Channel Pressure there is aftertouch for the whole zone (§3.2)
         auto en = std::make_unique<Engine>(); setup(en);
-        send(en, 0x90, 60, 80);
-        for (int v = 20; v <= 127; v += 8) { send(en, 0xA0, 60, v); run(en, 96); }
-        send(en, 0xA0, 60, 127); run(en, fs / 10);
-        const float full = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
-        send(en, 0x90, 64, 80);
-        for (int v = 20; v <= 40; v += 4) { send(en, 0xA0, 64, v); run(en, 96); }
-        run(en, fs / 10);
-        const float partial = en->getParameter(kOutDstPallet);
-        const int via = (int)en->getParameter(kOutViaLo);
-        printf("host-flattened MPE (poly AT from the start of the note): pallet %.0f%% at full travel, %.0f%% at a light touch, boost %+.0f mm, flagged as one channel %s\n",
-               full, partial, boost, (via & kViaOneChannel) && (via & kViaTravelPoly) ? "yes" : "no");
-        if (full < 95.f || partial > 60.f || std::fabs(boost) > 1.f || !(via & kViaTravelPoly)) ++failures;
+        send(en, 0x90, 60, 100); send(en, 0x90, 64, 100); run(en, fs / 5);
+        send(en, 0xD0, 100); run(en, fs / 5);
+        check(en->debugAperture(G, 60) > 0.95f && en->debugBoostMm(G, 60) > 15.f && en->debugBoostMm(G, 64) > 15.f, "§3.2 / MIDI 1.0",
+              fmt("channel aftertouch on ch 1 adds wind to both notes (%+.0f, %+.0f mm), pallets stay open", en->debugBoostMm(G, 60), en->debugBoostMm(G, 64)));
     }
-    {   // a polyphonic-aftertouch keyboard (or the Osmose's poly aftertouch configuration): aftertouch starts once the key is down
+    {   // MIDI 1.0 Polyphonic Key Pressure: aftertouch for that key only
         auto en = std::make_unique<Engine>(); setup(en);
-        send(en, 0x90, 60, 100); run(en, fs / 5);
-        const float before = en->getParameter(kOutDstFoot);
-        for (int v = 0; v <= 100; v += 10) { send(en, 0xA0, 60, v); run(en, 128); }
-        run(en, fs / 10);
-        const float pal = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
-        printf("poly aftertouch keyboard: %.0f mm when struck, aftertouch adds %+.0f mm, pallet stays %.0f%%\n", before, boost, pal);
-        if (std::fabs(before - 78.f) > 3.f || boost < 10.f || pal < 95.f) ++failures;
+        send(en, 0x90, 60, 100); send(en, 0x90, 64, 100); run(en, fs / 5);
+        send(en, 0xA0, 60, 100); run(en, fs / 5);
+        check(en->debugBoostMm(G, 60) > 15.f && std::fabs(en->debugBoostMm(G, 64)) < 0.5f, "MIDI 1.0 poly pressure",
+              fmt("only the pressed key gets wind: %+.0f mm vs %+.0f mm", en->debugBoostMm(G, 60), en->debugBoostMm(G, 64)));
     }
-    {   // classic keyboard: mono aftertouch (channel pressure on channel 1) after the key is down
+    {   // MPE+: CC87 adds 7 bits to the next pressure value
         auto en = std::make_unique<Engine>(); setup(en);
-        send(en, 0x90, 60, 100); run(en, fs / 5);
-        for (int v = 0; v <= 100; v += 10) { send(en, 0xD0, v); run(en, 128); }
-        run(en, fs / 10);
-        const float pal = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
-        printf("classic keyboard: channel aftertouch adds %+.0f mm, pallet stays %.0f%%\n", boost, pal);
-        if (boost < 10.f || pal < 95.f) ++failures;
+        send(en, 0x91, 60, 90); send(en, 0xB1, 87, 64); send(en, 0xD1, 63); run(en, 480);
+        check(std::fabs(en->getParameter(kOutLivePressure) - 63.5f * 127.f * 128.f / 16256.f) < 0.05f, "MPE+",
+              fmt("14-bit pressure %.2f of 127", en->getParameter(kOutLivePressure)));
     }
-    {   // MPE+ (Haken): CC87 adds 7 bits to the next pressure value
+    {   // host per-note expression (CLAP, via the wrapper's private events): notes sharing a channel stay independent
         auto en = std::make_unique<Engine>(); setup(en);
-        send(en, 0xD1, 30); send(en, 0x91, 60, 90); send(en, 0xB1, 87, 64); send(en, 0xD1, 63); run(en, 480);
-        const float v = en->getParameter(kOutLivePressure);
-        printf("MPE+ 14-bit pressure: %.2f of 127 (expect 63.50)\n", v);
-        if (std::fabs(v - 63.5f * 127.f * 128.f / 16256.f) > 0.05f) ++failures;
+        auto expr = [&](int type, int ch, int key, double v) {
+            const int q = (int)(v * 2097151.0 + 0.5);
+            uint8_t m[7] = { kPrivateNoteExpression, (uint8_t)type, (uint8_t)ch, (uint8_t)key, (uint8_t)(q & 127), (uint8_t)((q >> 7) & 127), (uint8_t)(q >> 14) };
+            en->midi(m, 7);
+        };
+        send(en, 0x90, 60, 80); expr(kExprPressure, 0, 60, 1.0);
+        send(en, 0x90, 64, 80); expr(kExprPressure, 0, 64, 0.3);
+        run(en, fs / 5);
+        const float a = en->debugAperture(G, 60), b = en->debugAperture(G, 64);
+        expr(kExprPressure, 0, 64, 0.0); send(en, 0x80, 64, 64); run(en, fs / 5);
+        check(a > 0.95f && b < 0.4f && en->debugAperture(G, 60) > 0.95f, "CLAP note expression",
+              fmt("two notes on one channel: %.0f%% and %.0f%%; releasing one leaves the other at %.0f%%", a * 100, b * 100, en->debugAperture(G, 60) * 100));
+        expr(kExprTuning, 0, 60, (1.5 + 120) / 240.0); run(en, 64);
+        check(std::fabs(en->debugBendSemis(0, 60) - 1.5) < 0.01, "CLAP note expression", fmt("per-note tuning %+.2f st", en->debugBendSemis(0, 60)));
+    }
+    {   // MIDI 1.0: a second Note On for a sounding key retriggers it; All Notes Off on a Master Channel ends the zone
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x92, 60, 80); send(en, 0x92, 60, 80); run(en, 64);
+        check(en->debugHolds(G, 60) == 1, "MIDI 1.0", "repeated Note On for the same key and channel retriggers, no stuck note");
+        send(en, 0x93, 62, 80); send(en, 0xB0, 123, 0); run(en, fs / 10);
+        check(en->debugHolds(G, 60) == 0 && en->debugHolds(G, 62) == 0, "MIDI 1.0 / MPE", "All Notes Off on the Master Channel ends every note in the zone");
     }
 
     // ---- 5. Measured rooms (convolution), if this build has them

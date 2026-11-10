@@ -63,7 +63,7 @@ enum ParamId {
     kOutDstPallet, kOutDstBoost, kOutDstJet, kOutDstPitch, kOutDstChiff, kOutDstFoot, kOutSwellEff, kOutTremEff,
     kOutLearn,                       // last expressive message (type*128 + cc) + 1024 * counter
     kOutRoomStatus, kOutRoomPos, kOutRoomPosDist,
-    kOutViaLo, kOutViaHi, kOutClip, kOutLimitDb,
+    kOutViaLo, kOutViaHi, kOutClip, kOutLimitDb, kOutLiveChannel,
     kOutNote0,                       // 5 x (key, source, foot pressure mm, cents)
     kOutNoteLast = kOutNote0 + 5 * 4 - 1,
     kNumParams
@@ -71,11 +71,7 @@ enum ParamId {
 constexpr int kNumShownNotes = 5;
 
 // "seen" bits per MPE zone (what the incoming data actually contains)
-// kSeenPressure: key-travel pressure (any message); kSeenAftertouch: pressure that starts after the key is down
-enum SeenBits { kSeenVelocity = 1, kSeenPressure = 2, kSeenBend = 4, kSeenSlide = 8, kSeenRelease = 16, kSeenAftertouch = 32, kSeenMcm = 64 };
-// How each zone's expression actually arrives (kOutViaLo / kOutViaHi), for the Expression screen
-enum ViaBits { kViaTravelChan = 1, kViaTravelPoly = 2, kViaAfterChan = 4, kViaAfterPoly = 8, kViaCC74 = 16, kViaHiRes = 32,
-               kViaOneChannel = 64, kViaMemberChannels = 128 };
+// What each zone has received: see InputBits in MpeInput.hpp (kOutSeenLo / kOutSeenHi).
 
 inline const ParamInfo& paramInfo(int id) {
     static ParamInfo table[kNumParams];
@@ -156,10 +152,11 @@ inline const ParamInfo& paramInfo(int id) {
             "out_dst_foot", "out_swell_eff", "out_trem_eff", "out_learn", "out_room_status", "out_room_pos", "out_room_pos_dist" };
         for (int i = kOutLiveKey; i <= kOutRoomPosDist; ++i)
             table[i] = { liveSyms[i - kOutLiveKey], liveSyms[i - kOutLiveKey] + 4, -100000.f, 100000.f, 0.f, kPOutput, "", 0, nullptr };
-        set(kOutViaLo,         { "out_via_lo", "Lower Zone Expression Sources", 0.f, 255.f, 0.f, kPOutput, "", 0, nullptr });
-        set(kOutViaHi,         { "out_via_hi", "Upper Zone Expression Sources", 0.f, 255.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutViaLo,         { "out_note_channels", "Channels With Notes Now", 0.f, 65535.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutViaHi,         { "out_recent_channels", "Channels Used Recently", 0.f, 131071.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutClip,          { "out_clip", "Peak Before Limiter", 0.f, 16.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutLimitDb,       { "out_limit_db", "Limiter Gain Reduction", 0.f, 60.f, 0.f, kPOutput, "dB", 0, nullptr });
+        set(kOutLiveChannel,   { "out_live_channel", "Last Note Channel", 0.f, 15.f, 0.f, kPOutput, "", 0, nullptr });
         static char noteSyms[kNumShownNotes * 4][24];
         static char noteNames[kNumShownNotes * 4][32];
         static const char* fields[4] = { "key", "src", "mm", "ct" };

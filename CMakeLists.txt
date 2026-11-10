@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
-project(pipe VERSION 0.2.1 LANGUAGES C CXX ASM)
+project(pipe VERSION 0.2.2 LANGUAGES C CXX ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,7 +19,7 @@ endif()
 
 # Local fixes to DPF, applied to the submodule at configure time (idempotent)
 find_package(Git REQUIRED)
-foreach(patch ${CMAKE_SOURCE_DIR}/patches/dpf-clap-note-expressions.patch)
+foreach(patch ${CMAKE_SOURCE_DIR}/patches/dpf-mpe-input.patch)
   execute_process(COMMAND "${GIT_EXECUTABLE}" apply --ignore-whitespace --reverse --check "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf"
                   RESULT_VARIABLE already OUTPUT_QUIET ERROR_QUIET)
   if(NOT already EQUAL 0)

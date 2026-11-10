@@ -10,6 +10,7 @@
 #include "Wind.hpp"
 #include "RoomProcessor.hpp"
 #include "Matrix.hpp"
+#include "MpeInput.hpp"
 #include "CalibrationTables.hpp"
 #include <atomic>
 #include <chrono>
@@ -62,28 +63,12 @@ constexpr int kControlBlock = 32;
 constexpr int kMaxFlueVoices = 448;
 constexpr int kMaxReedVoices = 96;
 
-struct ChannelState {
-    float bend = 0.f;          // -1..1
-    float pressure = 0.f;      // 0..1
-    float slide = 0.5f;        // 0..1 (CC74, MPE default 64)
-    bool pressureSeen = false, slideSeen = false;
-    // received since this channel's last note ended (MPE: values sent before a note-on belong to that note)
-    bool pressureFresh = false, slideFresh = false;
-    int lsb = -1;              // MPE+: CC87 extra resolution for the next pressure / CC74 / bend
-    float bendRange = 48.f;    // semitones
-    int rpnMsb = 127, rpnLsb = 127;
-};
-
 struct Pallet {
     int holds = 0;
     float aperture = 0.f;
     float target = 0.f;
     float openTime = 0.02f, closeTime = 0.02f;   // seconds
     int srcChannel = 0, srcZone = 0;
-    // per-note pressure: what kind it is (decided from how it behaves) and which message carries it
-    int pressKind = 0;                           // 0 none yet, 1 key travel (PRESSURE), 2 aftertouch
-    int pressVia = 0;                            // 1 own channel pressure, 2 poly aftertouch, 3 zone master channel
-    float polyValue = 0.f;
     float chiff = 0.f;                           // attack transient envelope
     KeyPitch pitch;
     uint32_t order = 0;
@@ -126,6 +111,7 @@ struct Voice {
 class Engine {
 public:
     Engine() {
+        sink.e = this;
         flues.reserve(kMaxFlueVoices);
         for (int i = 0; i < kMaxFlueVoices; ++i) flues.emplace_back(new FlueCore());
         reeds.reserve(kMaxReedVoices);
@@ -139,8 +125,6 @@ public:
         pendingMatrix.setDefaults();
         for (int i = 0; i < 128; ++i) { ccVal[i] = 0.f; ccSeen[i] = false; ccZone[i] = 0; }
         for (int i = 0; i < kNumParams; ++i) params[i] = paramInfo(i).def;
-        for (int c = 0; c < 16; ++c) channels[c] = ChannelState();
-        channels[0].bendRange = 2.f; channels[15].bendRange = 2.f;
         std::memset(outputs, 0, sizeof(outputs));
         for (int i = 0; i < kNumShownNotes; ++i) outputs[kOutNote0 - kOutFirst + i * 4] = -1.f;
         outputs[kOutMembersLo - kOutFirst] = 15.f;
@@ -210,68 +194,15 @@ public:
     }
 
     // ------------------------------------------------------------------- MIDI
-    void midi(const uint8_t* d, int size) {
-        if (size < 1) return;
-        const int st = d[0] & 0xF0, ch = d[0] & 0x0F;
-        const int zone = zoneOf(ch);
-        switch (st) {
-        case 0x90:
-            if (size >= 3 && d[2] > 0) { noteOn(ch, d[1], d[2]); break; }
-            if (size >= 3) noteOff(ch, d[1], 64);
-            break;
-        case 0x80: if (size >= 3) noteOff(ch, d[1], d[2]); break;
-        case 0xA0:
-            if (size >= 3) {
-                const int key = d[1] & 127;
-                const float v = d[2] / 127.f;
-                bool matched = false;
-                for (int pass = 0; pass < 2 && !matched; ++pass)   // pass 1: a host that lost the note's channel
-                    for (int dv = 0; dv < kNumDivisions; ++dv) {
-                        Pallet& p = pallets[dv][key];
-                        if (p.holds == 0 || (pass == 0 && p.srcChannel != ch)) continue;
-                        p.polyValue = v;
-                        routePressure(p, 1, 2, false);
-                        matched = true;
-                    }
-            }
-            break;
-        case 0xD0:
-            if (size >= 2) {
-                ChannelState& c = channels[ch];
-                c.pressure = hiRes(c, d[1]);
-                c.pressureSeen = c.pressureFresh = true;
-                for (int dv = 0; dv < kNumDivisions; ++dv)
-                    for (int k = 0; k < kNumKeys; ++k) {
-                        Pallet& p = pallets[dv][k];
-                        if (p.holds == 0) continue;
-                        if (p.srcChannel == ch) { if (p.pressVia != 2) routePressure(p, 0, 1, false); }
-                        // MPE zone-level pressure from the master channel, for notes whose own channel sends none
-                        else if (isMaster(ch) && p.srcZone == zone && (p.pressVia == 0 || p.pressVia == 3)
-                                 && !channels[p.srcChannel].pressureFresh) routePressure(p, 0, 3, false);
-                    }
-            }
-            break;
-        case 0xE0:
-            if (size >= 3) {
-                ChannelState& c = channels[ch];
-                const int v14 = d[1] | (d[2] << 7);
-                float b;
-                if (c.lsb >= 0) { b = (float)(((v14 << 7) | c.lsb) - (8192 << 7)) / (float)(8192 << 7); c.lsb = -1; }
-                else b = (v14 - 8192) / 8192.f;
-                c.bend = std::max(-1.f, std::min(1.f, b));
-                if (v14 != 8192) seen[zone] |= kSeenBend;
-                if (v14 > 8192 + 1024 || v14 < 8192 - 1024) learn(kSrcBend, 0);
-            }
-            break;
-        case 0xB0: if (size >= 3) controller(ch, d[1], d[2]); break;
-        default: break;
-        }
-    }
+    // All MIDI / MPE interpretation lives in MpeInput (see the rules there); the engine only
+    // turns notes into pallets and reads each note's expression for the matrix.
+    void midi(const uint8_t* d, int size) { mpe.process(d, size, sink); }
 
     void allNotesOff() {
         for (int dv = 0; dv < kNumDivisions; ++dv)
             for (int k = 0; k < kNumKeys; ++k) { pallets[dv][k].holds = 0; pallets[dv][k].target = 0.f; }
         notes.clear();
+        mpe.reset();
     }
 
     // ----------------------------------------------------------------- render
@@ -315,84 +246,37 @@ public:
         outputs[kOutCpu - kOutFirst] = (float)cpuAvg;
     }
 
+    // ------------------------------------------------------------ for tests
+    float debugAperture(int d, int k) const { return pallets[d][k].aperture; }
+    float debugFootMm(int d, int k) const { return pallets[d][k].footRatio * kChestNominal[d]; }
+    float debugBoostMm(int d, int k) const { return pallets[d][k].boost * (params[kParamPressMax] - 78.f); }
+    int debugHolds(int d, int k) const { return pallets[d][k].holds; }
+    float debugBendSemis(int ch, int key) const { const MpeInput::Note* n = mpe.find(ch, key); return n ? mpe.bendSemitones(*n) : -999.f; }
+
     // -------------------------------------------------------- info for the UI
     const Tuning& getTuning() const { return tuning; }
     Tuning& tuningMut() { return tuning; }
     float sampleRate() const { return fs; }
 
 private:
-    // ------------------------------------------------------------ zones / MPE
-    int lowerMembers = 15, upperMembers = 0;
-    int zoneOf(int ch) const {
-        if (upperMembers > 0 && (ch == 15 || ch >= 15 - upperMembers)) return 1;
-        return 0;
-    }
-    // Channel 1 is the lower zone's master. Channel 16 is only a master when an upper zone exists;
-    // otherwise it is an ordinary note channel (the Osmose and most MPE controllers use channels 2-16).
-    bool isMaster(int ch) const { return ch == 0 || (ch == 15 && upperMembers > 0); }
-    bool channelBusy(int ch) const { for (const auto& n : notes) if (n.ch == ch) return true; return false; }
+    // ------------------------------------------------------------ MIDI input
+    MpeInput mpe;
+    struct Sink : MpeInput::Listener {
+        Engine* e = nullptr;
+        void onNoteOn(int ch, int key, int vel, int zone) override { e->noteOn(ch, key, vel, zone); }
+        void onNoteOff(int ch, int key, int vel) override { e->noteOff(ch, key, vel); }
+        void onAllNotesOff(int mask) override { e->releaseChannels(mask); }
+        void onController(int ch, int cc, int val, int zone) override { e->controller(ch, cc, val, zone); }
+        void onLearn(int src, int cc) override { e->learn(src, cc); }
+    } sink;
 
-    // MPE+ (Haken): a CC87 just before pressure / CC74 / bend carries 7 extra bits
-    float hiRes(ChannelState& c, int msb) {
-        if (c.lsb < 0) return msb / 127.f;
-        const float v = std::min(1.f, (float)(msb * 128 + c.lsb) / 16256.f);
-        c.lsb = -1;
-        return v;
-    }
-
-    // Decides whether a note's pressure follows the key from the start of the note (key travel: it opens the
-    // pallet) or only begins once the key is down (aftertouch). Nothing here depends on which controller
-    // is attached: it goes by when the data starts. type: 0 channel pressure, 1 poly aftertouch.
-    void routePressure(Pallet& p, int type, int via, bool atStart) {
-        const int z = p.srcZone;
-        if (p.pressKind == 0) {
-            const bool early = atStart || p.sinceOn < 0.015f;
-            if (early) { zoneTravel[z][type] = true; lateStarts[z][type] = 0; }
-            else if (p.sinceOn > 0.1f && ++lateStarts[z][type] >= 3) zoneTravel[z][type] = false;
-            p.pressKind = (early || p.sinceOn < 0.03f || zoneTravel[z][type]) ? 1 : 2;
-            p.pressVia = via;
-        } else if (via == 2 || p.pressVia == 0) p.pressVia = via;
-        const bool travel = p.pressKind == 1;
-        seen[z] |= travel ? kSeenPressure : kSeenAftertouch;
-        via_[z] |= type == 1 ? (travel ? kViaTravelPoly : kViaAfterPoly) : (travel ? kViaTravelChan : kViaAfterChan);
-        learn(travel ? kSrcPressure : kSrcAftertouch, 0);
-    }
-    float pressureOf(const Pallet& p) const {
-        if (p.pressVia == 2) return p.polyValue;
-        if (p.pressVia == 3) return channels[p.srcZone == 0 ? 0 : 15].pressure;
-        return channels[p.srcChannel].pressure;
-    }
-
-    void controller(int ch, int cc, int val) {
-        ChannelState& c = channels[ch];
-        const int zone = zoneOf(ch);
-        switch (cc) {
-        case 74: c.slide = hiRes(c, val); c.slideSeen = c.slideFresh = true; seen[zone] |= kSeenSlide; via_[zone] |= kViaCC74; learn(kSrcCC74, 74); break;
-        case 87: c.lsb = val; via_[zone] |= kViaHiRes; return;   // MPE+ resolution, not a controller of its own
-        case 66: altSpellingCC = val >= 64; break;
-        case 101: c.rpnMsb = val; break;
-        case 100: c.rpnLsb = val; break;
-        case 6:
-            if (c.rpnMsb == 0 && c.rpnLsb == 0) {           // pitch bend sensitivity
-                c.bendRange = (float)val;
-                // MPE: setting it on a member channel applies to all members of the zone
-                const int z = zoneOf(ch);
-                if (!isMaster(ch))
-                    for (int k = 0; k < 16; ++k) if (k != 0 && k != 15 && zoneOf(k) == z) channels[k].bendRange = (float)val;
-            } else if (c.rpnMsb == 0 && c.rpnLsb == 6) {     // MPE configuration message
-                if (ch == 0) { lowerMembers = std::min(15, val); if (lowerMembers + upperMembers > 14) upperMembers = std::max(0, 14 - lowerMembers); }
-                if (ch == 15) { upperMembers = std::min(15, val); if (lowerMembers + upperMembers > 14) lowerMembers = std::max(0, 14 - upperMembers); }
-                // MPE defaults after MCM: members bend 48, master 2
-                for (int k = 0; k < 16; ++k) channels[k].bendRange = isMaster(k) ? 2.f : 48.f;
-                seen[ch == 15 ? 1 : 0] |= kSeenMcm;
-            }
-            break;
-        case 120: case 123: allNotesOff(); break;
-        default: break;
-        }
-        if (cc != 6 && cc != 38 && cc != 100 && cc != 101 && cc < 120) {
+    // ordinary controllers (MpeInput keeps the MPE ones): matrix CC sources, enharmonic spelling
+    void controller(int ch, int cc, int val, int zone) {
+        (void)ch;
+        if (cc == 66) altSpellingCC = val >= 64;
+        if (cc < 120) {
             ccVal[cc] = val / 127.f; ccSeen[cc] = true; ccZone[cc] = zone;
-            if (cc != 74) learn(kSrcCC, cc);
+            learn(kSrcCC, cc);
         }
     }
 
@@ -404,9 +288,7 @@ private:
     struct ActiveNote { int ch, key; int div[3]; int nDiv; };
     std::vector<ActiveNote> notes;
 
-    void noteOn(int ch, int key, int vel) {
-        const int zone = zoneOf(ch);
-        seen[zone] |= (vel != 100 && vel != 127 && vel != 64) ? kSeenVelocity : 0;
+    void noteOn(int ch, int key, int vel, int zone) {
         int div = (int)(zone == 0 ? params[kParamZoneLoDiv] : params[kParamZoneHiDiv]);
         int mapMode = (int)(zone == 0 ? params[kParamMapLo] : params[kParamMapHi]);
         const int split = (int)params[kParamPedalSplit];
@@ -415,12 +297,6 @@ private:
         const bool alt = (params[kParamEnharmonic] >= 0.5f) != altSpellingCC;
         const KeyPitch kp = tuning.keyPitch(key, mapMode, alt);
         if (!kp.valid) return;
-        // MPE: pressure and CC74 sent before this note-on (on a channel with no other note) belong to it
-        const bool busy = channelBusy(ch);
-        if (busy) via_[zone] |= kViaOneChannel;
-        if (!isMaster(ch)) via_[zone] |= kViaMemberChannels;
-        ChannelState& cs = channels[ch];
-        if (!busy && cs.pressureFresh && cs.pressure <= 0.f) cs.pressureFresh = false;   // the last note's release
         ActiveNote an{ ch, key, { -1, -1, -1 }, 0 };
         const float v = vel / 127.f;
         auto press = [&](int d, bool coupled) {
@@ -430,32 +306,27 @@ private:
         if (div == kGreat && stopOn(17)) press(kSwell, true);           // SW > GT
         if (div == kPedal && stopOn(6)) press(kGreat, true);            // GT > PED
         if (div == kPedal && stopOn(7)) press(kSwell, true);            // SW > PED
-        if (an.nDiv > 0) {
-            if (!busy && cs.pressureFresh)
-                for (int j = 0; j < an.nDiv; ++j) { Pallet& p = pallets[an.div[j]][key]; if (p.pressKind == 0) routePressure(p, 0, 1, true); }
-            notes.push_back(an);
-        }
+        if (an.nDiv > 0) notes.push_back(an);
     }
 
-    void noteOff(int ch, int key, int relVel) {
-        const int zone = zoneOf(ch);
-        if (relVel != 64 && relVel != 0) seen[zone] |= kSeenRelease;
-        for (size_t i = 0; i < notes.size(); ++i) {
-            if (notes[i].ch == ch && notes[i].key == key) {
-                for (int j = 0; j < notes[i].nDiv; ++j) {
-                    Pallet& p = pallets[notes[i].div[j]][key];
-                    if (p.holds > 0 && --p.holds == 0) {
-                        p.target = 0.f;
-                        p.relVel = (relVel != 64 && relVel > 0) ? relVel / 127.f : -1.f;
-                        p.closeTime = params[kParamReleaseMs] * 0.001f;   // the matrix may change it
-                    }
-                }
-                notes.erase(notes.begin() + (long)i);
-                // the channel's expression now belongs to whatever note comes next on it
-                if (!channelBusy(ch)) channels[ch].pressureFresh = channels[ch].slideFresh = false;
-                return;
+    void releaseNote(size_t i, int relVel) {
+        const int key = notes[i].key;
+        for (int j = 0; j < notes[i].nDiv; ++j) {
+            Pallet& p = pallets[notes[i].div[j]][key];
+            if (p.holds > 0 && --p.holds == 0) {
+                p.target = 0.f;
+                p.relVel = (relVel != 64 && relVel > 0) ? relVel / 127.f : -1.f;
+                p.closeTime = params[kParamReleaseMs] * 0.001f;   // the matrix may change it
             }
         }
+        notes.erase(notes.begin() + (long)i);
+    }
+    void noteOff(int ch, int key, int relVel) {
+        for (size_t i = 0; i < notes.size(); ++i)
+            if (notes[i].ch == ch && notes[i].key == key) { releaseNote(i, relVel); return; }
+    }
+    void releaseChannels(int mask) {
+        for (size_t i = notes.size(); i-- > 0;) if (mask & (1 << notes[i].ch)) releaseNote(i, 64);
     }
 
     bool stopOn(int s) const { return params[s] >= 0.5f; }
@@ -473,7 +344,6 @@ private:
         p.order = ++orderCounter;
         p.vel = vel; p.relVel = -1.f; p.sinceOn = 0.f;
         if (wasClosed) {
-            p.pressKind = 0; p.pressVia = 0; p.polyValue = 0.f;
             p.chiff = 1.f;
             p.palletDriven = false;
             for (int i = 0; i < kNumModRows; ++i) p.modInit[i] = false;
@@ -672,18 +542,13 @@ private:
                 if (p.holds == 0 && p.aperture <= 0.f) continue;
                 p.sinceOn += dt;
                 float sum[kNumModDests] = {}; bool has[kNumModDests] = {};
-                bool expects = false;
                 for (int i = 0; i < kNumModRows; ++i) {
                     const ModRow& r = matrix.rows[i];
                     if (!r.on || modDestGlobal(r.dest)) continue;
                     const int z = r.src == kSrcCC ? ccZone[r.cc] : p.srcZone;
                     if (r.zone != kZoneAll && r.zone != z) continue;
                     float x;
-                    if (!sourceValue(r, p, x)) {
-                        // a controller that sends this kind of data normally sends it just after the note starts
-                        if (r.dest == kDstPallet && p.holds > 0 && seenBitFor(r.src) && (seen[p.srcZone] & seenBitFor(r.src))) expects = true;
-                        continue;
-                    }
+                    if (!sourceValue(r, p, k, x)) continue;   // not sent: the voiced default stands
                     float out = r.eval(x);
                     if (r.dest == kDstPitch) out *= r.src == kSrcBend ? 4800.f : 100.f;
                     if (r.smoothMs > 0.f && p.modInit[i]) p.modState[i] += (1.f - std::exp(-dt * 1000.f / r.smoothMs)) * (out - p.modState[i]);
@@ -699,7 +564,6 @@ private:
                 p.chiffScale = has[kDstChiff] ? 2.f * clamp01(sum[kDstChiff]) : 1.f;
                 if (p.holds > 0) {
                     if (has[kDstPallet]) { p.target = clamp01(sum[kDstPallet]); p.palletDriven = true; }
-                    else if (expects && !p.palletDriven && p.sinceOn < 0.04f) p.target = 0.f;   // wait briefly for the data
                     else if (!p.palletDriven) p.target = 1.f;
                 }
                 // the key moves the pallet directly when it is pressure-driven
@@ -729,7 +593,7 @@ private:
                     if (!ccSeen[r.cc] || (r.zone != kZoneAll && r.zone != ccZone[r.cc])) continue;
                     x = ccVal[r.cc];
                 } else {
-                    if (!lastPallet || (r.zone != kZoneAll && r.zone != lastPallet->srcZone) || !sourceValue(r, *lastPallet, x)) continue;
+                    if (!lastPallet || (r.zone != kZoneAll && r.zone != lastPallet->srcZone) || !sourceValue(r, *lastPallet, (int)((lastPallet - &pallets[0][0]) % kNumKeys), x)) continue;
                 }
                 const float out = r.eval(x);
                 if (r.smoothMs > 0.f && globalInit[i]) globalState[i] += (1.f - std::exp(-dt * 1000.f / r.smoothMs)) * (out - globalState[i]);
@@ -807,14 +671,18 @@ private:
         outputs[kOutChestSw - kOutFirst] = wind.chest[kSwell];
         outputs[kOutDemand - kOutFirst] = wind.demand;
         outputs[kOutPipes - kOutFirst] = (float)speaking;
-        outputs[kOutSeenLo - kOutFirst] = (float)seen[0];
-        outputs[kOutSeenHi - kOutFirst] = (float)seen[1];
-        outputs[kOutViaLo - kOutFirst] = (float)via_[0];
-        outputs[kOutViaHi - kOutFirst] = (float)via_[1];
-        outputs[kOutMembersLo - kOutFirst] = (float)lowerMembers;
-        outputs[kOutMembersHi - kOutFirst] = (float)upperMembers;
-        outputs[kOutBendLo - kOutFirst] = channels[1].bendRange;
-        outputs[kOutBendHi - kOutFirst] = channels[14].bendRange;
+        outputs[kOutSeenLo - kOutFirst] = (float)mpe.inputBits(0);
+        outputs[kOutSeenHi - kOutFirst] = (float)mpe.inputBits(1);
+        // channels notes are arriving on: now, and over the last few seconds
+        const uint16_t now = mpe.channelsWithNotes();
+        recentChannels |= now;
+        if (now) idleSeconds = 0.f; else if ((idleSeconds += kControlBlock * 16 / fs) > 5.f) recentChannels = 0;
+        outputs[kOutViaLo - kOutFirst] = (float)now;
+        outputs[kOutViaHi - kOutFirst] = (float)(recentChannels | (mpe.maxNotesOnOneChannel() > 1 ? 1 << 16 : 0));
+        outputs[kOutMembersLo - kOutFirst] = (float)mpe.lowerMembers();
+        outputs[kOutMembersHi - kOutFirst] = (float)mpe.upperMembers();
+        outputs[kOutBendLo - kOutFirst] = mpe.channel(1).bendRange;
+        outputs[kOutBendHi - kOutFirst] = mpe.channel(14).bendRange;
         liveOutputs();
         outputs[kOutRoomStatus - kOutFirst] = (float)room.status();
         outputs[kOutRoomPos - kOutFirst] = (float)room.usedPosition();
@@ -827,31 +695,19 @@ private:
         blowerNoiseT = (params[kParamBlowerOn] >= 0.5f) ? std::pow(10.f, params[kParamBlowerNoise] / 20.f) : 0.f;
     }
 
-    static int seenBitFor(int src) {
-        return src == kSrcPressure ? kSeenPressure : src == kSrcAftertouch ? kSeenAftertouch : src == kSrcCC74 ? kSeenSlide : 0;
-    }
-    // The value a matrix source has for this key, or false if it has sent nothing.
-    bool sourceValue(const ModRow& r, const Pallet& p, float& x) const {
-        const ChannelState& c = channels[p.srcChannel];
+    // The value a matrix source has for this key's note, or false if that source does not exist
+    // for it (see MpeInput). A released note no longer follows its channel (MPE §3.3).
+    bool sourceValue(const ModRow& r, const Pallet& p, int key, float& x) const {
+        if (r.src == kSrcStrike) { x = p.vel; return true; }
+        if (r.src == kSrcRelease) { if (p.relVel < 0.f) return false; x = p.relVel; return true; }
+        if (r.src == kSrcCC) { if (!ccSeen[r.cc]) return false; x = ccVal[r.cc]; return true; }
+        const MpeInput::Note* n = mpe.find(p.srcChannel, key);
+        if (!n) return false;
         switch (r.src) {
-        case kSrcStrike: x = p.vel; return true;
-        case kSrcPressure: if (p.pressKind != 1) return false; x = pressureOf(p); return true;
-        case kSrcAftertouch: if (p.pressKind != 2) return false; x = pressureOf(p); return true;
-        case kSrcCC74: {
-            if (c.slideFresh) { x = c.slide; return true; }
-            const ChannelState& m = channels[p.srcZone == 0 ? 0 : 15];   // zone-level CC74 on the master channel
-            if (!isMaster(p.srcChannel) && m.slideFresh) { x = m.slide; return true; }
-            return false;
-        }
-        case kSrcBend: {
-            const int master = p.srcZone == 0 ? 0 : 15;
-            float cents = c.bend * c.bendRange * 100.f;
-            if (p.srcChannel != master) cents += channels[master].bend * channels[master].bendRange * 100.f;
-            x = std::max(0.f, std::min(1.f, 0.5f + cents / 9600.f));
-            return true;
-        }
-        case kSrcRelease: if (p.relVel < 0.f) return false; x = p.relVel; return true;
-        case kSrcCC: if (!ccSeen[r.cc]) return false; x = ccVal[r.cc]; return true;
+        case kSrcPressure: return mpe.pressure(*n, x);
+        case kSrcAftertouch: return mpe.aftertouch(*n, x);
+        case kSrcCC74: return mpe.cc74(*n, x);
+        case kSrcBend: x = std::max(0.f, std::min(1.f, 0.5f + mpe.bendSemitones(*n) / 96.f)); return true;
         default: return false;
         }
     }
@@ -861,15 +717,17 @@ private:
         const Pallet* p = lastPallet;
         if (!p) { set(kOutLiveKey, -1.f); return; }
         const int d = (int)(p - &pallets[0][0]) / kNumKeys;
-        const ChannelState& c = channels[p->srcChannel];
-        set(kOutLiveKey, (float)((p - &pallets[0][0]) % kNumKeys));
+        const int key = (int)((p - &pallets[0][0]) % kNumKeys);
+        const MpeInput::Note* n = mpe.find(p->srcChannel, key);
+        float v = 0.f;
+        set(kOutLiveKey, (float)key);
         set(kOutLiveZone, (float)p->srcZone);
         set(kOutLiveStrike, p->vel * 127.f);
-        set(kOutLivePressure, p->pressKind == 1 ? pressureOf(*p) * 127.f : -1.f);
-        set(kOutLiveAftertouch, p->pressKind == 2 ? pressureOf(*p) * 127.f : -1.f);
-        set(kOutLiveCC74, c.slideFresh ? c.slide * 127.f : -1.f);
-        const int master = p->srcZone == 0 ? 0 : 15;
-        set(kOutLiveBend, c.bend * c.bendRange * 100.f + (p->srcChannel != master ? channels[master].bend * channels[master].bendRange * 100.f : 0.f));
+        set(kOutLivePressure, n && mpe.pressure(*n, v) ? v * 127.f : -1.f);
+        set(kOutLiveAftertouch, n && mpe.aftertouch(*n, v) ? v * 127.f : -1.f);
+        set(kOutLiveCC74, n && mpe.cc74(*n, v) ? v * 127.f : -1.f);
+        set(kOutLiveBend, n ? mpe.bendSemitones(*n) * 100.f : 0.f);
+        set(kOutLiveChannel, (float)p->srcChannel);
         set(kOutDstPallet, p->aperture * 100.f);
         set(kOutDstBoost, p->boost * (params[kParamPressMax] - 78.f));
         set(kOutDstJet, p->jet);
@@ -986,11 +844,8 @@ private:
     std::vector<std::unique_ptr<ReedCore>> reeds;
     std::vector<Voice> voices;
     Pallet pallets[kNumDivisions][kNumKeys];
-    ChannelState channels[16];
-    int seen[2] = { 0, 0 };
-    int via_[2] = { 0, 0 };
-    bool zoneTravel[2][2] = {};        // [zone][channel pressure / poly AT]: this zone's pressure follows the key
-    int lateStarts[2][2] = {};
+    uint16_t recentChannels = 0;
+    float idleSeconds = 0.f;
     bool altSpellingCC = false;
     uint32_t orderCounter = 0, ageCounter = 0;
     Tuning tuning;

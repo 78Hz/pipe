@@ -8,6 +8,7 @@
 #include "../src/engine/Wind.hpp"
 #include "../src/engine/Room.hpp"
 #include "../src/engine/Matrix.hpp"
+#include "../src/engine/MpeInput.hpp"
 #include "../src/engine/Wav.hpp"
 #include "IrMeta.hpp"
 #include "FontVT323.hpp"
@@ -549,51 +550,60 @@ private:
         float x = 20, w = 290, y = top;
         text(x, y + 12, "NOTE INPUTS (MPE ZONES)", 22);
         y += 30;
+        // channels notes actually arrive on (all zones), from what Pipe received - not the layout
+        {
+            const int recent = (int)pv[kOutViaHi];
+            std::string chans;
+            int first = -1;
+            for (int c = 0; c <= 16; ++c)
+            {
+                const bool on = c < 16 && (recent & (1 << c));
+                if (on && first < 0) first = c;
+                if (!on && first >= 0)
+                {
+                    if (!chans.empty()) chans += ",";
+                    chans += first == c - 1 ? fmt("%.0f", first + 1) : fmt("%.0f", first + 1) + "-" + fmt("%.0f", c);
+                    first = -1;
+                }
+            }
+            titleBar(x, y, w, "NOTES ARRIVING ON", chans.empty() ? std::string("NO NOTES YET") : "CH " + chans);
+            y += 30;
+            if (recent & (1 << 16))
+            {
+                // a fact, shown as it is: several notes held at once on the same channel
+                fill(x, y, w, 44, ink);
+                text(x + 8, y + 12, "SEVERAL NOTES SHARE A CHANNEL:", 19, lcd);
+                text(x + 8, y + 32, "IS MPE ON FOR PIPE IN THE DAW?", 19, lcd);
+                y += 50;
+            }
+        }
         for (int z = 0; z < 2; ++z)
         {
             const int param = z == 0 ? kParamZoneLoDiv : kParamZoneHiDiv;
             const int members = (int)pv[z == 0 ? kOutMembersLo : kOutMembersHi];
-            const int seen = (int)pv[z == 0 ? kOutSeenLo : kOutSeenHi];
+            const int in = (int)pv[z == 0 ? kOutSeenLo : kOutSeenHi];
             titleBar(x, y, w, z == 0 ? "LOWER ZONE" : "UPPER ZONE", std::string("> ") + kZoneDivLabels[(int)pv[param]]);
             addHit(x, y, w, 26, [this, param] { setParam(param, (float)(((int)pv[param] + 1) % 4)); });
             float ry = y + 30;
             auto row = [&](const char* k, const std::string& v) { text(x + 6, ry + 10, k, 20, ink2); text(x + w - 6, ry + 10, v, 20, ink, ALIGN_RIGHT | ALIGN_MIDDLE); ry += 22; };
-            row("MODE", seen & kSeenMcm ? "MPE (MCM SEEN)" : "MPE DEFAULT");
-            if (z == 0) row("CHANNELS", members > 0 ? fmt("1 + 2-%.0f", members + 1) : std::string("1"));
-            else row("CHANNELS", members > 0 ? fmt("16 + %.0f-15", 15 - members) : std::string("NONE (SEND MCM)"));
-            row("BEND RANGE", fmt("±%.0f ST", pv[z == 0 ? kOutBendLo : kOutBendHi]));
-            std::string s;
-            if (seen & kSeenVelocity) s += "VEL ";
-            if (seen & kSeenPressure) s += "PRES ";
-            if (seen & kSeenAftertouch) s += "AT ";
-            if (seen & kSeenBend) s += "BEND ";
-            if (seen & kSeenSlide) s += "Y ";
-            if (seen & kSeenRelease) s += "REL";
-            row("SEEN", s.empty() ? "NO DATA YET" : s);
-            // which message actually carries each kind of expression, so a host's conversion is visible
-            const int via = (int)pv[z == 0 ? kOutViaLo : kOutViaHi];
-            if (z == 0 || seen != 0)
+            if (z == 0) row("LAYOUT", members > 0 ? fmt("MASTER 1, NOTES 2-%.0f", members + 1) : std::string("OFF"));
+            else row("LAYOUT", members > 0 ? fmt("MASTER 16, NOTES %.0f-15", 15 - members) : std::string("OFF (NO MCM)"));
+            if (z == 0 || members > 0)
             {
-                std::string pr = (via & kViaTravelChan) ? "CH PRESSURE" : (via & kViaTravelPoly) ? "POLY AT" : "-";
-                if ((via & kViaTravelChan) && (via & kViaTravelPoly)) pr = "CH PRES + POLY";
-                std::string st;
-                if (via & kViaCC74) st += "CC74 ";
-                if (via & kViaAfterPoly) st += "POLY AT ";
-                if (via & kViaAfterChan) st += "CH AT";
-                row("PRESSURE VIA", pr + ((via & kViaHiRes) ? " 14B" : ""));
-                row("2ND STAGE VIA", st.empty() ? std::string("-") : st);
+                row("SET BY", in & kInMcm ? "MPE CONFIG MESSAGE" : "DEFAULT (RP-053 2.1.3)");
+                row("BEND RANGE", fmt("±%.0f ST", pv[z == 0 ? kOutBendLo : kOutBendHi]));
+                std::string pr, at;
+                if (in & kInMemberPressure) pr += "CH PRESSURE ";
+                if (in & kInNoteExpression) pr += "HOST PER-NOTE ";
+                if (in & kInHiRes) pr += "14-BIT";
+                if (in & kInCC74) at += "CC74 ";
+                if (in & kInPolyPressure) at += "POLY AT ";
+                if (in & (kInMasterPressure | kInNonMpePressure)) at += "CH AT";
+                row("PRESSURE", pr.empty() ? std::string("NONE RECEIVED") : pr);
+                row("2ND STAGE", at.empty() ? std::string("NONE RECEIVED") : at);
             }
             frame(x, y, w, ry - y + 6);
-            y = ry + 6;
-            if ((via & kViaTravelPoly) && !(via & kViaMemberChannels))
-            {
-                // per-note pressure arriving as poly aftertouch with every note on one channel: the host flattened MPE
-                fill(x, y, w, 44, ink);
-                text(x + 8, y + 12, "HOST IS NOT SENDING MPE:", 19, lcd);
-                text(x + 8, y + 32, "TURN ON MPE FOR PIPE IN THE DAW", 19, lcd);
-                y += 50;
-            }
-            y += 8;
+            y = ry + 14;
         }
         const int split = (int)pv[kParamPedalSplit];
         stepper(x, y, w, "PEDAL SPLIT", split > 0 ? std::string("< ") + noteName12(split) : std::string("OFF"),
@@ -601,7 +611,7 @@ private:
         y += 52;
         // live sources of the last note touched
         const int key = (int)pv[kOutLiveKey];
-        titleBar(x, y, w, "LIVE SOURCES", key >= 0 ? noteName12(key + 36) + ((int)pv[kOutLiveZone] == 0 ? " LO" : " HI") : std::string("NO NOTE"));
+        titleBar(x, y, w, "LIVE SOURCES", key >= 0 ? noteName12(key + 36) + fmt(" CH %.0f", pv[kOutLiveChannel] + 1) : std::string("NO NOTE"));
         y += 30;
         auto live = [&](const char* k, float v, float max, bool bipolar = false, const char* f = "%.0f") {
             text(x + 6, y + 9, k, 19, ink2);
