@@ -111,6 +111,36 @@ jobs:
           g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_host_test.cpp -o clap_host_test -ldl
           ./clap_host_test build/bin/Pipe.clap
 
+      # The user manual is rebuilt on every push, with fresh screenshots of this build's interface
+      - name: Manual - screenshots (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb xdotool imagemagick libgl1-mesa-dri
+          sudo apt-get install -y fonts-inter || echo "::warning::fonts-inter not available, using fallback font"
+          docs/manual/screenshots.sh build/bin/Pipe.clap
+
+      - name: Manual - node (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Manual - render PDF (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          VER=$(sed -nE 's/^project\(pipe VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          cd docs/manual
+          npm install --no-save --no-package-lock playwright@1.48.2
+          npx playwright install --with-deps chromium
+          node render.js "$VER" ../../Pipe-User-Manual.pdf
+
+      - name: Manual - upload (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pipe-manual
+          path: Pipe-User-Manual.pdf
+
       - name: Sign (macOS, ad-hoc)
         if: runner.os == 'macOS'
         run: |
@@ -153,9 +183,9 @@ jobs:
         run: |
           VER=$(sed -nE 's/^project\(pipe VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
           TAG="v${VER}"
-          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
+          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README and in Pipe-User-Manual.pdf. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-          gh release create "$TAG" artifacts/*/*.zip \
+          gh release create "$TAG" artifacts/*/*.zip artifacts/*/*.pdf \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Pipe $TAG" \

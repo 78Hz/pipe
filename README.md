@@ -108,6 +108,18 @@ Every pipe can be retuned individually in cents. Pipe temperature (flue pipes go
 - **Combinations 1–7:** store stop settings only, for quick changes while playing.
 - **Host project:** the full state is also saved with your DAW project.
 
+## Manual
+
+**Pipe-User-Manual.pdf** on the [Releases page](https://github.com/78Hz/pipe/releases) is a plain-language guide to every screen. It is rebuilt on every push from `docs/manual/manual.html`, with fresh screenshots of that build. When a feature changes, update the text in `manual.html` in the same commit.
+
+To build it locally (Linux):
+
+```
+docs/manual/screenshots.sh build/bin/Pipe.clap        # needs Xvfb, xdotool, ImageMagick
+(cd docs/manual && npm install --no-save playwright && npx playwright install chromium)
+node docs/manual/render.js 0.2.0 Pipe-User-Manual.pdf
+```
+
 ## Building from source
 
 ```

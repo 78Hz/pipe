@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pipe User Manual</title>
+<style>
+@font-face { font-family: "VT323"; src: url("../../resources/VT323-Regular.ttf"); }
+:root {
+  --ink: #1f2a12; --ink2: #3d4d1f; --lcd: #c3d36b; --lcd-soft: #e9efc8; --paper: #fbfcf6;
+  --rule: #c9d29a; --frame: #141517;
+}
+@page { size: A4; margin: 18mm 17mm 20mm 17mm;
+  @bottom-center { content: counter(page); font-family: "VT323"; font-size: 13pt; color: #3d4d1f; } }
+@page :first { margin: 0; @bottom-center { content: none; } }
+* { box-sizing: border-box; }
+html { font-family: "Inter", sans-serif; font-size: 10.2pt; line-height: 1.5; color: #22261c; background: #fff; }
+body { margin: 0; }
+h1, h2, h3, .vt { font-family: "VT323", monospace; font-weight: normal; color: var(--ink); letter-spacing: 0.02em; }
+h1 { font-size: 34pt; line-height: 1; margin: 0 0 4mm; text-transform: uppercase; }
+h1 .num { display: inline-block; background: var(--ink); color: var(--lcd); padding: 0 3mm; margin-right: 3mm; }
+h2 { font-size: 19pt; margin: 7mm 0 1.5mm; text-transform: uppercase; border-bottom: 1.4pt solid var(--ink); padding-bottom: 0.5mm; break-after: avoid; }
+h3 { font-size: 14.5pt; margin: 5mm 0 1mm; text-transform: uppercase; break-after: avoid; }
+p { margin: 0 0 2.6mm; }
+.lede { font-size: 11.6pt; line-height: 1.5; color: #2b3222; }
+section.chapter { margin-top: 12mm; }
+section.chapter.newpage { break-before: page; margin-top: 0; }
+.kicker, h1 { break-after: avoid; }
+h1 + p, h2 + p { break-before: avoid; }
+ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+li { margin-bottom: 1.2mm; }
+b, strong { font-weight: 600; color: #1a2010; }
+.ui { font-family: "VT323", monospace; font-size: 12.5pt; background: var(--lcd); color: var(--ink); padding: 0 1.4mm; border-radius: 1mm; white-space: nowrap; }
+figure { margin: 3mm 0 5mm; break-inside: avoid; }
+figure img { width: 86%; margin: 0 auto; display: block; border: 2.5mm solid var(--frame); border-radius: 2mm; }
+figcaption { font-size: 8.8pt; color: #4b5640; margin: 1.6mm 7% 0; }
+.tip, .note { break-inside: avoid; border-left: 2.2mm solid var(--ink); background: var(--lcd-soft); padding: 2.6mm 3.6mm; margin: 3mm 0 4mm; }
+.tip .label, .note .label { font-family: "VT323"; font-size: 13pt; display: block; line-height: 1; margin-bottom: 1mm; color: var(--ink); text-transform: uppercase; }
+.note { border-left-color: #6d7b3a; background: #f3f5e6; }
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9.4pt; break-inside: avoid; }
+th { font-family: "VT323"; font-weight: normal; font-size: 12.5pt; text-align: left; background: var(--ink); color: var(--lcd); padding: 1mm 2.4mm; }
+td { padding: 1.5mm 2.4mm; border-bottom: 0.6pt solid var(--rule); vertical-align: top; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps > li { counter-increment: s; position: relative; padding-left: 10mm; margin-bottom: 2.4mm; }
+.steps > li::before { content: counter(s); position: absolute; left: 0; top: -0.4mm; width: 7mm; height: 6mm; background: var(--ink); color: var(--lcd); font-family: "VT323"; font-size: 13pt; text-align: center; line-height: 6mm; }
+.kicker { font-family: "VT323"; font-size: 13pt; color: var(--ink2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1mm; }
+
+/* cover */
+.cover { height: 297mm; width: 210mm; background: var(--frame); padding: 14mm; position: relative; }
+.cover .glass { height: 100%; background: var(--lcd); border-radius: 4mm; position: relative; overflow: hidden; padding: 22mm 18mm;
+  background-image: repeating-linear-gradient(0deg, rgba(31,42,18,0.07) 0 1px, transparent 1px 3px); }
+.cover .word { font-family: "VT323"; font-size: 150pt; line-height: 0.8; color: var(--ink); margin: 0; }
+.cover .sub { font-family: "VT323"; font-size: 24pt; color: var(--ink); margin-top: 6mm; text-transform: uppercase; }
+.cover .bar { display: inline-block; background: var(--ink); color: var(--lcd); font-family: "VT323"; font-size: 20pt; padding: 1mm 4mm; margin-top: 12mm; }
+.cover svg { position: absolute; left: 18mm; right: 18mm; bottom: 34mm; width: calc(100% - 36mm); }
+.cover .foot { position: absolute; left: 18mm; right: 18mm; bottom: 16mm; font-family: "VT323"; font-size: 15pt; color: var(--ink2); display: flex; justify-content: space-between; }
+
+/* contents */
+.toc { list-style: none; padding: 0; margin-top: 6mm; }
+.toc li { display: flex; align-items: baseline; font-size: 11.5pt; padding: 2.2mm 0; border-bottom: 0.6pt solid var(--rule); }
+.toc .n { font-family: "VT323"; font-size: 16pt; width: 12mm; color: var(--ink); }
+.toc .t { flex: 1; }
+.toc .d { color: #5e6a50; font-size: 9.2pt; }
+
+.usp { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin: 3mm 0 2mm; }
+.usp div { background: var(--lcd-soft); padding: 3mm 3.6mm; break-inside: avoid; border-top: 1.4mm solid var(--ink); }
+.usp h3 { margin: 0 0 1mm; font-size: 14pt; }
+.usp p { margin: 0; font-size: 9.6pt; }
+.big-quote { font-family: "VT323"; font-size: 20pt; line-height: 1.1; color: var(--ink); border-top: 1.4pt solid var(--ink); border-bottom: 1.4pt solid var(--ink); padding: 2mm 0; margin: 3.5mm 0; text-transform: uppercase; }
+.small { font-size: 8.8pt; color: #4b5640; }
+dl.gloss { display: grid; grid-template-columns: 36mm 1fr; gap: 0.7mm 4mm; margin: 2mm 0; }
+dl.gloss dt { font-family: "VT323"; font-size: 13.5pt; color: var(--ink); line-height: 1.2; }
+dl.gloss dd { margin: 0; font-size: 9.6pt; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background: #eef1df; padding: 0.3mm 1mm; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ COVER -->
+<div class="cover"><div class="glass">
+  <p class="word">PIPE</p>
+  <div class="sub">A physically modelled pipe organ</div>
+  <div class="bar">USER MANUAL · VERSION {{VERSION}}</div>
+  <svg viewBox="0 0 520 230" aria-hidden="true">
+    <g fill="none" stroke="#1f2a12" stroke-width="3">
+      <!-- a rank of flue pipes, longest in the middle like an organ front -->
+      <g id="p">
+      </g>
+    </g>
+    <g fill="#1f2a12">
+      <rect x="0" y="216" width="520" height="8"/>
+    </g>
+  </svg>
+  <div class="foot"><span>CLAP · VST3 · LV2 · AU</span><span>WINDOWS · MACOS · LINUX</span></div>
+</div></div>
+
+<!-- ============================================================ CONTENTS -->
+<section>
+  <div class="kicker">Inside this manual</div>
+  <h1>Contents</h1>
+  <ul class="toc">
+    <li><span class="n">01</span><span class="t">Welcome to Pipe</span><span class="d">What makes it different</span></li>
+    <li><span class="n">02</span><span class="t">Getting started</span><span class="d">Install, first sound, finding your way</span></li>
+    <li><span class="n">03</span><span class="t">The Console</span><span class="d">Drawing stops and couplers</span></li>
+    <li><span class="n">04</span><span class="t">Playing with expression</span><span class="d">Ordinary keyboards, MPE, aftertouch</span></li>
+    <li><span class="n">05</span><span class="t">The Expression screen</span><span class="d">The modulation matrix, step by step</span></li>
+    <li><span class="n">06</span><span class="t">The Wind screen</span><span class="d">Blower, reservoir, tremulant</span></li>
+    <li><span class="n">07</span><span class="t">The Voicing screen</span><span class="d">Shaping individual pipes</span></li>
+    <li><span class="n">08</span><span class="t">The Tuning screen</span><span class="d">Temperaments, EDOs, Scala, per-pipe tuning</span></li>
+    <li><span class="n">09</span><span class="t">The Room screen</span><span class="d">Real churches, lite rooms, your own impulse responses</span></li>
+    <li><span class="n">10</span><span class="t">The Presets screen</span><span class="d">Saving, loading, combinations</span></li>
+    <li><span class="n">11</span><span class="t">Questions and answers</span><span class="d">When something isn't right</span></li>
+    <li><span class="n">12</span><span class="t">Organ words, explained</span><span class="d">A short glossary</span></li>
+  </ul>
+  <p class="small" style="margin-top:8mm">Throughout this manual, words in <span class="ui">THIS STYLE</span> are labels you will see on Pipe's screen.</p>
+</section>
+
+<!-- ============================================================ 1 INTRO -->
+<section class="chapter newpage">
+  <div class="kicker">Chapter 1</div>
+  <h1><span class="num">01</span>Welcome to Pipe</h1>
+  <p class="lede">Most organ software plays back recordings. Someone records each pipe of a real organ, note by note, and the software replays those recordings when you press a key. Pipe works differently: it <b>builds the organ</b>. Every time you play a note, Pipe works out the sound of a real pipe, starting from the air.</p>
+  <p>Inside a flue pipe, a thin sheet of air (the jet) blows across a sharp lip and makes the air in the tube vibrate. In a reed pipe, a brass tongue beats against an opening. Pipe models that physics for every pipe in the instrument. It uses each pipe's real length, width and mouth, and the wind pressure feeding it at that moment.</p>
+
+  <div class="big-quote">Every pipe in Pipe could be built. Nothing is sampled. Nothing loops.</div>
+
+  <h2>What makes Pipe different</h2>
+  <div class="usp">
+    <div><h3>A real, buildable organ</h3><p>Pipe works out each pipe's size from how it is voiced, then checks that a real organ builder could make it. The stoplist is a genuine three-division organ of 27 ranks, with sensible couplers, chests and wind.</p></div>
+    <div><h3>Alive, never frozen</h3><p>A recording is the same every time. Pipe's pipes are calculated as you play, so the start of each note and its little breath of air vary naturally, as they do in a church. Notes can last forever without a loop point.</p></div>
+    <div><h3>Wind that breathes</h3><p>A blower fills a reservoir, which feeds each chest. Play a big chord and the wind sags a little, then recovers, exactly as on an old organ. You can make the wind steady and modern or flexible and historic.</p></div>
+    <div><h3>Expression an organist never had</h3><p>Real organ keys are on or off. With a pressure-sensitive keyboard, Pipe lets you open each pipe's valve gradually, push extra wind into a single note, or bend its pitch. Every one of these uses a mechanism that could really exist.</p></div>
+    <div><h3>Any tuning, down to each pipe</h3><p>Pipe has historical temperaments such as Werckmeister and meantone, and equal divisions such as 19 and 31 notes per octave. It also loads Scala files. Then you can retune any single pipe by hand, as a tuner on a ladder would.</p></div>
+    <div><h3>Real churches around you</h3><p>Pipe places the organ in measured acoustics: York Minster, two English parish churches and a concert hall, recorded by the University of York. You can also load your own room recordings, or use light-weight “lite” rooms.</p></div>
+  </div>
+  <p>And because nothing is sampled, Pipe loads in a moment and needs no huge sample library. Most of the download is the recordings of the real buildings, not the organ.</p>
+
+  <h2>What Pipe is not</h2>
+  <p>Pipe is not a copy of any particular famous organ. It is an organ that <i>could</i> exist, voiced in a broadly North European style. You are free to revoice it into something else entirely.</p>
+</section>
+
+<!-- ============================================================ 2 GETTING STARTED -->
+<section class="chapter">
+  <div class="kicker">Chapter 2</div>
+  <h1><span class="num">02</span>Getting started</h1>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>A computer running Windows, macOS or Linux.</li>
+    <li>A music program that can host plugins. Examples are Ableton Live, Bitwig Studio, Cubase, FL Studio, Logic Pro, REAPER and Ardour. Pipe comes in the <b>VST3</b>, <b>CLAP</b> and <b>LV2</b> formats, plus <b>AU</b> on the Mac, so almost any program can use it.</li>
+    <li>A MIDI keyboard. Any keyboard works. One with pressure (MPE or aftertouch), such as an Expressive E Osmose or an Exquis, unlocks the expressive features.</li>
+  </ul>
+
+  <h2>Installing</h2>
+  <ol class="steps">
+    <li>Go to <b>github.com/78Hz/pipe/releases</b> and download the zip file for your computer: <i>windows-x64</i>, <i>macos-universal</i> or <i>linux-x64</i>.</li>
+    <li>Unzip it. You will find a folder called <b>Pipe</b> with the plugin files inside.</li>
+    <li>Copy the file for your music program's format into the matching folder from the table below. If you are not sure which format your program uses, copy all of them; they don't interfere with each other.</li>
+    <li>Restart your music program, or ask it to rescan plugins. Pipe appears as <b>Pipe</b> by <b>78Hz</b>, listed as an instrument.</li>
+  </ol>
+  <table>
+    <tr><th>Computer</th><th>File</th><th>Copy it to</th></tr>
+    <tr><td>Windows</td><td>Pipe.vst3</td><td>C:\Program Files\Common Files\VST3\</td></tr>
+    <tr><td></td><td>Pipe.clap</td><td>C:\Program Files\Common Files\CLAP\</td></tr>
+    <tr><td>Mac</td><td>Pipe.vst3</td><td>your Library › Audio › Plug-Ins › VST3</td></tr>
+    <tr><td></td><td>Pipe.component (AU)</td><td>your Library › Audio › Plug-Ins › Components</td></tr>
+    <tr><td></td><td>Pipe.clap</td><td>your Library › Audio › Plug-Ins › CLAP</td></tr>
+    <tr><td>Linux</td><td>Pipe.vst3 / .clap / .lv2</td><td>the hidden folders .vst3, .clap and .lv2 in your home folder</td></tr>
+  </table>
+  <div class="note"><span class="label">Mac users: one extra step</span>
+    Pipe is not yet signed by Apple, so the Mac may refuse to open it at first. Open the <b>Terminal</b> app once, paste the line below, and press Return. Then restart your music program.<br>
+    <code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/Pipe.*</code>
+  </div>
+
+  <h2>Your first sound</h2>
+  <ol class="steps">
+    <li>Create a new instrument track in your music program and choose <b>Pipe</b>.</li>
+    <li>Open Pipe's window. It starts on the <span class="ui">CONSOLE</span> with the preset <span class="ui">P01 PLEIN JEU GT+PED</span>: a bright, full chorus of principals and mixture.</li>
+    <li>Play. Hold a chord and listen to the room ring after you let go.</li>
+    <li>Try the arrows beside the preset name at the top right. They step through the twelve factory sounds.</li>
+  </ol>
+  <div class="tip"><span class="label">Tip</span>A gentle start? Choose <span class="ui">P03 FLUTES 8+4</span> or <span class="ui">P07 STRINGS + CELESTE</span>. For something grand, try <span class="ui">P08 FULL SWELL</span>.</div>
+
+  <h2>Finding your way around</h2>
+  <p>Pipe has one window, styled like a backlit display, and seven screens. The strip along the top is always there:</p>
+  <ul>
+    <li><b>Screen tabs</b>: <span class="ui">CONSOLE</span> <span class="ui">EXPRESSION</span> <span class="ui">WIND</span> <span class="ui">VOICING</span> <span class="ui">TUNING</span> <span class="ui">ROOM</span> <span class="ui">PRESETS</span>.</li>
+    <li><b>Preset bar</b>: the current preset's name, with arrows to step through presets. A <span class="ui">*</span> after the name means you have changed something since loading it. Click the name to open the Presets screen. <span class="ui">SAVE</span> takes you straight to saving.</li>
+  </ul>
+  <p><b>Using the controls</b>: click a button to switch it. <b>Drag a knob up or down</b> to turn it, or use your mouse wheel over it. The <span class="ui">-</span> and <span class="ui">+</span> buttons step a value. You can resize the window by dragging its corner, and every control can also be automated from your music program.</p>
+</section>
+
+<!-- ============================================================ 3 CONSOLE -->
+<section class="chapter">
+  <div class="kicker">Chapter 3</div>
+  <h1><span class="num">03</span>The Console</h1>
+  <p class="lede">The Console is where you choose which sets of pipes sound. It's the equivalent of an organist pulling the stop knobs beside the keyboards.</p>
+  <figure><img src="img/console.png"><figcaption>The Console. Stops that are drawn (switched on) are dark. On the right is information about the pipe you are looking at.</figcaption></figure>
+
+  <h2>Three divisions</h2>
+  <p>A pipe organ is really several organs in one case, each with its own keyboard. Pipe has three:</p>
+  <table>
+    <tr><th>Division</th><th>Character</th><th>Played from</th></tr>
+    <tr><td>Great</td><td>The main, bold sound of the organ: principals, flutes, mixture and a trumpet.</td><td>The lower MPE zone (normally your whole keyboard)</td></tr>
+    <tr><td>Swell</td><td>Softer and more colourful: strings, flutes, a celeste and an oboe. Its pipes stand in a box with shutters that open and close, so it can get louder and softer.</td><td>The upper MPE zone</td></tr>
+    <tr><td>Pedal</td><td>Deep bass pipes, normally played by the feet.</td><td>A split point at the bottom of the keyboard, or the couplers</td></tr>
+  </table>
+
+  <h2>Drawing stops</h2>
+  <p>Click a stop to switch it on (dark) or off (light). Each stop is one rank: one pipe for every key. The number on the right is its pitch, in the organ builder's measure of feet:</p>
+  <ul>
+    <li><b>8'</b> sounds at normal pitch, <b>16'</b> an octave lower, <b>4'</b> an octave higher, and <b>2'</b> two octaves higher.</li>
+    <li>Odd numbers like <b>2-2/3'</b> and <b>1-3/5'</b> sound a fifth or a third above. They blend into the other stops and colour the tone.</li>
+    <li><b>R</b> marks a reed stop, which has a brassy or nasal sound.</li>
+    <li><b>MIXTUR IV</b> has four pipes per key at high pitches, which gives a full chorus its sparkle.</li>
+  </ul>
+  <p>Stops change while you hold notes, exactly as on a real slider chest: draw a stop during a chord and those pipes start speaking.</p>
+
+  <h2>Couplers</h2>
+  <p>Couplers join divisions together. <span class="ui">SW &gt; GT</span> lets the Great keyboard play the Swell stops too. <span class="ui">GT &gt; PED</span> and <span class="ui">SW &gt; PED</span> add the manual stops to the pedal. The <span class="ui">TREMULANT</span> stop makes the wind waver gently, which suits solo flutes and strings.</p>
+
+  <h2>The pipe panel</h2>
+  <p>On the right, Pipe shows one actual pipe: its length, diameter, mouth size and the wind at its foot. Use the arrows to step through the keys. The <span class="ui">[OK] BUILDABLE</span> line confirms it could be made. Below it you see the wind on the Great chest, how open the swell box is, and whether the tremulant is on. The bottom strip lists the notes and pipes currently sounding, with how much CPU Pipe is using.</p>
+</section>
+
+<!-- ============================================================ 4 PLAYING -->
+<section class="chapter">
+  <div class="kicker">Chapter 4</div>
+  <h1><span class="num">04</span>Playing with expression</h1>
+  <p class="lede">Pipe never assumes which keyboard you have. It listens to what your keyboard actually sends and responds to it. Whatever you play, it should simply work.</p>
+
+  <h2>With an ordinary keyboard</h2>
+  <p>Play as you would play an organ. How hard you strike a key changes how quickly the pipe's valve (the <i>pallet</i>) opens. A firm strike gives a crisper start, called <i>chiff</i>; a gentle one gives a softer start. Each pipe then sounds at its normal wind pressure. An expression pedal plugged into your keyboard (sending CC11) opens and closes the Swell box.</p>
+
+  <h2>With pressure: MPE and aftertouch</h2>
+  <p>Keyboards that sense pressure under each finger let Pipe do things a church organ cannot, but always through parts that could really be built:</p>
+  <table>
+    <tr><th>Your gesture</th><th>What happens inside the organ</th></tr>
+    <tr><td>Strike</td><td>How fast the pallet valve opens: a sharper or softer start to the note.</td></tr>
+    <tr><td>Press down</td><td>The pallet opens part-way, so the pipe speaks softly, then fully. You can swell a single note from a whisper.</td></tr>
+    <tr><td>Press harder</td><td>Extra wind is pushed into that pipe, making it louder and brighter. Flue pipes jump up to their next note if pushed past their limit, as real pipes do.</td></tr>
+    <tr><td>Bend sideways</td><td>A sliding stopper or a shade at the pipe's mouth changes the pitch, but only as far as that kind of pipe allows.</td></tr>
+    <tr><td>Slide (forwards/back)</td><td>Depending on the setup, more wind or the aim of the air jet, from breathy to bright.</td></tr>
+    <tr><td>Release</td><td>How fast the valve closes.</td></tr>
+  </table>
+
+  <h3>Expressive E Osmose</h3>
+  <p>Put the Osmose in its MPE mode and choose its first MIDI port (called <b>Port 1</b> on firmware 2.3 and later) in your music program. The Osmose's keys have two stages. Pipe's standard setup uses them like this:</p>
+  <ul>
+    <li><b>First part of the key's travel</b>: opens the pipe's valve. At the bottom of this stage the pipe speaks at full, normal wind.</li>
+    <li><b>Pressing into the second stage</b> (the aftertouch): pushes extra wind into the note.</li>
+    <li><b>Wiggling the key sideways</b>: bends the pitch.</li>
+  </ul>
+  <h3>Exquis and other MPE keyboards</h3>
+  <p>These work the same way: pressure opens the valve, and the forward-back slide adds wind. Grid-style keyboards like the Exquis are especially good for the microtonal tunings (see chapter 8).</p>
+  <h3>Keyboards with polyphonic aftertouch</h3>
+  <p>Notes play at full wind straight away, and pressing harder adds wind to each note separately.</p>
+
+  <h2>Playing two divisions at once</h2>
+  <p>Your music program gives Pipe a single stream of notes, so Pipe chooses the division by <b>MPE zone</b>. The lower zone plays the Great and the upper zone plays the Swell; you can change which division each zone plays on the Expression screen. Most MPE keyboards use the lower zone unless you set them up otherwise. To play the Pedal from the bottom of your keyboard, set a <span class="ui">PEDAL SPLIT</span> key on the Expression screen: notes below it go to the Pedal.</p>
+  <div class="tip"><span class="label">Tip</span>Want each finger's bend to be fully free? Turn off <span class="ui">STRICT PHYSICAL LIMITS</span> on the Expression screen. Pipe then follows your keyboard's whole bend range, even if no real pipe could bend that far.</div>
+</section>
+
+<!-- ============================================================ 5 EXPRESSION -->
+<section class="chapter">
+  <div class="kicker">Chapter 5</div>
+  <h1><span class="num">05</span>The Expression screen</h1>
+  <p class="lede">This screen decides what each movement of your hands does to the organ. You don't need to touch it to enjoy Pipe; the standard setup already suits most keyboards. Come here when you want to change the feel.</p>
+  <figure><img src="img/expression.png"><figcaption>Left: what your keyboard is sending. Middle: the modulation matrix and the selected row's settings. Right: what the organ is doing right now.</figcaption></figure>
+
+  <h2>Left: what your keyboard is sending</h2>
+  <p>The two zone boxes show which division each zone plays (click the dark title to change it), which MIDI channels are in use, the bend range, and a <span class="ui">SEEN</span> line listing the kinds of data that have arrived. If something isn't responding, look here first: if <span class="ui">PRES</span> never appears, your keyboard isn't sending pressure. <span class="ui">LIVE SOURCES</span> shows the values of the last note you touched.</p>
+
+  <h2>Middle: the modulation matrix</h2>
+  <p>The matrix is a list of ten connections. Each row reads like a sentence: <i>“this movement of my hand → moves this part of the organ”</i>. Click any cell to change it:</p>
+  <table>
+    <tr><th>Column</th><th>What it means</th></tr>
+    <tr><td>ON</td><td>Switches the row on or off.</td></tr>
+    <tr><td>SOURCE</td><td>The movement: <span class="ui">STRIKE</span>, <span class="ui">PRESSURE</span>, <span class="ui">POLY AT</span>, <span class="ui">CC74</span> (slide), <span class="ui">BEND</span>, <span class="ui">RELEASE VEL</span>, or any controller such as a mod wheel or pedal (<span class="ui">CC</span>).</td></tr>
+    <tr><td>ZONE</td><td>Only listen to the lower zone, the upper zone, or <span class="ui">ALL</span>.</td></tr>
+    <tr><td>CURVE</td><td>How the movement is shaped. <span class="ui">LIN</span> is even, <span class="ui">SOFT</span> reacts quickly at first, <span class="ui">HARD</span> saves its effect for the end, and <span class="ui">S</span> is gentle at both ends.</td></tr>
+    <tr><td>AMOUNT</td><td>How strongly, from −1 to +1. <b>Drag up or down</b> on the bar. A negative amount works backwards.</td></tr>
+    <tr><td>DESTINATION</td><td>The part of the organ that moves (see the list below).</td></tr>
+  </table>
+  <p>Destinations: <span class="ui">PALLET OPEN</span> (how open the valve is), <span class="ui">WIND BOOST</span> (extra wind), <span class="ui">JET AIM</span>, <span class="ui">PITCH</span>, <span class="ui">CHIFF</span>, <span class="ui">PALLET SPEED</span>, <span class="ui">CLOSE SPEED</span>, and three that affect the whole organ: <span class="ui">SWELL BOX</span>, <span class="ui">TREM DEPTH</span> and <span class="ui">TREM SPEED</span>.</p>
+  <p>Two rules make the matrix easy to live with: rows sending to the same place <b>add together</b>, and if your keyboard doesn't send a row's movement, that row simply <b>leaves the organ as voiced</b>.</p>
+
+  <h3>The selected row</h3>
+  <p>Below the list are the finer settings for the highlighted row. <span class="ui">RANGE FROM</span> and <span class="ui">RANGE TO</span> choose which part of the movement is used. For example, 0–90% means the valve is fully open a little before the bottom of the key. <span class="ui">SMOOTHING</span> calms jittery movements. <span class="ui">REST 0</span>/<span class="ui">REST MID</span> says whether the control normally sits at zero or in the middle, as a pitch bend does. <span class="ui">CLEAR</span> empties the row, and <span class="ui">ALL DEFAULTS</span> restores the standard setup. The pallet times at the bottom set how fast the valves open on a hard or soft strike, and how fast they close.</p>
+
+  <h3>Learning a control</h3>
+  <ol class="steps">
+    <li>Click the number of an empty row (or press <span class="ui">CLEAR</span> on one you don't need).</li>
+    <li>Press <span class="ui">LEARN</span>. The title says <span class="ui">LEARNING: MOVE A CONTROL</span>.</li>
+    <li>Move the control you want: a mod wheel, pedal, slider, or a gesture on the keys. After about a second Pipe picks it up and fills in the source.</li>
+    <li>Click <span class="ui">DESTINATION</span> until it shows what you want to move, then set the amount.</li>
+  </ol>
+  <div class="tip"><span class="label">Example: mod wheel controls the tremulant</span>The last row is already set up for this but switched off. Click its <span class="ui">[ ]</span> to switch it on, then draw the <span class="ui">TREMULANT</span> stop and move the mod wheel.</div>
+
+  <h2>Right: the organ right now</h2>
+  <p><span class="ui">DESTINATIONS NOW</span> shows, for the last note, how open its valve is, how much extra wind it has, the wind at the pipe's foot, and so on. <span class="ui">BOOST CEILING</span> sets the most wind the boost can deliver; above about 100 mm flue pipes overblow to a higher note. <span class="ui">BEND CEILING / FAMILY</span> sets how far each kind of pipe may bend while strict limits are on.</p>
+</section>
+
+<!-- ============================================================ 6 WIND -->
+<section class="chapter">
+  <div class="kicker">Chapter 6</div>
+  <h1><span class="num">06</span>The Wind screen</h1>
+  <p class="lede">Every organ is a giant wind instrument. This screen shows the air's journey from the blower to the pipes, and lets you decide how steady, or how alive, it is.</p>
+  <figure><img src="img/wind.png"><figcaption>The wind system: blower, main reservoir, a regulator for each chest, and a graph of the Great's pressure over the last four seconds.</figcaption></figure>
+  <p>Wind pressure is measured as organ builders measure it, in <b>millimetres of water</b> (mm). Play a big chord with lots of stops and watch the Great's pressure dip in the graph: the blower can't keep up for a moment. That slight sag and recovery is part of what makes a real organ sound alive.</p>
+  <table>
+    <tr><th>Control</th><th>What it does</th></tr>
+    <tr><td>BLOWER ON</td><td>Switch the blower off and the organ slowly runs out of wind, just like a church organ when the power is cut.</td></tr>
+    <tr><td>FLEXIBLE</td><td>How much the wind gives under heavy chords. Low is rock-steady and modern; high is lively and historic.</td></tr>
+    <tr><td>RESERVOIR</td><td>The pressure stored in the main reservoir.</td></tr>
+    <tr><td>NOISE</td><td>The faint hum and rush of the blower. Turn it right down for a clean studio sound.</td></tr>
+    <tr><td>TREM SPEED / DEPTH</td><td>How fast and how deep the tremulant wavers.</td></tr>
+    <tr><td>CONCUSSION</td><td>Small bellows that smooth out sudden changes in the wind.</td></tr>
+    <tr><td>TREMULANT ON</td><td>Which division the tremulant affects: <span class="ui">GREAT</span>, <span class="ui">SWELL</span> or <span class="ui">PEDAL</span>.</td></tr>
+  </table>
+  <p>The box at the bottom right shows how hard the blower is working. If it reads anything other than <span class="ui">SUPPLY OK</span>, you are asking for more wind than the blower can give, as when every stop and coupler is drawn. That's normal and part of the character.</p>
+</section>
+
+<!-- ============================================================ 7 VOICING -->
+<section class="chapter">
+  <div class="kicker">Chapter 7</div>
+  <h1><span class="num">07</span>The Voicing screen</h1>
+  <p class="lede">Voicing is the organ builder's art of shaping each pipe's tone and loudness. Here you can do the same, pipe by pipe, while Pipe checks that your pipe could still be built.</p>
+  <figure><img src="img/voicing.png"><figcaption>Choose a rank on the left, a key in the chart, then adjust that pipe on the right.</figcaption></figure>
+  <ol class="steps">
+    <li><b>Pick a rank</b> from the list on the left (PD = Pedal, GT = Great, SW = Swell).</li>
+    <li><b>Pick a key</b> by clicking its bar in the <span class="ui">REGULATION PER KEY</span> chart. The bars show how loud each pipe is set; an even line means an evenly voiced rank.</li>
+    <li>Choose <span class="ui">APPLY TO</span>: just this <span class="ui">NOTE</span>, the whole <span class="ui">OCTAVE</span> around it, or the whole <span class="ui">RANK</span>.</li>
+    <li><b>Adjust</b> with the <span class="ui">-</span> and <span class="ui">+</span> buttons. Play while you work and listen.</li>
+  </ol>
+  <table>
+    <tr><th>Setting</th><th>In plain words</th></tr>
+    <tr><td>SCALE</td><td>The pipe's width. Wider pipes sound rounder and more fluty; narrower ones sound thinner and more string-like.</td></tr>
+    <tr><td>HALVING</td><td>How quickly pipes get narrower going up the keyboard, which changes the balance between bass and treble.</td></tr>
+    <tr><td>REGULATION</td><td>Loudness of this pipe, in decibels.</td></tr>
+    <tr><td>TOE WIND</td><td>The wind pressure at the pipe's foot. More wind gives a louder, brighter sound.</td></tr>
+    <tr><td>MOUTH / CUT-UP</td><td>The size and height of the pipe's mouth. A higher cut-up gives a darker, gentler sound.</td></tr>
+    <tr><td>LANGUID / NICKING</td><td>Fine details at the mouth that steer the air jet. They control how clean or breathy the pipe is and how it starts.</td></tr>
+    <tr><td>CHIFF</td><td>The little puff of air at the start of each note.</td></tr>
+  </table>
+  <p>The <span class="ui">BUILD CHECK</span> box tests your pipe against real-world limits, such as a mouth too wide for the pipe. Each line says <span class="ui">OK</span> or tells you what's wrong. The <span class="ui">SCALE</span> graph compares your rank's widths with a normal rank. If you get lost, <span class="ui">RESET RANK TO FACTORY</span> undoes your changes to the whole rank.</p>
+</section>
+
+<!-- ============================================================ 8 TUNING -->
+<section class="chapter">
+  <div class="kicker">Chapter 8</div>
+  <h1><span class="num">08</span>The Tuning screen</h1>
+  <p class="lede">Organs have been tuned in many ways over the centuries. Pipe offers the classic historical tunings, unusual equal tunings with many notes per octave, your own Scala files, and fine tuning of every single pipe.</p>
+  <figure><img src="img/tuning.png"><figcaption>Left: choose a tuning. Middle: how it sounds compared to modern tuning, and how keys are mapped. Right: tune individual pipes.</figcaption></figure>
+
+  <h2>Choosing a tuning</h2>
+  <ul>
+    <li><b>Historical</b>: <span class="ui">12-TET</span> is modern equal temperament. <span class="ui">WERCKMEISTER III</span> (Pipe's default), <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
+    <li><b>Equal divisions</b> (EDO): the octave is split into 19, 22, 24, 31, 41 or 53 equal steps, or any number from 5 to 72 with <span class="ui">CUSTOM</span> and the <span class="ui">EDO</span> stepper. 31-EDO was used on a real Dutch organ built for Adriaan Fokker in 1950.</li>
+    <li><b>Scala files</b>: <span class="ui">LOAD .SCL</span> loads a tuning from the large free Scala archive. <span class="ui">LOAD .KBM</span> optionally loads a keyboard map that says which key plays which note.</li>
+  </ul>
+  <p>The three boxes at the top show how pure the main intervals are compared with natural (“just”) ones. <span class="ui">A4 REFERENCE</span> sets the pitch of A, for example 415 Hz for Baroque pitch. The ruler compares one octave of your tuning with modern tuning.</p>
+
+  <h2>Key mapping</h2>
+  <p>A normal keyboard has 12 keys per octave, but 31-EDO has 31 notes, so Pipe needs to know how to lay them out. You set this separately for each zone and the pedal:</p>
+  <ul>
+    <li><span class="ui">SUBSET</span>: each key plays the closest sensible note, so a normal keyboard plays “normally” in the new tuning. Tick <span class="ui">FLATS INSTEAD OF SHARPS</span>, or hold the sostenuto pedal (CC66), to switch black keys between, say, C♯ and D♭.</li>
+    <li><span class="ui">SEQUENTIAL</span>: each key plays the next step up. This is ideal for grid controllers like the Exquis, which can reach every note.</li>
+    <li><span class="ui">SCALA KBM</span>: the loaded keyboard map decides.</li>
+  </ul>
+
+  <h2>Tuning single pipes</h2>
+  <p>On the right, pick a rank with the arrows and a key from the list, then use <span class="ui">OFFSET</span> to raise or lower that one pipe in cents (hundredths of a semitone). <span class="ui">PIPE TEMP</span> sets the temperature of the building: flue pipes go sharp as a church warms up, while reed pipes barely move, so a warm church puts the two slightly out of tune with each other, just as in real life. <span class="ui">AGE DRIFT</span> adds the small random mistuning of an organ that hasn't been tuned for a while. Set it to 0 for perfection.</p>
+</section>
+
+<!-- ============================================================ 9 ROOM -->
+<section class="chapter">
+  <div class="kicker">Chapter 9</div>
+  <h1><span class="num">09</span>The Room screen</h1>
+  <p class="lede">An organ is never heard on its own. The building is part of the instrument. This screen places your organ in a real church or hall and decides where you are listening from.</p>
+  <figure><img src="img/room.png"><figcaption>Left: choose a building. Middle: a plan of the room with your listening position, and how long its echo lasts. Right: listener and microphones.</figcaption></figure>
+
+  <h2>Choosing a building</h2>
+  <p><b>Measured rooms</b> are real places. Their echo was recorded by the University of York's OpenAIR project, and Pipe plays your organ through those recordings (a technique called convolution):</p>
+  <table>
+    <tr><th>Building</th><th>Character</th></tr>
+    <tr><td>St Andrew's, Lyndhurst</td><td>A Victorian parish church: warm, about 1.5 seconds of echo.</td></tr>
+    <tr><td>St Margaret's, York</td><td>A medieval church, now a concert venue: clear, about 1.6 seconds, measured from four seats.</td></tr>
+    <tr><td>York Minster</td><td>One of Europe's great cathedrals: a vast echo of around 6–7 seconds.</td></tr>
+    <tr><td>Jack Lyons Hall</td><td>A modern concert hall: about 2 seconds, measured from four seats.</td></tr>
+  </table>
+  <p>The <b>lite rooms</b> (village church, abbey nave, cathedral, concert hall) are imitations made by a simpler process. They sound convincing and use much less of your computer's power, which is useful on older laptops or with many tracks. <span class="ui">DRY / CLOSE</span> removes the room altogether.</p>
+  <p>When you switch to a measured room, the title briefly says <span class="ui">PREPARING IR...</span> and then the new room fades in.</p>
+
+  <h2>Where you listen from</h2>
+  <ul>
+    <li><span class="ui">DISTANCE</span>: how far you are from the organ. Close is clear and direct; far away is more echo and less detail. In measured rooms recorded from several seats, Pipe picks the seat nearest your distance; the plan and the line under it show which.</li>
+    <li><span class="ui">HEIGHT</span> and <span class="ui">WIDTH</span>: the height of the microphones, and how wide the stereo picture is.</li>
+    <li><span class="ui">ROOM MIX</span>: how much echo, from none to a lot. <span class="ui">PRE-DELAY</span>: a short gap before the echo starts, which helps clarity.</li>
+    <li><span class="ui">OUTPUT</span>: overall volume. <span class="ui">LIMITER</span> stops the loudest chords from distorting.</li>
+  </ul>
+  <h3>Microphones</h3>
+  <p><span class="ui">AB</span> is two microphones spaced apart: wide and spacious, a classic for organ recordings. <span class="ui">ORTF</span> is two angled microphones close together: a more focused image. <span class="ui">BINAURAL</span> is made for <b>headphones</b> and places you inside the building with a fixed head position.</p>
+
+  <h2>Using your own room recordings</h2>
+  <p>Many rooms' acoustic “fingerprints” (impulse responses) are freely available online, including many more from OpenAIR. To use one:</p>
+  <ol class="steps">
+    <li>Click <span class="ui">LOAD IR FILE...</span> and choose a WAV file. Mono, stereo and 4-channel “B-format” recordings all work.</li>
+    <li>Pipe switches to <span class="ui">CUSTOM IR</span> and shows the file's name.</li>
+    <li>If the file is B-format, set <span class="ui">FUMA</span> or <span class="ui">AMBIX</span> to match its description. If it sounds odd, try the other.</li>
+  </ol>
+  <p>Normally Pipe removes the recording's own first “bang” and uses its own direct sound of the organ instead, which keeps the organ clear. Untick <span class="ui">DIRECT SOUND FROM THE MODEL</span> to hear the recording exactly as it was made.</p>
+  <div class="note"><span class="label">Keep the file where it is</span>Pipe remembers where your file is, not the sound itself. If you move or delete it, the room goes quiet and the screen says <span class="ui">CAN'T READ THAT FILE</span>; load it again from its new place.</div>
+  <p><span class="ui">QUALITY</span> (bottom left) sets how many pipes Pipe can sound at once: <span class="ui">ECO</span> 192, <span class="ui">STD</span> 320, <span class="ui">HQ</span> 448. ECO also lightens the room's processing.</p>
+</section>
+
+<!-- ============================================================ 10 PRESETS -->
+<section class="chapter">
+  <div class="kicker">Chapter 10</div>
+  <h1><span class="num">10</span>The Presets screen</h1>
+  <p class="lede">Presets save a whole sound: stops, voicing, tuning, wind, room and expression, so you can come back to it later or share it.</p>
+  <figure><img src="img/presets.png"><figcaption>Factory and your own presets in the middle; saving and combinations on the right.</figcaption></figure>
+
+  <h2>Loading</h2>
+  <p>Choose <span class="ui">FACTORY</span> or <span class="ui">USER</span> on the left, and narrow the list by style with the tags. <b>Double-click</b> a preset, or select it and press <span class="ui">LOAD</span>.</p>
+  <table>
+    <tr><th>Factory preset</th><th>What it is</th></tr>
+    <tr><td>P01 Plein Jeu GT+PED</td><td>The full principal chorus with mixture, with pedal. Bach's preludes and fugues.</td></tr>
+    <tr><td>P02 Principal Chorus</td><td>Principals at 8', 4' and 2' with the mixture and pedal, in modern tuning.</td></tr>
+    <tr><td>P03 Flutes 8+4</td><td>Soft, gentle flutes for accompanying or quiet pieces.</td></tr>
+    <tr><td>P04 Trio Sonata</td><td>A principal on the Great against a bright flute combination on the Swell, with pedal, for trio playing.</td></tr>
+    <tr><td>P05 Cornet Séparé</td><td>A French Baroque solo colour built from flutes and mutations.</td></tr>
+    <tr><td>P06 Grand Jeu</td><td>French Baroque full organ with reeds, in meantone.</td></tr>
+    <tr><td>P07 Strings + Celeste</td><td>Shimmering Romantic strings; the celeste is tuned slightly sharp to make it beat.</td></tr>
+    <tr><td>P08 Full Swell</td><td>The Swell's full power; open and close the box with an expression pedal.</td></tr>
+    <tr><td>P09 Fokker 31 Chorus</td><td>A chorus in 31-EDO, after Fokker's organ.</td></tr>
+    <tr><td>P10 Gedackt 19</td><td>A stopped flute in 19-EDO.</td></tr>
+    <tr><td>P11 Breath Flute</td><td>For pressure keyboards: the whole key travel opens the valve, and pressing further aims the air jet, like breath on a recorder.</td></tr>
+    <tr><td>P12 Pressure Reeds</td><td>For pressure keyboards: lean into notes to push wind into the reeds.</td></tr>
+  </table>
+
+  <h2>Saving your own</h2>
+  <ol class="steps">
+    <li>Click the name box under <span class="ui">SAVE CURRENT SOUND</span> and type a name.</li>
+    <li>Under <span class="ui">INCLUDE</span>, tick the parts to store. Unticked parts are left alone when the preset is loaded later. For example, a preset with only <i>Room</i> ticked changes the building but keeps your stops.</li>
+    <li>Press <span class="ui">SAVE AS NEW</span>, or <span class="ui">OVERWRITE</span> to update the selected preset.</li>
+  </ol>
+  <p>Your presets are ordinary small files in a folder called <b>Pipe Presets</b> in your Documents folder. <span class="ui">EXPORT FILE</span> saves one anywhere, for example to share with a friend, and <span class="ui">IMPORT FILE</span> brings one in. Your music program also saves Pipe's full state with each project automatically.</p>
+
+  <h2>Combinations</h2>
+  <p>Organists change stops quickly with combination buttons. Pipe has seven, which remember <b>stops only</b>. To store one, set up your stops, press <span class="ui">SET</span>, then a number. To recall it, just press the number, even while playing.</p>
+</section>
+
+<!-- ============================================================ 11 FAQ -->
+<section class="chapter">
+  <div class="kicker">Chapter 11</div>
+  <h1><span class="num">11</span>Questions and answers</h1>
+
+  <h3>I don't hear anything.</h3>
+  <p>Check that at least one stop is drawn on the Console, that the blower is on (Wind screen), and that your music program is sending your keyboard to Pipe's track. If you play into the upper zone or below a pedal split, make sure that division has stops drawn. The Expression screen's <span class="ui">SEEN</span> lines show whether notes are arriving.</p>
+
+  <h3>My pressure keyboard plays, but pressing doesn't do anything.</h3>
+  <p>Look at <span class="ui">SEEN</span> on the Expression screen. If <span class="ui">PRES</span>, <span class="ui">PAT</span> or <span class="ui">Y</span> never appear, your keyboard isn't sending that data. Check that it is in MPE mode (or that aftertouch is turned on) and, on the Osmose, that you are using Port 1. If the data is arriving, check the matrix rows are switched on.</p>
+
+  <h3>Notes sound quiet until I press harder.</h3>
+  <p>That's the valve following your pressure, which is what MPE pressure is set to do. If you would rather notes start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix.</p>
+
+  <h3>The sound crackles, or my computer struggles.</h3>
+  <p>Try <span class="ui">ECO</span> quality, or a lite room instead of a measured one. Fewer stops and couplers also help. Raising your music program's audio buffer size gives Pipe more time to work.</p>
+
+  <h3>The organ is out of tune.</h3>
+  <p>Check the tuning on the Tuning screen. Werckmeister III is the default and is intentionally not equal; choose <span class="ui">12-TET</span> for modern tuning. Set <span class="ui">AGE DRIFT</span> to 0 and keep <span class="ui">PIPE TEMP</span> near 18 °C for the most precise result. Heavy chords may also sag the wind slightly; turn <span class="ui">FLEXIBLE</span> down for steadier pitch.</p>
+
+  <h3>My custom room went silent.</h3>
+  <p>The file has probably moved. Load it again with <span class="ui">LOAD IR FILE...</span>.</p>
+
+  <h3>A measured room says “NO DATA”.</h3>
+  <p>Very occasionally a download version of Pipe may be built without the measured rooms; it then uses the lite abbey instead. Download the latest version from the releases page.</p>
+
+  <h3>The Mac says the plugin is damaged or can't be opened.</h3>
+  <p>Do the one-time Terminal step described in chapter 2, then restart your music program.</p>
+
+
+</section>
+
+<!-- ============================================================ 12 GLOSSARY -->
+<section class="chapter">
+  <div class="kicker">Chapter 12</div>
+  <h1><span class="num">12</span>Organ words, explained</h1>
+  <dl class="gloss">
+    <dt>Rank</dt><dd>A set of pipes, one per key, all of the same kind.</dd>
+    <dt>Stop</dt><dd>The control that switches a rank on or off. “Drawing” a stop switches it on.</dd>
+    <dt>Division</dt><dd>One of the organ's sections, each with its own keyboard and chest: Great, Swell, Pedal.</dd>
+    <dt>Coupler</dt><dd>Joins one division to another, so one keyboard plays both.</dd>
+    <dt>Chest</dt><dd>The wooden box of wind the pipes stand on.</dd>
+    <dt>Pallet</dt><dd>The valve under each key that lets wind into the pipes.</dd>
+    <dt>Swell box</dt><dd>A box around the Swell's pipes with shutters that open to make them louder.</dd>
+    <dt>Tremulant</dt><dd>A device that makes the wind, and so the sound, waver gently.</dd>
+    <dt>Flue pipe</dt><dd>A pipe that sounds like a whistle: air blows across a lip. Principals, flutes and strings.</dd>
+    <dt>Reed pipe</dt><dd>A pipe with a beating brass tongue: trumpets, oboes, bassoons.</dd>
+    <dt>Principal</dt><dd>The organ's core, singing tone.</dd>
+    <dt>Mixture</dt><dd>A stop with several high pipes per key that adds brilliance.</dd>
+    <dt>Mutation</dt><dd>A stop sounding a fifth or third above the note, used to colour the tone (Quinte, Nasard, Tierce).</dd>
+    <dt>Celeste</dt><dd>A rank tuned slightly sharp so it gently beats against another.</dd>
+    <dt>Chiff</dt><dd>The short puff of air at the start of a flue pipe's note.</dd>
+    <dt>Feet (16', 8', 4')</dt><dd>The pitch of a stop, named after the length of its lowest pipe. 8' sounds at written pitch.</dd>
+    <dt>Voicing</dt><dd>Adjusting each pipe's tone and loudness.</dd>
+    <dt>Temperament</dt><dd>A way of tuning the twelve notes of the octave.</dd>
+    <dt>EDO</dt><dd>“Equal division of the octave”: a tuning with a set number of equal steps.</dd>
+    <dt>Cent</dt><dd>One hundredth of a semitone.</dd>
+    <dt>mm (of wind)</dt><dd>Wind pressure, measured as how far it would push a column of water.</dd>
+    <dt>MPE</dt><dd>“MIDI Polyphonic Expression”: lets a keyboard send pressure, slide and bend for each finger separately.</dd>
+    <dt>Aftertouch</dt><dd>Pressure on a key after it has gone down.</dd>
+    <dt>Impulse response</dt><dd>A recording of how a room echoes a single sharp sound; used to place sounds in that room.</dd>
+  </dl>
+  <div class="note" style="margin-top:4mm"><span class="label">Credits</span>
+  Pipe is made by 78Hz. Measured rooms: impulse responses from the OpenAIR library, Audiolab, University of York, used under the Creative Commons Attribution 4.0 licence. St Andrew's Church, Lyndhurst and York Minster were recorded by Damian T. Murphy; St Margaret's Church, York (National Centre for Early Music) by Aglaia Foteinou and Simon Shelley. Built with DPF and PFFFT. The display font is VT323 by Peter Hull (SIL Open Font License).</div>
+</section>
+
+<script>
+// cover: a symmetrical front of flue pipes, longest in the middle
+(function () {
+  const g = document.getElementById('p');
+  const n = 17, base = 216, w = 520;
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    const t = Math.abs(i - (n - 1) / 2) / ((n - 1) / 2);
+    const h = 70 + 120 * (1 - t * t);
+    const pw = 18 - 6 * t;
+    const x = 14 + i * (w - 28) / (n - 1) - pw / 2;
+    const foot = 26;
+    const top = base - h;
+    html += `<rect x="${x}" y="${top}" width="${pw}" height="${h - foot}"/>`;
+    html += `<path d="M${x} ${base - foot} L${x + pw / 2} ${base} L${x + pw} ${base - foot}"/>`;
+    html += `<rect x="${x + pw * 0.22}" y="${base - foot - 12}" width="${pw * 0.56}" height="6" fill="#1f2a12"/>`;
+  }
+  g.innerHTML = html;
+})();
+</script>
+</body>
+</html>
