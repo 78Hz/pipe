@@ -15,6 +15,8 @@
 #define DISTRHO_PLUGIN_NUM_INPUTS      0
 #define DISTRHO_PLUGIN_NUM_OUTPUTS     2
 #define DISTRHO_PLUGIN_WANT_MIDI_INPUT 1
+// Tell CLAP and AU hosts that Pipe takes MPE (one channel per note); without it hosts flatten MPE onto one channel
+#define DISTRHO_PLUGIN_WANT_MIDI_AS_MPE 1
 #define DISTRHO_PLUGIN_WANT_PROGRAMS   1
 #define DISTRHO_PLUGIN_WANT_STATE      1
 #define DISTRHO_PLUGIN_WANT_FULL_STATE 1

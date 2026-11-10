@@ -11,8 +11,12 @@
 
 namespace pipe {
 
-enum ModSource { kSrcStrike = 0, kSrcPressure, kSrcPolyAT, kSrcCC74, kSrcBend, kSrcRelease, kSrcCC, kNumModSources };
-static const char* const kModSourceLabels[kNumModSources] = { "STRIKE", "PRESSURE", "POLY AT", "CC74", "BEND", "RELEASE VEL", "CC" };
+// PRESSURE: per-note pressure that moves with the key from the start of the note (MPE channel pressure,
+//           or poly aftertouch when a host has flattened MPE onto one channel).
+// AFTERTOUCH: per-note or channel pressure that only begins once the key is down (a classic aftertouch).
+// Pipe tells the two apart from how the data behaves, not from which controller is attached.
+enum ModSource { kSrcStrike = 0, kSrcPressure, kSrcAftertouch, kSrcCC74, kSrcBend, kSrcRelease, kSrcCC, kNumModSources };
+static const char* const kModSourceLabels[kNumModSources] = { "STRIKE", "PRESSURE", "AFTERTOUCH", "CC74", "BEND", "RELEASE VEL", "CC" };
 
 enum ModDest { kDstPallet = 0, kDstBoost, kDstJet, kDstPitch, kDstChiff, kDstOpenSpeed, kDstCloseSpeed,
                kDstSwell, kDstTremDepth, kDstTremSpeed, kNumModDests };
@@ -70,8 +74,8 @@ struct ModMatrix {
             r.curve = curve; r.smoothMs = smooth; r.amount = amt; r.dest = dest; r.cc = cc;
         };
         set(0, true, kSrcPressure, kZoneAll, 0.f, 0.9f, false, kCurveLin, 5.f, 1.f, kDstPallet);
-        set(1, true, kSrcCC74, kZoneLo, 0.f, 1.f, false, kCurveSoft, 10.f, 1.f, kDstBoost);
-        set(2, true, kSrcPolyAT, kZoneAll, 0.f, 1.f, false, kCurveSoft, 10.f, 1.f, kDstBoost);
+        set(1, true, kSrcCC74, kZoneLo, 0.05f, 1.f, false, kCurveLin, 10.f, 1.f, kDstBoost);
+        set(2, true, kSrcAftertouch, kZoneAll, 0.05f, 1.f, false, kCurveLin, 10.f, 1.f, kDstBoost);
         set(3, true, kSrcStrike, kZoneAll, 0.f, 1.f, false, kCurveLin, 0.f, 0.6f, kDstChiff);
         set(4, true, kSrcStrike, kZoneAll, 0.f, 1.f, false, kCurveLin, 0.f, 1.f, kDstOpenSpeed);
         set(5, true, kSrcBend, kZoneAll, 0.f, 1.f, true, kCurveLin, 0.f, 1.f, kDstPitch);

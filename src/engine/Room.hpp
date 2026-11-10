@@ -10,7 +10,12 @@
 
 namespace pipe {
 
+// Overall loudness of every room (direct + reverb) - the level the dry organ had at the default 18 m.
+constexpr float kRoomLoudness = 0.25f;
+
 // Lite (algorithmic) buildings, indexed by roomLiteIndex(); the last entry is "dry".
+// wetNorm: makes each tail's loudness 1, matching the measured rooms (measured by tests/render_test).
+
 struct RoomShape { float rt60, hfRatio, size, lengthM, widthM; };
 constexpr int kNumLiteShapes = 5;
 constexpr RoomShape kRoomShapes[kNumLiteShapes] = {
@@ -20,6 +25,8 @@ constexpr RoomShape kRoomShapes[kNumLiteShapes] = {
     { 2.4f, 0.65f, 0.90f, 40.f, 26.f },   // concert hall
     { 0.0f, 1.0f, 0.30f, 6.f, 5.f },      // dry
 };
+
+constexpr float kLiteWetNorm[kNumLiteShapes] = { 0.641f, 0.573f, 0.546f, 0.744f, 1.f };
 
 struct DelayLine {
     std::vector<float> buf; int w = 0, mask = 0;
@@ -58,6 +65,7 @@ public:
     }
 
     int preset = 1, mic = 0;   // preset: lite index
+    bool calibrate = false;    // tests: reverb only, unscaled
     float distance = 18.f, height = 3.f, width = 1.1f, mix = 0.55f, preDelayMs = 22.f;
 
     void configure() {
@@ -73,9 +81,12 @@ public:
                 dampCoef[i] = std::max(0.f, std::min(0.95f, 1.f - gHf / std::max(1e-4f, gain[i])));
             } else { gain[i] = 0.f; dampCoef[i] = 0.f; }
         }
-        wet = r.rt60 > 0 ? mix * 0.28f : 0.f;
-        // direct sound falls off with distance; air absorbs highs
+        // direct sound falls off with distance; air absorbs highs; the sum keeps a constant loudness
         directGain = 1.f / (1.f + distance / 6.f);
+        const float w = r.rt60 > 0 ? mix : 0.f;
+        wet = w * kLiteWetNorm[std::max(0, std::min(kNumLiteShapes - 1, preset))];
+        outNorm = kRoomLoudness / std::sqrt(directGain * directGain + w * w + 1e-9f);
+        if (calibrate) { directGain = 0.f; wet = 1.f; outNorm = 1.f; }
         const float airFc = 20000.f * std::exp(-distance / 45.f) * (1.f - 0.03f * height);
         airCoef = 1.f - std::exp(-2.f * (float)M_PI * airFc / fs);
         preDelay = std::max(1, (int)(preDelayMs * 0.001f * fs));
@@ -143,8 +154,8 @@ public:
             const float wl = (erL * 0.6f + tl) * wet, wr = (erR * 0.6f + tr) * wet;
             const float ws = 0.5f * (wl - wr) * std::min(1.5f, 0.5f + width);
             const float wm = 0.5f * (wl + wr);
-            L[i] = dl + wm + ws;
-            R[i] = dr + wm - ws;
+            L[i] = (dl + wm + ws) * outNorm;
+            R[i] = (dr + wm - ws) * outNorm;
         }
     }
 
@@ -154,7 +165,7 @@ private:
     int len[8] = {};
     float gain[8] = {}, dampCoef[8] = {}, damp[8] = {};
     int erDelay[6] = {}; float erGain[6] = {};
-    float wet = 0.f, directGain = 1.f, airCoef = 1.f, airL = 0.f, airR = 0.f;
+    float wet = 0.f, outNorm = 1.f, directGain = 1.f, airCoef = 1.f, airL = 0.f, airR = 0.f;
     int preDelay = 1, sideDelay = 1;
     float shL = 0.f, shR = 0.f;
 };

@@ -42,6 +42,7 @@ public:
         airCoef = 1.f - std::exp(-2.f * (float)M_PI * airFc / fs);
         sideDelay = std::max(1, (int)((mic == 0 ? 0.0006f : 0.00025f) * fs));
     }
+    float level() const { return gain; }
     void process(float* L, float* R, int n) {
         for (int i = 0; i < n; ++i) {
             airL += airCoef * (L[i] - airL); airR += airCoef * (R[i] - airR);
@@ -102,13 +103,16 @@ public:
         int done = 0;
         while (done < n) {
             const int len = std::min(n - done, (int)mono.size());
-            for (int i = 0; i < len; ++i) mono[(size_t)i] = 0.5f * (L[done + i] + R[done + i]);
+            for (int i = 0; i < len; ++i) mono[(size_t)i] = (float)M_SQRT1_2 * (L[done + i] + R[done + i]);   // keeps the power of the (decorrelated) pipe pair
             direct.process(L + done, R + done, len);
-            // the measured response carries the room's own direct-to-reverberant
-            // balance at the measured position; mix 50% = as measured
-            const float d = roomIsMeasured(room) ? std::max(1.f, conv.usedDistance.load()) : distance;
-            const float g = (1.f / (1.f + d / 6.f)) * mix * 2.f;
-            conv.process(mono.data(), L + done, R + done, len, g);
+            // Level-matched rooms: the reverb has unit loudness (see irtools::levelMatch). Distance sets the
+            // direct sound, ROOM MIX the reverb, and the sum is kept at a constant loudness, so moving away
+            // makes the organ more reverberant rather than quieter, and no room is louder than another.
+            const float gd = direct.level();
+            const float w = trimDirect ? mix : 1.f;   // a response played as recorded carries its own balance
+            const float norm = kRoomLoudness / std::sqrt(gd * gd + w * w + 1e-9f);
+            for (int i = 0; i < len; ++i) { L[done + i] *= norm; R[done + i] *= norm; }
+            conv.process(mono.data(), L + done, R + done, len, w * norm);
             done += len;
         }
     }

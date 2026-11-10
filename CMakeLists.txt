@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
-project(pipe VERSION 0.2.0 LANGUAGES C CXX ASM)
+project(pipe VERSION 0.2.1 LANGUAGES C CXX ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,18 @@ if(MINGW)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${PIPE_STATIC}")
 endif()
 
+# Local fixes to DPF, applied to the submodule at configure time (idempotent)
+foreach(patch ${CMAKE_SOURCE_DIR}/patches/dpf-clap-note-expressions.patch)
+  execute_process(COMMAND git apply --reverse --check "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf"
+                  RESULT_VARIABLE already OUTPUT_QUIET ERROR_QUIET)
+  if(NOT already EQUAL 0)
+    execute_process(COMMAND git apply "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf" RESULT_VARIABLE res)
+    if(NOT res EQUAL 0)
+      message(FATAL_ERROR "Could not apply ${patch} to dpf")
+    endif()
+    message(STATUS "Pipe: applied ${patch}")
+  endif()
+endforeach()
 add_subdirectory(dpf)
 
 set(PIPE_TARGETS lv2 vst3 clap)

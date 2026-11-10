@@ -90,6 +90,80 @@ inline void earFilter(const std::vector<float>& s, double fs, double angleToEarD
     }
 }
 
+// ---- level matching -------------------------------------------------------------------------------
+// Every reverb (built-in, custom file, any microphone decoder) is scaled to the same loudness for
+// sustained sound: its average power gain over the organ's main range (63 Hz - 4 kHz, in 1/3-octave
+// bands) becomes 1, and no 1/3-octave band (a room resonance) may stand more than 6 dB above that.
+// Before that, the very bottom of the reverb is tidied: 28 Hz high-pass and a gentle low shelf.
+
+struct Biquad {
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    void apply(std::vector<float>& x) const {
+        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (auto& v : x) {
+            const double in = v, y = b0 * in + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1; x1 = in; y2 = y1; y1 = y; v = (float)y;
+        }
+    }
+    static Biquad highpass(double f, double fs) {
+        const double w = 2 * M_PI * f / fs, c = std::cos(w), al = std::sin(w) / (2 * M_SQRT1_2);
+        Biquad q; const double a0 = 1 + al;
+        q.b0 = (1 + c) / 2 / a0; q.b1 = -(1 + c) / a0; q.b2 = (1 + c) / 2 / a0; q.a1 = -2 * c / a0; q.a2 = (1 - al) / a0;
+        return q;
+    }
+    static Biquad lowShelf(double f, double fs, double dB) {
+        const double A = std::pow(10.0, dB / 40.0), w = 2 * M_PI * f / fs, c = std::cos(w), s = std::sin(w);
+        const double al = s / 2 * std::sqrt(2.0), sq = 2 * std::sqrt(A) * al;
+        Biquad q; const double a0 = (A + 1) + (A - 1) * c + sq;
+        q.b0 = A * ((A + 1) - (A - 1) * c + sq) / a0; q.b1 = 2 * A * ((A - 1) - (A + 1) * c) / a0;
+        q.b2 = A * ((A + 1) - (A - 1) * c - sq) / a0; q.a1 = -2 * ((A - 1) + (A + 1) * c) / a0;
+        q.a2 = ((A + 1) + (A - 1) * c - sq) / a0;
+        return q;
+    }
+};
+
+// -> gain applied (1 = unchanged); 0 when the response is silent
+inline float levelMatch(std::vector<float>& L, std::vector<float>& R, double fs) {
+    Biquad::highpass(28.0, fs).apply(L); Biquad::highpass(28.0, fs).apply(R);
+    const size_t len = std::max(L.size(), R.size());
+    int N = 1024; while ((size_t)N < len && N < (1 << 21)) N <<= 1;
+    PFFFT_Setup* setup = pffft_new_setup(N, PFFFT_REAL);
+    if (!setup) return 1.f;
+    float* in = (float*)pffft_aligned_malloc(sizeof(float) * N);
+    float* out = (float*)pffft_aligned_malloc(sizeof(float) * N);
+    float* work = (float*)pffft_aligned_malloc(sizeof(float) * N);
+    std::vector<double> pw((size_t)N / 2, 0.0);   // |H|^2, averaged over L and R
+    for (int ch = 0; ch < 2; ++ch) {
+        const std::vector<float>& h = ch == 0 ? L : R;
+        for (int i = 0; i < N; ++i) in[i] = (size_t)i < h.size() ? h[(size_t)i] : 0.f;
+        pffft_transform_ordered(setup, in, out, work, PFFFT_FORWARD);
+        for (int k = 1; k < N / 2; ++k) pw[(size_t)k] += 0.5 * ((double)out[2 * k] * out[2 * k] + (double)out[2 * k + 1] * out[2 * k + 1]);
+    }
+    pffft_aligned_free(in); pffft_aligned_free(out); pffft_aligned_free(work);
+    pffft_destroy_setup(setup);
+    // 1/3-octave bands from 31.5 Hz to 8 kHz
+    double sumMain = 0; int nMain = 0; double maxBand = 0;
+    for (int b = -15; b <= 9; ++b) {
+        const double fc = 1000.0 * std::pow(2.0, b / 3.0);
+        const int k0 = std::max(1, (int)(fc / std::pow(2.0, 1.0 / 6.0) / fs * N));
+        const int k1 = std::min(N / 2 - 1, (int)(fc * std::pow(2.0, 1.0 / 6.0) / fs * N));
+        if (k1 < k0) continue;
+        double e = 0; for (int k = k0; k <= k1; ++k) e += pw[(size_t)k];
+        e /= (k1 - k0 + 1);
+        if (fc >= 60.0 && fc <= 4100.0) { sumMain += e; ++nMain; }
+        if (fc >= 40.0) maxBand = std::max(maxBand, e);
+    }
+    const double mean = nMain ? sumMain / nMain : 0.0;
+    if (!(mean > 1e-20)) return 0.f;
+    double g = 1.0 / std::sqrt(mean);
+    if (maxBand > 4.0 * mean) g *= std::sqrt(4.0 * mean / maxBand);   // resonance cap: +6 dB
+    for (auto& v : L) v = (float)(v * g);
+    for (auto& v : R) v = (float)(v * g);
+    // the low shelf is applied after measuring: it trims the boom at the bottom, not the room's loudness
+    Biquad::lowShelf(120.0, fs, -3.0).apply(L); Biquad::lowShelf(120.0, fs, -3.0).apply(R);
+    return (float)g;
+}
+
 } // namespace irtools
 
 class ConvolutionRoom {
@@ -291,6 +365,12 @@ private:
         }
         L = irtools::resample(L, srcRate, r.sampleRate);
         R = irtools::resample(R, srcRate, r.sampleRate);
+        if (irtools::levelMatch(L, R, r.sampleRate) <= 0.f) {
+            publishSilence(r);
+            lastStatus = r.room == kRoomCustom ? kRoomCustomError : kRoomNoData;
+            status.store(lastStatus);
+            return;
+        }
         auto* conv = new StereoConvolver(L, R, r.block);
         delete incoming.exchange(conv);
         lastStatus = kRoomReady;

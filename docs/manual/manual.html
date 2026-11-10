@@ -238,7 +238,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <table>
     <tr><th>Your gesture</th><th>What happens inside the organ</th></tr>
     <tr><td>Strike</td><td>How fast the pallet valve opens: a sharper or softer start to the note.</td></tr>
-    <tr><td>Press down</td><td>The pallet opens part-way, so the pipe speaks softly, then fully. You can swell a single note from a whisper.</td></tr>
+    <tr><td>Press down</td><td>The pallet opens as far as you press, just as a real valve would. A pipe needs enough wind to speak, so a very light touch leaves it silent or barely breathing; press further and it speaks, then reaches full voice.</td></tr>
     <tr><td>Press harder</td><td>Extra wind is pushed into that pipe, making it louder and brighter. Flue pipes jump up to their next note if pushed past their limit, as real pipes do.</td></tr>
     <tr><td>Bend sideways</td><td>A sliding stopper or a shade at the pipe's mouth changes the pitch, but only as far as that kind of pipe allows.</td></tr>
     <tr><td>Slide (forwards/back)</td><td>Depending on the setup, more wind or the aim of the air jet, from breathy to bright.</td></tr>
@@ -248,14 +248,16 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h3>Expressive E Osmose</h3>
   <p>Put the Osmose in its MPE mode and choose its first MIDI port (called <b>Port 1</b> on firmware 2.3 and later) in your music program. The Osmose's keys have two stages. Pipe's standard setup uses them like this:</p>
   <ul>
-    <li><b>First part of the key's travel</b>: opens the pipe's valve. At the bottom of this stage the pipe speaks at full, normal wind.</li>
+    <li><b>First part of the key's travel</b>: opens the pipe's valve. A pipe needs about half this travel before it speaks properly, and at the bottom of the stage (the pressure point) it sounds at full, normal wind. A very light press can leave a pipe silent: that's how a real valve behaves.</li>
     <li><b>Pressing into the second stage</b> (the aftertouch): pushes extra wind into the note.</li>
     <li><b>Wiggling the key sideways</b>: bends the pitch.</li>
   </ul>
+  <div class="note"><span class="label">Switch on MPE in your music program</span>The Osmose plays each note on its own MIDI channel (channels 2 to 16). Your music program must pass that on, which most do only when MPE is switched on for the plugin, for example in the device's settings in Bitwig Studio. If it isn't, the program squeezes every note onto one channel. Pipe still plays, but the Expression screen shows <span class="ui">HOST IS NOT SENDING MPE</span>; switch MPE on for Pipe to get each note's pressure and bend back.</div>
   <h3>Exquis and other MPE keyboards</h3>
   <p>These work the same way: pressure opens the valve, and the forward-back slide adds wind. Grid-style keyboards like the Exquis are especially good for the microtonal tunings (see chapter 8).</p>
-  <h3>Keyboards with polyphonic aftertouch</h3>
-  <p>Notes play at full wind straight away, and pressing harder adds wind to each note separately.</p>
+  <h3>Keyboards with aftertouch</h3>
+  <p>Notes play at full wind straight away, and pressing harder once the key is down adds wind: to each note separately with polyphonic aftertouch, or to all held notes with ordinary (channel) aftertouch.</p>
+  <p>Pipe tells key pressure and aftertouch apart by how they behave, not by which keyboard you have: pressure that moves with the key from the very start of a note works the valve, while pressure that only begins once the key is down is aftertouch and adds wind. That way the Osmose's key travel, a keyboard's aftertouch and a music program that converts one into the other all do the right thing.</p>
 
   <h2>Playing two divisions at once</h2>
   <p>Your music program gives Pipe a single stream of notes, so Pipe chooses the division by <b>MPE zone</b>. The lower zone plays the Great and the upper zone plays the Swell; you can change which division each zone plays on the Expression screen. Most MPE keyboards use the lower zone unless you set them up otherwise. To play the Pedal from the bottom of your keyboard, set a <span class="ui">PEDAL SPLIT</span> key on the Expression screen: notes below it go to the Pedal.</p>
@@ -270,14 +272,14 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <figure><img src="img/expression.png"><figcaption>Left: what your keyboard is sending. Middle: the modulation matrix and the selected row's settings. Right: what the organ is doing right now.</figcaption></figure>
 
   <h2>Left: what your keyboard is sending</h2>
-  <p>The two zone boxes show which division each zone plays (click the dark title to change it), which MIDI channels are in use, the bend range, and a <span class="ui">SEEN</span> line listing the kinds of data that have arrived. If something isn't responding, look here first: if <span class="ui">PRES</span> never appears, your keyboard isn't sending pressure. <span class="ui">LIVE SOURCES</span> shows the values of the last note you touched.</p>
+  <p>The two zone boxes show which division each zone plays (click the dark title to change it), which MIDI channels are in use, the bend range, and a <span class="ui">SEEN</span> line listing the kinds of data that have arrived (<span class="ui">PRES</span> key pressure, <span class="ui">AT</span> aftertouch, <span class="ui">Y</span> CC74). <span class="ui">PRESSURE VIA</span> and <span class="ui">2ND STAGE VIA</span> show which MIDI message actually carries them, for example <span class="ui">CH PRESSURE</span> and <span class="ui">CC74</span> from an Osmose in MPE mode, with <span class="ui">14B</span> when it arrives in high resolution. If something isn't responding, look here first: if <span class="ui">PRES</span> never appears, your keyboard isn't sending pressure. <span class="ui">LIVE SOURCES</span> shows the values of the last note you touched.</p>
 
   <h2>Middle: the modulation matrix</h2>
   <p>The matrix is a list of ten connections. Each row reads like a sentence: <i>“this movement of my hand → moves this part of the organ”</i>. Click any cell to change it:</p>
   <table>
     <tr><th>Column</th><th>What it means</th></tr>
     <tr><td>ON</td><td>Switches the row on or off.</td></tr>
-    <tr><td>SOURCE</td><td>The movement: <span class="ui">STRIKE</span>, <span class="ui">PRESSURE</span>, <span class="ui">POLY AT</span>, <span class="ui">CC74</span> (slide), <span class="ui">BEND</span>, <span class="ui">RELEASE VEL</span>, or any controller such as a mod wheel or pedal (<span class="ui">CC</span>).</td></tr>
+    <tr><td>SOURCE</td><td>The movement: <span class="ui">STRIKE</span>, <span class="ui">PRESSURE</span> (key pressure that moves with the key), <span class="ui">AFTERTOUCH</span> (pressure once the key is down), <span class="ui">CC74</span> (slide, or the Osmose's second stage), <span class="ui">BEND</span>, <span class="ui">RELEASE VEL</span>, or any controller such as a mod wheel or pedal (<span class="ui">CC</span>).</td></tr>
     <tr><td>ZONE</td><td>Only listen to the lower zone, the upper zone, or <span class="ui">ALL</span>.</td></tr>
     <tr><td>CURVE</td><td>How the movement is shaped. <span class="ui">LIN</span> is even, <span class="ui">SOFT</span> reacts quickly at first, <span class="ui">HARD</span> saves its effect for the end, and <span class="ui">S</span> is gentle at both ends.</td></tr>
     <tr><td>AMOUNT</td><td>How strongly, from −1 to +1. <b>Drag up or down</b> on the bar. A negative amount works backwards.</td></tr>
@@ -398,8 +400,10 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li><span class="ui">DISTANCE</span>: how far you are from the organ. Close is clear and direct; far away is more echo and less detail. In measured rooms recorded from several seats, Pipe picks the seat nearest your distance; the plan and the line under it show which.</li>
     <li><span class="ui">HEIGHT</span> and <span class="ui">WIDTH</span>: the height of the microphones, and how wide the stereo picture is.</li>
     <li><span class="ui">ROOM MIX</span>: how much echo, from none to a lot. <span class="ui">PRE-DELAY</span>: a short gap before the echo starts, which helps clarity.</li>
-    <li><span class="ui">OUTPUT</span>: overall volume. <span class="ui">LIMITER</span> stops the loudest chords from distorting.</li>
+    <li><span class="ui">OUTPUT</span>: overall volume. <span class="ui">LIMITER</span> (on unless you switch it off) catches any peak that would overload. The output box shows <span class="ui">LIMIT</span> while it is working, or <span class="ui">CLIP!</span> when it is off and the sound is too loud; turn <span class="ui">OUTPUT</span> down if you see either often.</li>
   </ul>
+  <h3>Every room at the same loudness</h3>
+  <p>All the buildings, your own recordings and all three microphone setups are matched in loudness, so switching rooms never makes the organ jump in volume. A cathedral sounds bigger and longer, not louder. <span class="ui">DISTANCE</span> and <span class="ui">ROOM MIX</span> change the balance between the organ and the room while the overall level stays about the same: moving away makes the sound more reverberant rather than quieter. Pipe also gently trims the deepest rumble of each room, which the 16' pedal stops would otherwise stir up.</p>
   <h3>Microphones</h3>
   <p><span class="ui">AB</span> is two microphones spaced apart: wide and spacious, a classic for organ recordings. <span class="ui">ORTF</span> is two angled microphones close together: a more focused image. <span class="ui">BINAURAL</span> is made for <b>headphones</b> and places you inside the building with a fixed head position.</p>
 
@@ -410,7 +414,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li>Pipe switches to <span class="ui">CUSTOM IR</span> and shows the file's name.</li>
     <li>If the file is B-format, set <span class="ui">FUMA</span> or <span class="ui">AMBIX</span> to match its description. If it sounds odd, try the other.</li>
   </ol>
-  <p>Normally Pipe removes the recording's own first “bang” and uses its own direct sound of the organ instead, which keeps the organ clear. Untick <span class="ui">DIRECT SOUND FROM THE MODEL</span> to hear the recording exactly as it was made.</p>
+  <p>Normally Pipe removes the recording's own first “bang” and uses its own direct sound of the organ instead, which keeps the organ clear. Untick <span class="ui">DIRECT SOUND FROM THE MODEL</span> to hear the recording exactly as it was made; the recording then carries its own balance of organ and room, so <span class="ui">ROOM MIX</span> has no effect.</p>
   <div class="note"><span class="label">Keep the file where it is</span>Pipe remembers where your file is, not the sound itself. If you move or delete it, the room goes quiet and the screen says <span class="ui">CAN'T READ THAT FILE</span>; load it again from its new place.</div>
   <p><span class="ui">QUALITY</span> (bottom left) sets how many pipes Pipe can sound at once: <span class="ui">ECO</span> 192, <span class="ui">STD</span> 320, <span class="ui">HQ</span> 448. ECO also lightens the room's processing.</p>
 </section>
@@ -461,10 +465,13 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p>Check that at least one stop is drawn on the Console, that the blower is on (Wind screen), and that your music program is sending your keyboard to Pipe's track. If you play into the upper zone or below a pedal split, make sure that division has stops drawn. The Expression screen's <span class="ui">SEEN</span> lines show whether notes are arriving.</p>
 
   <h3>My pressure keyboard plays, but pressing doesn't do anything.</h3>
-  <p>Look at <span class="ui">SEEN</span> on the Expression screen. If <span class="ui">PRES</span>, <span class="ui">PAT</span> or <span class="ui">Y</span> never appear, your keyboard isn't sending that data. Check that it is in MPE mode (or that aftertouch is turned on) and, on the Osmose, that you are using Port 1. If the data is arriving, check the matrix rows are switched on.</p>
+  <p>Look at <span class="ui">SEEN</span> on the Expression screen. If <span class="ui">PRES</span>, <span class="ui">AT</span> or <span class="ui">Y</span> never appear, your keyboard isn't sending that data. Check that it is in MPE mode (or that aftertouch is turned on) and, on the Osmose, that you are using Port 1. If the data is arriving, check the matrix rows are switched on.</p>
 
-  <h3>Notes sound quiet until I press harder.</h3>
-  <p>That's the valve following your pressure, which is what MPE pressure is set to do. If you would rather notes start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix.</p>
+  <h3>Some notes don't sound, or only breathe, when I play lightly.</h3>
+  <p>That's the valve following your key: a pipe needs enough wind to speak, so a key pressed only a little way leaves it silent, as a real pallet would. Press further into the key. If you would rather every note start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix.</p>
+
+  <h3>Every keystroke adds extra wind, or notes go missing, in my music program.</h3>
+  <p>Your music program is probably not passing MPE to Pipe: it squeezes the notes onto one channel and turns each key's pressure into aftertouch. Switch MPE on for Pipe in your program (in Bitwig Studio, look for the MPE switch in the plugin device's settings), for whichever format you use. The Expression screen shows <span class="ui">HOST IS NOT SENDING MPE</span> when this is happening.</p>
 
   <h3>The sound crackles, or my computer struggles.</h3>
   <p>Try <span class="ui">ECO</span> quality, or a lite room instead of a measured one. Fewer stops and couplers also help. Raising your music program's audio buffer size gives Pipe more time to work.</p>

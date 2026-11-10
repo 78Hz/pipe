@@ -149,6 +149,74 @@ int main(int argc, char** argv) {
         if (std::fabs(en->getParameter(kOutDstFoot) - 78.f) > 3.f) ++failures;
     }
 
+    // ---- 4b. Real-world MPE streams: how the Osmose sends, how a host may flatten it
+    auto send = [&](std::unique_ptr<Engine>& en, int a0, int a1, int a2 = -1) { uint8_t m[3] = { (uint8_t)a0, (uint8_t)a1, (uint8_t)(a2 < 0 ? 0 : a2) }; en->midi(m, a2 < 0 ? 2 : 3); };
+    {   // Osmose MPE: channels 2-16, pressure starts before the note-on and keeps rising, CC74 for the second stage
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0xB0, 101, 0); send(en, 0xB0, 100, 6); send(en, 0xB0, 6, 15);   // MCM: lower zone, 15 channels
+        int ok = 0; float worstBoost = 0.f;
+        for (int i = 0; i < 20; ++i) {
+            const int ch = 1 + i % 15, key = 48 + (i * 5) % 24;
+            for (int v = 0; v <= 127; v += 8) { if (v == 32) send(en, 0x90 | ch, key, 90); send(en, 0xD0 | ch, v); run(en, 96); }
+            send(en, 0xD0 | ch, 127); run(en, fs / 10);
+            const float foot = en->getParameter(kOutDstFoot);
+            worstBoost = std::max(worstBoost, std::fabs(en->getParameter(kOutDstBoost)));
+            if (std::fabs(foot - 78.f) < 3.f && en->getParameter(kOutLiveAftertouch) < 0.f) ++ok;
+            for (int v = 127; v >= 0; v -= 16) { send(en, 0xD0 | ch, v); run(en, 64); }
+            send(en, 0xD0 | ch, 0); send(en, 0x80 | ch, key, 64); run(en, fs / 20);
+        }
+        printf("Osmose MPE stream: %d of 20 notes on channels 2-16 at voiced wind, no boost without the second stage (worst %.1f mm), channel 16 bend range %.0f\n",
+               ok, worstBoost, en->getParameter(kOutBendLo));
+        if (ok != 20 || worstBoost > 1.f) ++failures;
+        // channel 16 must be a note channel with the members' bend range, not an upper-zone master
+        send(en, 0xEF, 0, 127); send(en, 0x9F, 60, 90); send(en, 0xDF, 127); run(en, fs / 10);
+        const float bent = en->getParameter(kOutDstPitch);
+        printf("  channel 16 full bend: %+.0f cents (members bend +-48, strict limit applies)\n", bent);
+        if (bent < 40.f) ++failures;
+        send(en, 0x8F, 60, 64); send(en, 0xEF, 0, 64); run(en, fs / 10);
+    }
+    {   // a host that is not in MPE mode for the plugin: every note on channel 1, key pressure as poly aftertouch
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x90, 60, 80);
+        for (int v = 20; v <= 127; v += 8) { send(en, 0xA0, 60, v); run(en, 96); }
+        send(en, 0xA0, 60, 127); run(en, fs / 10);
+        const float full = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
+        send(en, 0x90, 64, 80);
+        for (int v = 20; v <= 40; v += 4) { send(en, 0xA0, 64, v); run(en, 96); }
+        run(en, fs / 10);
+        const float partial = en->getParameter(kOutDstPallet);
+        const int via = (int)en->getParameter(kOutViaLo);
+        printf("host-flattened MPE (poly AT from the start of the note): pallet %.0f%% at full travel, %.0f%% at a light touch, boost %+.0f mm, flagged as one channel %s\n",
+               full, partial, boost, (via & kViaOneChannel) && (via & kViaTravelPoly) ? "yes" : "no");
+        if (full < 95.f || partial > 60.f || std::fabs(boost) > 1.f || !(via & kViaTravelPoly)) ++failures;
+    }
+    {   // a polyphonic-aftertouch keyboard (or the Osmose's poly aftertouch configuration): aftertouch starts once the key is down
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x90, 60, 100); run(en, fs / 5);
+        const float before = en->getParameter(kOutDstFoot);
+        for (int v = 0; v <= 100; v += 10) { send(en, 0xA0, 60, v); run(en, 128); }
+        run(en, fs / 10);
+        const float pal = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
+        printf("poly aftertouch keyboard: %.0f mm when struck, aftertouch adds %+.0f mm, pallet stays %.0f%%\n", before, boost, pal);
+        if (std::fabs(before - 78.f) > 3.f || boost < 10.f || pal < 95.f) ++failures;
+    }
+    {   // classic keyboard: mono aftertouch (channel pressure on channel 1) after the key is down
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0x90, 60, 100); run(en, fs / 5);
+        for (int v = 0; v <= 100; v += 10) { send(en, 0xD0, v); run(en, 128); }
+        run(en, fs / 10);
+        const float pal = en->getParameter(kOutDstPallet), boost = en->getParameter(kOutDstBoost);
+        printf("classic keyboard: channel aftertouch adds %+.0f mm, pallet stays %.0f%%\n", boost, pal);
+        if (boost < 10.f || pal < 95.f) ++failures;
+    }
+    {   // MPE+ (Haken): CC87 adds 7 bits to the next pressure value
+        auto en = std::make_unique<Engine>(); setup(en);
+        send(en, 0xD1, 30); send(en, 0x91, 60, 90); send(en, 0xB1, 87, 64); send(en, 0xD1, 63); run(en, 480);
+        const float v = en->getParameter(kOutLivePressure);
+        printf("MPE+ 14-bit pressure: %.2f of 127 (expect 63.50)\n", v);
+        if (std::fabs(v - 63.5f * 127.f * 128.f / 16256.f) > 0.05f) ++failures;
+    }
+
     // ---- 5. Measured rooms (convolution), if this build has them
     {
         auto en = std::make_unique<Engine>(); setup(en);
@@ -208,6 +276,46 @@ int main(int argc, char** argv) {
         printf("custom IR: status %d, tail after 1 s %.1f dB; missing file -> status %d\n", stOk, 10 * std::log10(e2 / (e1 + 1e-20) + 1e-20), stBad);
         if (stOk != kRoomReady || !(e2 > 0) || stBad != kRoomCustomError) ++failures;
         std::remove(path);
+    }
+
+    // ---- 7. Every room at the same loudness, none overloading (limiter off so nothing is hidden)
+    {
+        auto loud = [&](int room, int mic, float mix, double& peak) {
+            auto en = std::make_unique<Engine>();
+            en->prepare(fs);
+            for (int s = 0; s < kNumStops; ++s) en->setParameter(s, paramInfo(s).def);   // P01 registration
+            en->setParameter(kParamTuning, kTun12); en->setParameter(kParamAgeDrift, 0.f);
+            en->setParameter(kParamLimiter, 0.f); en->setParameter(kParamMicType, (float)mic);
+            en->setParameter(kParamRoomMix, mix); en->setParameter(kParamRoom, (float)room);
+            int waited = 0;
+            do { run(en, 480); std::this_thread::sleep_for(std::chrono::milliseconds(10)); ++waited; }
+            while (en->getParameter(kOutRoomStatus) == kRoomBuilding && waited < 600);
+            if (roomIsMeasured(room) && en->getParameter(kOutRoomStatus) == kRoomNoData) return -999.0;
+            run(en, fs / 2);
+            const int keys[6] = { 36, 48, 55, 60, 64, 67 };
+            for (int k : keys) { uint8_t on[3] = { 0x90, (uint8_t)k, 100 }; en->midi(on, 3); }
+            std::vector<float> a(fs * 4), b(fs * 4);
+            for (int i = 0; i < fs * 4; i += 64) {
+                if (i == fs * 3) for (int k : keys) { uint8_t off[3] = { 0x80, (uint8_t)k, 64 }; en->midi(off, 3); }
+                en->render(&a[i], &b[i], 64);
+            }
+            peak = 0; double e = 0;
+            for (int i = 0; i < fs * 4; ++i) peak = std::max(peak, (double)std::max(std::fabs(a[i]), std::fabs(b[i])));
+            for (int i = fs; i < fs * 3; ++i) e += 0.5 * ((double)a[i] * a[i] + (double)b[i] * b[i]);
+            return 10 * std::log10(e / (2 * fs) + 1e-20);
+        };
+        double pk; const double ref = loud(kRoomDry, 0, 0.55f, pk);
+        printf("room loudness, full chord, limiter off (relative to dry %.1f dBFS RMS, peak %.2f):\n", ref, pk);
+        for (int room = 0; room < kNumRooms; ++room) {
+            if (room == kRoomCustom || room == kRoomDry) continue;
+            for (int mic = 0; mic < 3; ++mic) for (float mix : { 0.55f, 1.f }) {
+                const double l = loud(room, mic, mix, pk);
+                if (l < -900) { if (mic == 0 && mix < 1.f) printf("  %-22s not in this build\n", kRoomLabels[room]); continue; }
+                const bool bad = std::fabs(l - ref) > 3.0 || pk >= 1.0;
+                printf("  %-22s %-8s mix %3.0f%%: %+5.1f dB, peak %.2f%s\n", kRoomLabels[room], kMicLabels[mic], mix * 100, l - ref, pk, bad ? "   <-- FAIL" : "");
+                if (bad) ++failures;
+            }
+        }
     }
 
     printf("%s\n", failures ? "FAILURES" : "ALL CHECKS PASSED");

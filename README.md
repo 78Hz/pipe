@@ -43,7 +43,7 @@ Couplers: Swell to Great, Great to Pedal, Swell to Pedal. Drawing a stop while k
 
 No particular controller is assumed. The Expression screen shows what each MPE zone is actually sending, the live values of the last note, and where each mechanism is right now.
 
-Expression runs through a **modulation matrix** of 10 rows. Each row takes a source (strike velocity, MPE pressure, poly aftertouch, CC74, per-note bend, release velocity, or any CC) from one zone or both. It picks a part of the source's travel, shapes it with a curve and smoothing, and sends it with an amount of ±1 to something an organ builder could actually make:
+Expression runs through a **modulation matrix** of 10 rows. Each row takes a source (strike velocity, key pressure, aftertouch, CC74, per-note bend, release velocity, or any CC) from one zone or both. It picks a part of the source's travel, shapes it with a curve and smoothing, and sends it with an amount of ±1 to something an organ builder could actually make:
 
 | Destination | Mechanism |
 |---|---|
@@ -58,11 +58,13 @@ Rows aimed at the same destination add together. If a note sends no data for a r
 
 The defaults suit an Osmose in MPE mode and most other MPE controllers:
 
-- The first stage of key travel (MPE pressure) opens the pallet; it's fully open at 90 %.
-- The aftertouch stage (CC74 in the lower zone) and poly aftertouch boost the wind.
+- The first stage of key travel (MPE pressure) opens the pallet; it's fully open at 90 %. Strict physics applies: a pipe needs enough wind to speak, so a very light press can leave it silent.
+- The aftertouch stage (CC74 in the lower zone) and aftertouch boost the wind, above a small dead zone.
 - Bend moves the pitch. CC74 in the upper zone aims the jet, and CC11 drives the swell box.
 
-Use the Osmose's MIDI port 1 (firmware 2.3 numbering) in MPE mode.
+Use the Osmose's MIDI port 1 (firmware 2.3 numbering) in MPE mode, and switch MPE on for Pipe in your DAW (in Bitwig Studio, in the plugin device's settings). Pipe declares MPE support to CLAP and AU hosts, and also accepts CLAP note expressions.
+
+**Key pressure or aftertouch?** Pipe decides from how the data behaves, not from the controller: per-note pressure that moves with the key from the start of the note (MPE channel pressure, or poly aftertouch when a host has flattened MPE onto one channel) is *pressure* and works the pallet; pressure that only begins once the key is down (a poly- or channel-aftertouch keyboard) is *aftertouch*. Channel 16 is a note channel unless an upper zone is configured, values sent just before a note-on belong to that note, master-channel pressure and CC74 apply to the whole zone, and MPE+ 14-bit values (CC87) are read. The Expression screen shows which message carries each axis and warns when a host isn't sending MPE.
 
 Turn off *Strict physical limits* to use your controller's full bend range.
 
@@ -84,6 +86,8 @@ The Room screen offers two kinds of room:
 Microphones can be AB (a spaced pair), ORTF, or binaural for headphones (a fixed head, no head tracking).
 
 **Your own impulse responses:** choose CUSTOM IR, then LOAD IR FILE to load a WAV file. It can be mono, stereo, or 4-channel B-format; pick FuMa or AmbiX ordering for B-format. By default the recording's own direct sound is cut and the organ model supplies it. Untick *direct sound from the model* to hear the file exactly as recorded. The file's path is saved with the project and presets, not the audio, so keep the file where it is.
+
+Every room, custom file and microphone setup is level-matched: each reverb is scaled so its average loudness over the organ's range is the same, with no 1/3-octave resonance more than 6 dB above it, and the deepest rumble is trimmed. Distance and room mix change the balance of organ and room while the overall level stays constant. A zero-latency peak limiter is on by default, and the output meter shows when it works.
 
 The convolution adds no latency. It runs on a background thread, so changing rooms takes a moment and then crossfades.
 

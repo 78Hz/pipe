@@ -522,7 +522,8 @@ private:
         hline(10, sy - 6, kW - 20);
         text(20, sy + 12, "SOUNDING  NOTE > PIPE PHYSICS", 21);
         std::string info = std::string(kTuningLabels[(int)pv[kParamTuning]]) + fmt("  A=%.1f", pv[kParamARef]) +
-                           fmt("   %.0f PIPES", pv[kOutPipes]) + fmt("   DSP %.0f%%", pv[kOutCpu]);
+                           fmt("   %.0f PIPES", pv[kOutPipes]) + fmt("   DSP %.0f%%", pv[kOutCpu])
+                           + (pv[kOutClip] > 1.f ? (on(kParamLimiter) ? "   LIMITING" : "   CLIP!") : "");
         text(kW - 20, sy + 12, info, 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
         for (int i = 0; i < kNumShownNotes; ++i)
         {
@@ -564,13 +565,35 @@ private:
             std::string s;
             if (seen & kSeenVelocity) s += "VEL ";
             if (seen & kSeenPressure) s += "PRES ";
-            if (seen & kSeenPolyAT) s += "PAT ";
+            if (seen & kSeenAftertouch) s += "AT ";
             if (seen & kSeenBend) s += "BEND ";
             if (seen & kSeenSlide) s += "Y ";
             if (seen & kSeenRelease) s += "REL";
             row("SEEN", s.empty() ? "NO DATA YET" : s);
+            // which message actually carries each kind of expression, so a host's conversion is visible
+            const int via = (int)pv[z == 0 ? kOutViaLo : kOutViaHi];
+            if (z == 0 || seen != 0)
+            {
+                std::string pr = (via & kViaTravelChan) ? "CH PRESSURE" : (via & kViaTravelPoly) ? "POLY AT" : "-";
+                if ((via & kViaTravelChan) && (via & kViaTravelPoly)) pr = "CH PRES + POLY";
+                std::string st;
+                if (via & kViaCC74) st += "CC74 ";
+                if (via & kViaAfterPoly) st += "POLY AT ";
+                if (via & kViaAfterChan) st += "CH AT";
+                row("PRESSURE VIA", pr + ((via & kViaHiRes) ? " 14B" : ""));
+                row("2ND STAGE VIA", st.empty() ? std::string("-") : st);
+            }
             frame(x, y, w, ry - y + 6);
-            y = ry + 14;
+            y = ry + 6;
+            if ((via & kViaTravelPoly) && !(via & kViaMemberChannels))
+            {
+                // per-note pressure arriving as poly aftertouch with every note on one channel: the host flattened MPE
+                fill(x, y, w, 44, ink);
+                text(x + 8, y + 12, "HOST IS NOT SENDING MPE:", 19, lcd);
+                text(x + 8, y + 32, "TURN ON MPE FOR PIPE IN THE DAW", 19, lcd);
+                y += 50;
+            }
+            y += 8;
         }
         const int split = (int)pv[kParamPedalSplit];
         stepper(x, y, w, "PEDAL SPLIT", split > 0 ? std::string("< ") + noteName12(split) : std::string("OFF"),
@@ -592,7 +615,7 @@ private:
         };
         live("STRIKE", key >= 0 ? pv[kOutLiveStrike] : -1.f, 127.f);
         live("PRESSURE", key >= 0 ? pv[kOutLivePressure] : -1.f, 127.f);
-        live("POLY AT", key >= 0 ? pv[kOutLivePolyAT] : -1.f, 127.f);
+        live("AFTERTOUCH", key >= 0 ? pv[kOutLiveAftertouch] : -1.f, 127.f);
         live("CC74", key >= 0 ? pv[kOutLiveCC74] : -1.f, 127.f);
         live("BEND", pv[kOutLiveBend], 200.f, true, "%+.0fC");
         vline(x + w + 12, 76, kH - 90);
@@ -745,7 +768,7 @@ private:
             const int code = v % 1024;
             const int src = code / 128;
             // pressure arrives with every key press: anything else that moves wins
-            auto rank = [](int s) { return s == kSrcCC ? 4 : s == kSrcCC74 ? 3 : s == kSrcBend ? 2 : s == kSrcPolyAT ? 1 : 0; };
+            auto rank = [](int s) { return s == kSrcCC ? 4 : s == kSrcCC74 ? 3 : s == kSrcBend ? 2 : s == kSrcAftertouch ? 1 : 0; };
             if (learnBest < 0 || rank(src) > rank(learnBest / 128)) learnBest = code;
             if (learnFirst < 0) learnFirst = (int)idleCount;
         }
@@ -1297,6 +1320,13 @@ private:
         text(rx + 12, oy + 44, "L", 20); segBar(rx + 30, oy + 36, rw - 42, 16, 20, (dbfs(pv[kOutPeakL]) + 60.f) / 60.f);
         text(rx + 12, oy + 66, "R", 20); segBar(rx + 30, oy + 58, rw - 42, 16, 20, (dbfs(pv[kOutPeakR]) + 60.f) / 60.f);
         text(rx + 12, oy + 94, fmt("PEAK %.1f DBFS", dbfs(std::max(pv[kOutPeakL], pv[kOutPeakR]))), 20);
+        // before the limiter: CLIP when it would overload, LIMIT when the limiter is catching it
+        if (pv[kOutClip] > 1.f || pv[kOutLimitDb] > 0.5f)
+        {
+            const bool lim = on(kParamLimiter);
+            fill(rx + rw - 140, oy + 40, 132, 32, ink);
+            text(rx + rw - 74, oy + 57, lim ? fmt("LIMIT -%.1f DB", std::max(0.f, pv[kOutLimitDb])) : std::string("CLIP!"), 19, lcd, ALIGN_CENTER | ALIGN_MIDDLE);
+        }
         button(rx + rw - 140, oy + 80, 132, 32, on(kParamLimiter) ? "LIMITER ON" : "LIMITER OFF", on(kParamLimiter), [this] { toggle(kParamLimiter); }, 19);
     }
 
