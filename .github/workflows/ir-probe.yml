@@ -15,7 +15,9 @@ jobs:
             echo "=== page $id"
             curl -sSLk "https://www.openair.hosted.york.ac.uk/?page_id=$id" -o page_$id.html || true
             grep -oE 'https?://[^"'"'"' )]*webfiles[^"'"'"' )]*' page_$id.html | sort -u | tee links_$id.txt
-            grep -oiE 'href="[^"]*\.(zip|wav)"' page_$id.html | sort -u
+            echo "size $(stat -c %s page_$id.html)"
+            grep -oiE '(href|src|data-[a-z-]+)="[^"]*"' page_$id.html | grep -iE 'zip|wav|ir|download|webfiles|OPENAIR|media|uploads' | grep -viE 'css|\.js|png|jpg|svg|feed|xmlrpc|wp-json|fonts' | sort -u | head -40
+            grep -oiE '[a-z0-9_/.:-]*\.(zip|wav)' page_$id.html | sort -u | head -20
           done
           mkdir -p dl
           cat links_*.txt | grep -iE '\.(zip|wav)$' | sort -u > all.txt
