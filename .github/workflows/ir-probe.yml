@@ -1,0 +1,37 @@
+name: IR probe
+on:
+  push:
+    branches: [ ir-probe ]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find OpenAIR download links and inspect the files
+        run: |
+          set -x
+          pip install numpy >/dev/null
+          for id in 683 696 797 571; do
+            echo "=== page $id"
+            curl -sSL "https://www.openair.hosted.york.ac.uk/?page_id=$id" -o page_$id.html || true
+            grep -oE 'https?://[^"'"'"' )]*webfiles[^"'"'"' )]*' page_$id.html | sort -u | tee links_$id.txt
+            grep -oiE 'href="[^"]*\.(zip|wav)"' page_$id.html | sort -u
+          done
+          mkdir -p dl
+          cat links_*.txt | grep -iE '\.(zip|wav)$' | sort -u > all.txt
+          wc -l all.txt
+          while read -r u; do
+            f="dl/$(echo "$u" | md5sum | cut -c1-8)_$(basename "$u" | tr ' %' '__')"
+            curl -sSL --fail "$u" -o "$f" && echo "OK $u -> $f ($(stat -c %s "$f") bytes)" || echo "FAIL $u"
+          done < all.txt
+          cd dl
+          for z in *.zip; do [ -e "$z" ] && { echo "=== $z"; unzip -l "$z" | head -60; mkdir -p "x_$z"; unzip -q -o "$z" -d "x_$z"; }; done
+          python3 - <<'PY'
+          import os, struct, glob
+          for p in sorted(glob.glob('**/*.wav', recursive=True)) + sorted(glob.glob('**/*.WAV', recursive=True)):
+              with open(p,'rb') as f: d=f.read(4096)
+              try:
+                  i=d.index(b'fmt '); fmt,ch,sr,br,ba,bits=struct.unpack('<HHIIHH', d[i+8:i+24])
+                  sz=os.path.getsize(p); print(f"{p}: fmt={fmt} ch={ch} sr={sr} bits={bits} secs~{sz/max(1,br):.1f}")
+              except Exception as e: print(p, 'unparsed', e)
+          PY
+          find . -iname '*.txt' -exec sh -c 'echo "--- $1"; head -40 "$1"' _ {} \;
