@@ -27,9 +27,12 @@ ROOMS = [
     dict(name="ST MARGARET'S YORK", credit="St Margaret's Church, York (NCEM) - Aglaia Foteinou, Simon Shelley",
          files=[("st-margarets-church-national-centre-early-music/b-format/r13_3rd_configuration.wav", "FRONT PEWS", None,
                  "b4583182182266db3eee7c25aa8316382b40480530322245d80bfb7929f997db"),
-                ("st-margarets-church-national-centre-early-music/b-format/r4_3rd_configuration.wav", "MID NAVE LEFT", 8.5, None),
-                ("st-margarets-church-national-centre-early-music/b-format/r5_3rd_configuration.wav", "MID NAVE RIGHT", 8.5, None),
-                ("st-margarets-church-national-centre-early-music/b-format/r1_3rd_configuration.wav", "BACK OF NAVE", 11.0, None)],
+                ("st-margarets-church-national-centre-early-music/b-format/r4_3rd_configuration.wav", "MID NAVE LEFT", 8.5,
+                 "6a3a9da92976547a95252627bc5e01c6a826cf6f4d788181b2148c434316d6b7"),
+                ("st-margarets-church-national-centre-early-music/b-format/r5_3rd_configuration.wav", "MID NAVE RIGHT", 8.5,
+                 "d983647e8e6ffcb7db393528cea6edb45c76aa936b06484d8033c4bd9dd7f110"),
+                ("st-margarets-church-national-centre-early-music/b-format/r1_3rd_configuration.wav", "BACK OF NAVE", 11.0,
+                 "2ed0a97aaf745975b533bb8303f59d644afb1c2ade03d981205fe6fd704feda5")],
          ab=(1, 2)),
     dict(name="YORK MINSTER", credit="York Minster - Damian T. Murphy",
          files=[("york-minster/b-format/minster1_bformat_48k.wav", "CENTRE OF NAVE", 23.69,
@@ -124,6 +127,10 @@ def prepare(sr, x, distance):
     rel = remaining / (remaining[0] + 1e-30)
     idx = np.where(rel < 10 ** (-65 / 10))[0]
     end = int(idx[0]) if len(idx) else len(w)
+    # never keep much more than the decay itself (some files end in hum, not noise)
+    rt = max(t30(band(w, 125, FS), FS), t30(band(w, 2000, FS), FS), t30(w, FS))
+    if rt > 0:
+        end = min(end, int(1.3 * rt * FS))
     end = min(len(w), max(end, FS // 4))
     x = x[:end].copy()
     fade = min(len(x) // 4, int(0.05 * FS))
@@ -134,7 +141,7 @@ def prepare(sr, x, distance):
     x /= np.sqrt(np.sum(direct ** 2) + 1e-30)
     lo = t30(band(x[:, 0], 125, FS), FS)
     hi = t30(band(x[:, 0], 2000, FS), FS)
-    est = (onset / sr) * 343.0
+    est = (onset / FS) * 343.0
     return x.astype(np.float32), dict(onset=d0, t30lo=lo, t30hi=hi, distance=distance if distance else est)
 
 

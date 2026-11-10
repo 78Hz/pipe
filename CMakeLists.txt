@@ -39,6 +39,7 @@ set(PIPE_IR_BLOB "${PIPE_IR_DIR}/ir_blob.bin")
 configure_file(src/engine/IrBlob.S.in "${CMAKE_BINARY_DIR}/IrBlob.S" @ONLY)
 set_property(SOURCE "${CMAKE_BINARY_DIR}/IrBlob.S" APPEND PROPERTY OBJECT_DEPENDS "${PIPE_IR_BLOB}")
 
+add_compile_definitions(PFFFT_STATIC_DEFINE)   # pffft is linked statically
 add_library(pipe_dsp_support STATIC
   third_party/pffft/pffft.c
   third_party/pffft/pffft_common.c

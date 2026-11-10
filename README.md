@@ -128,7 +128,7 @@ On Linux, install `libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcurs
 ## Credits
 
 - Built with [DPF](https://github.com/DISTRHO/DPF) (ISC licence) and [PFFFT](https://github.com/marton78/pffft) (BSD licence).
-- Measured rooms: impulse responses from the [OpenAIR library](https://www.openair.hosted.york.ac.uk/), Audiolab, University of York, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). St Andrew's Church, Lyndhurst, and York Minster were recorded by Damian T. Murphy. St Margaret's Church, York (National Centre for Early Music) was recorded by Aglaia Foteinou and Simon Shelley. The Jack Lyons Concert Hall is at the University of York. The responses are converted to horizontal B-format at 48 kHz, trimmed, and normalised.
+- Measured rooms: impulse responses from the [OpenAIR library](https://www.openairlib.net/), Audiolab, University of York, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). St Andrew's Church, Lyndhurst, and York Minster were recorded by Damian T. Murphy. St Margaret's Church, York (National Centre for Early Music) was recorded by Aglaia Foteinou and Simon Shelley. The Jack Lyons Concert Hall is at the University of York. The responses are converted to horizontal B-format at 48 kHz, trimmed, and normalised.
 - The interface font is VT323 by Peter Hull, under the SIL Open Font License (`resources/OFL-VT323.txt`).
 - The reed resonator follows Perry Cook's waveguide approach.
 - The 31-tone organ precedent is Adriaan Fokker's instrument of 1950.
