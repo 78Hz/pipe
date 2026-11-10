@@ -67,6 +67,10 @@ jobs:
       run:
         shell: ${{ matrix.shell }}
     steps:
+      - name: Keep line endings as committed (the DPF patch needs them)
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive

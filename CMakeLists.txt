@@ -19,10 +19,10 @@ endif()
 
 # Local fixes to DPF, applied to the submodule at configure time (idempotent)
 foreach(patch ${CMAKE_SOURCE_DIR}/patches/dpf-clap-note-expressions.patch)
-  execute_process(COMMAND git apply --reverse --check "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf"
+  execute_process(COMMAND git apply --ignore-whitespace --reverse --check "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf"
                   RESULT_VARIABLE already OUTPUT_QUIET ERROR_QUIET)
   if(NOT already EQUAL 0)
-    execute_process(COMMAND git apply "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf" RESULT_VARIABLE res)
+    execute_process(COMMAND git apply --ignore-whitespace "${patch}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dpf" RESULT_VARIABLE res)
     if(NOT res EQUAL 0)
       message(FATAL_ERROR "Could not apply ${patch} to dpf")
     endif()
