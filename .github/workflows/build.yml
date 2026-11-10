@@ -42,8 +42,8 @@ jobs:
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja zip
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja zip
 
       - name: Linux dependencies
         if: runner.os == 'Linux'
@@ -76,9 +76,10 @@ jobs:
       - name: Sign (macOS, ad-hoc)
         if: runner.os == 'macOS'
         run: |
-          for b in build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.component build/bin/Pipe.lv2; do
-            [ -e "$b" ] && codesign --force --deep --sign - "$b"
+          for b in build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.component; do
+            if [ -e "$b" ]; then codesign --force --deep --sign - "$b"; fi
           done
+          for lib in build/bin/Pipe.lv2/*.dylib; do codesign --force --sign - "$lib"; done
           ls -la build/bin
 
       - name: Package
