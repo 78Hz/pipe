@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     clap_note_port_info_t npi{};
     const bool mpeDialect = np && np->get(p, 0, true, &npi) && (npi.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE);
     printf("note port dialects 0x%x, MPE %s\n", npi.supported_dialects, mpeDialect ? "yes" : "NO");
-    for (int b = 0; b < 48000 / 512; ++b) {   // silence the chord
+    for (int b = 0; b < 48000 * 6 / 512; ++b) {   // silence the chord and let the room tail die away
         evs.ev.clear();
         if (b == 0) for (int k : { 48, 60, 64, 67 }) {
             clap_event_midi_t e{}; e.header.size = sizeof(e); e.header.type = CLAP_EVENT_MIDI; e.data[0] = 0x80; e.data[1] = (uint8_t)k; e.data[2] = 64;
