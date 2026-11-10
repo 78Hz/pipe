@@ -7,6 +7,9 @@
 #include "../src/engine/Voicing.hpp"
 #include "../src/engine/Wind.hpp"
 #include "../src/engine/Room.hpp"
+#include "../src/engine/Matrix.hpp"
+#include "../src/engine/Wav.hpp"
+#include "IrMeta.hpp"
 #include "FontVT323.hpp"
 
 #include <algorithm>
@@ -77,6 +80,7 @@ public:
         for (float& v : windHist) v = 0.f;
         for (int g = 0; g < kNumGroups; ++g) include[g] = g != kGroupRouting;
         saveName = "MY ORGAN";
+        matrix.setDefaults();
         scanUserPresets();
         syncTuning();
     }
@@ -110,12 +114,14 @@ protected:
             if (i == kStatePipeTune) voicing->parseTuning(st[i]);
             if (i == kStateScalaScl || i == kStateScalaKbm) syncTuning();
             if (i == kStatePresetName && !st[i].empty()) presetLabel = st[i];
+            if (i == kStateMatrix) matrix.parse(st[i]);
         }
         repaint();
     }
 
     void uiIdle() override
     {
+        learnPoll();
         // 4 s of wind history for the sag graph
         if (++idleCount % 2 == 0)
         {
@@ -169,7 +175,7 @@ protected:
         const float x = (float)ev.pos.getX() / s, y = (float)ev.pos.getY() / s;
         if (!ev.press)
         {
-            if (dragHit >= 0) { const Hit& h = hits[(size_t)dragHit]; if (h.param >= 0) editParameter((uint32_t)h.param, false); }
+            if (dragHit >= 0 && dragHit < (int)hits.size()) { const Hit& h = hits[(size_t)dragHit]; if (h.param >= 0) editParameter((uint32_t)h.param, false); }
             dragHit = -1;
             return false;
         }
@@ -185,6 +191,7 @@ protected:
                 dragHit = i; dragStartY = y; dragStartV = pv[h.param];
                 editParameter((uint32_t)h.param, true);
             }
+            if (h.drag) { dragHit = i; dragStartY = y; }
             if (h.click) h.click();
             repaint();
             return true;
@@ -198,6 +205,7 @@ protected:
         const Hit& h = hits[(size_t)dragHit];
         const float s = getWidth() / kW;
         const float y = (float)ev.pos.getY() / s;
+        if (h.drag) { auto f = h.drag; f(dragStartY - y); repaint(); return true; }
         const ParamInfo& pi = paramInfo(h.param);
         float v = dragStartV + (dragStartY - y) / 200.f * (pi.max - pi.min);
         v = std::max(pi.min, std::min(pi.max, v));
@@ -256,6 +264,16 @@ protected:
             toast = "LOADED " + upper(fs::path(path).filename().string());
             break;
         }
+        case kFileIr:
+        {
+            WavData wav; std::string err;
+            if (!readWavFile(path, wav, err, 48000 * 2)) { toast = "IR: " + err; break; }
+            if (wav.channels != 1 && wav.channels != 2 && wav.channels != 4) { toast = fmt("IR HAS %.0f CHANNELS: USE 1, 2 OR 4", wav.channels); break; }
+            setStateValue(kStateCustomIr, path);
+            setParam(kParamRoom, kRoomCustom);
+            toast = "LOADED IR " + upper(fs::path(path).filename().string());
+            break;
+        }
         case kFileKbm:
             setStateValue(kStateScalaKbm, readFile(path));
             toast = "LOADED " + upper(fs::path(path).filename().string());
@@ -285,7 +303,7 @@ protected:
 
 private:
     // ===================================================== small draw helpers
-    struct Hit { float x, y, w, h; std::function<void()> click; int param = -1; };
+    struct Hit { float x, y, w, h; std::function<void()> click; int param = -1; std::function<void(float)> drag; };
     std::vector<Hit> hits;
 
     void addHit(float x, float y, float w, float h, std::function<void()> f) { hits.push_back({ x, y, w, h, std::move(f), -1 }); }
@@ -526,7 +544,7 @@ private:
     void drawExpression()
     {
         const float top = 84;
-        // inputs
+        // ---------------------------------------------------------- inputs
         float x = 20, w = 290, y = top;
         text(x, y + 12, "NOTE INPUTS (MPE ZONES)", 22);
         y += 30;
@@ -552,84 +570,197 @@ private:
             if (seen & kSeenRelease) s += "REL";
             row("SEEN", s.empty() ? "NO DATA YET" : s);
             frame(x, y, w, ry - y + 6);
-            y = ry + 16;
+            y = ry + 14;
         }
         const int split = (int)pv[kParamPedalSplit];
         stepper(x, y, w, "PEDAL SPLIT", split > 0 ? std::string("< ") + noteName12(split) : std::string("OFF"),
                 [this] { nudge(kParamPedalSplit, -1); }, [this] { float v = pv[kParamPedalSplit]; nudge(kParamPedalSplit, v < 1 ? 48 : 1); }, 100);
-        y += 50;
-        text(x, y + 10, "ROWS FOLLOW INCOMING DATA.", 19, ink2);
-        text(x, y + 30, "NO CONTROLLER IS ASSUMED.", 19, ink2);
-        text(x, y + 50, "DAWS SEND ONE MIDI STREAM:", 19, ink2);
-        text(x, y + 70, "SPLIT DEVICES BY MPE ZONE.", 19, ink2);
-        vline(x + w + 12, 76, kH - 90);
-
-        // mapping
-        x = 336; w = 600;
-        titleBar(x, top, w, "GESTURE > MECHANISM (ALL BUILDABLE)");
-        y = top + 34;
-        text(x, y + 10, "GESTURE", 20, ink2); text(x + 130, y + 10, "MECHANISM", 20, ink2); text(x + 400, y + 10, "RANGE", 20, ink2);
-        y += 24;
-        struct RowDef { const char* g; const char* src; const char* m; const char* d; };
-        const RowDef rows[5] = {
-            { "STRIKE", "NOTE-ON VEL", "PALLET OPEN SPEED", "FAST = SHARP CHIFF" },
-            { "PRESS", "Z / POLY AT", "PROPORTIONAL PALLET", "WIND AT THE PIPE FOOT" },
-            { "PITCH", "X / BEND", "STOPPER / MOUTH SHADE", "CLAMPED PER FAMILY" },
-            { "SLIDE", "Y / CC74", "LANGUID JET OFFSET", "NOT SENT = VOICED" },
-            { "RELEASE", "NOTE-OFF VEL", "PALLET CLOSE SPEED", "NOT SENT = DEFAULT" },
-        };
-        for (int r = 0; r < 5; ++r)
-        {
-            hline(x, y, w, true);
-            text(x, y + 22, rows[r].g, 25); text(x, y + 44, rows[r].src, 19, ink2);
-            text(x + 130, y + 22, rows[r].m, 23); text(x + 130, y + 44, rows[r].d, 19, ink2);
-            const float rx = x + 400;
-            switch (r)
+        y += 52;
+        // live sources of the last note touched
+        const int key = (int)pv[kOutLiveKey];
+        titleBar(x, y, w, "LIVE SOURCES", key >= 0 ? noteName12(key + 36) + ((int)pv[kOutLiveZone] == 0 ? " LO" : " HI") : std::string("NO NOTE"));
+        y += 30;
+        auto live = [&](const char* k, float v, float max, bool bipolar = false, const char* f = "%.0f") {
+            text(x + 6, y + 9, k, 19, ink2);
+            if (v < 0.f && !bipolar) text(x + w - 6, y + 9, "NOT SENT", 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            else
             {
-            case 0: miniStep(rx, y + 8, "FAST", kParamPalletFast, 1.f, "%.0fMS"); miniStep(rx, y + 36, "SOFT", kParamPalletSlow, 5.f, "%.0fMS"); break;
-            case 1: miniStep(rx, y + 8, "MIN", kParamPressMin, 1.f, "%.0fMM"); miniStep(rx, y + 36, "MAX", kParamPressMax, 2.f, "%.0fMM"); break;
-            case 2: text(rx, y + 30, "SEE RIGHT >", 21); break;
-            case 3: miniStep(rx, y + 20, "DEPTH", kParamSlideDepth, 0.1f, "%.1f"); break;
-            case 4: miniStep(rx, y + 20, "DEFAULT", kParamReleaseMs, 1.f, "%.0fMS"); break;
+                segBar(x + 120, y + 3, 110, 12, 10, bipolar ? 0.5f + v / (2.f * max) : v / max);
+                text(x + w - 6, y + 9, fmt(f, v), 19, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
             }
-            y += 70;
-        }
-        hline(x, y, w, true);
-        y += 12;
-        text(x, y + 12, "KEY PRESSURE TO FOOT PRESSURE", 21);
-        // curve graph
-        const float gx = x, gy = y + 30, gw = w, gh = 140;
-        vline(gx, gy, gh); hline(gx, gy + gh, gw);
-        const float lo = pv[kParamPressMin], hi = pv[kParamPressMax];
-        auto py = [&](float mm) { return gy + gh - (mm / 160.f) * gh; };
-        for (float xx = gx; xx < gx + gw; xx += 6) { beginPath(); moveTo(xx, py(160)); lineTo(xx + 6, py(100)); strokeColor(Color(31, 42, 18, 0.35f)); strokeWidth(1); stroke(); }
-        beginPath(); moveTo(gx, py(lo)); lineTo(gx + gw, py(hi)); strokeColor(ink); strokeWidth(3); stroke();
-        const float vx = gx + gw * (78.f - lo) / std::max(1.f, hi - lo);
-        fill(vx - 5, py(78) - 5, 10, 10, ink);
-        text(vx + 10, py(78) + 16, "VOICED 78MM", 20);
-        text(gx + gw, py(130) - 4, "HATCH = OVERBLOW >100MM", 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            y += 21;
+        };
+        live("STRIKE", key >= 0 ? pv[kOutLiveStrike] : -1.f, 127.f);
+        live("PRESSURE", key >= 0 ? pv[kOutLivePressure] : -1.f, 127.f);
+        live("POLY AT", key >= 0 ? pv[kOutLivePolyAT] : -1.f, 127.f);
+        live("CC74", key >= 0 ? pv[kOutLiveCC74] : -1.f, 127.f);
+        live("BEND", pv[kOutLiveBend], 200.f, true, "%+.0fC");
         vline(x + w + 12, 76, kH - 90);
 
-        // limits
-        x = 962; w = 298;
-        button(x, top, w, 40, std::string(on(kParamStrict) ? "[X]" : "[ ]") + " STRICT PHYSICAL LIMITS", false, [this] { toggle(kParamStrict); }, 20);
-        titleBar(x, top + 50, w, "BEND CEILING / FAMILY");
-        y = top + 84;
-        struct L { const char* n; int p; float max; const char* how; };
-        const L ls[4] = { { "STOPPED FLUTE", kParamBendStopped, 400, "SLIDING STOPPER" }, { "OPEN FLUE", kParamBendOpen, 200, "MOUTH SHADE" },
-                          { "STRING", kParamBendString, 200, "SHADE, NARROW SCALE" }, { "REED", kParamBendReed, 100, "PRESSURE ONLY" } };
+        // ---------------------------------------------------------- matrix
+        x = 336; w = 600;
+        titleBar(x, top, w, "MODULATION MATRIX", "CLICK A CELL TO CHANGE IT");
+        y = top + 32;
+        const float cN = x, cOn = x + 30, cSrc = x + 74, cZone = x + 214, cCurve = x + 264, cAmt = x + 318, cDst = x + 456;
+        text(cN, y + 9, "#", 19, ink2); text(cOn, y + 9, "ON", 19, ink2); text(cSrc, y + 9, "SOURCE", 19, ink2);
+        text(cZone, y + 9, "ZONE", 19, ink2); text(cCurve, y + 9, "CURVE", 19, ink2);
+        text(cAmt, y + 9, "AMOUNT (DRAG)", 19, ink2); text(cDst, y + 9, "DESTINATION", 19, ink2);
+        y += 22;
+        for (int i = 0; i < kNumModRows; ++i)
+        {
+            ModRow& r = matrix.rows[i];
+            const bool sel = i == selRow;
+            const float rh = 29;
+            if (sel) fill(x, y, w, rh, ink);
+            else hline(x, y + rh, w, true);
+            const Color c = sel ? lcd : (r.on ? ink : ink2);
+            text(cN + 4, y + rh / 2, fmt("%.0f", i + 1), 21, c);
+            addHit(cN, y, 28, rh, [this, i] { selRow = i; });
+            text(cOn, y + rh / 2, r.on ? "[X]" : "[ ]", 21, c);
+            addHit(cOn, y, 40, rh, [this, i] { selRow = i; matrix.rows[i].on = !matrix.rows[i].on; commitMatrix(); });
+            text(cSrc, y + rh / 2, ModMatrix::sourceLabel(r), 21, c);
+            addHit(cSrc, y, 136, rh, [this, i] {
+                selRow = i; ModRow& m = matrix.rows[i];
+                m.src = (m.src + 1) % kNumModSources;
+                m.restMid = m.src == kSrcBend;
+                commitMatrix(); });
+            const bool global = modDestGlobal(r.dest);
+            text(cZone, y + rh / 2, global && r.src == kSrcCC ? "-" : kModZoneLabels[r.zone], 21, c);
+            addHit(cZone, y, 46, rh, [this, i] { selRow = i; matrix.rows[i].zone = (matrix.rows[i].zone + 1) % kNumZones; commitMatrix(); });
+            text(cCurve, y + rh / 2, kModCurveLabels[r.curve], 21, c);
+            addHit(cCurve, y, 50, rh, [this, i] { selRow = i; matrix.rows[i].curve = (matrix.rows[i].curve + 1) % kNumCurves; commitMatrix(); });
+            // amount: bipolar bar
+            const float bx = cAmt, bw = 70, mid = bx + bw / 2;
+            fill(bx, y + rh / 2 - 1, bw, 2, sel ? lcd : ghost);
+            const float ax = mid + r.amount * bw / 2;
+            fill(std::min(mid, ax), y + 8, std::fabs(ax - mid), rh - 16, c);
+            fill(mid - 1, y + 5, 2, rh - 10, c);
+            text(bx + bw + 8, y + rh / 2, fmt("%+.2f", r.amount), 20, c);
+            hits.push_back({ bx - 4, y, 130, rh, [this, i] { selRow = i; dragBase = matrix.rows[i].amount; }, -1,
+                             [this, i](float dy) { matrix.rows[i].amount = std::max(-1.f, std::min(1.f, std::round((dragBase + dy / 150.f) * 100.f) / 100.f)); commitMatrix(); } });
+            text(cDst, y + rh / 2, kModDestLabels[r.dest], 21, c);
+            addHit(cDst, y, x + w - cDst, rh, [this, i] { selRow = i; matrix.rows[i].dest = (matrix.rows[i].dest + 1) % kNumModDests; commitMatrix(); });
+            y += rh;
+        }
+        text(x, y + 14, "ROWS ON ONE DESTINATION ADD. A SOURCE NOT SENT LEAVES THE VOICED DEFAULT.", 19, ink2);
+        y += 32;
+
+        // row editor
+        ModRow& r = matrix.rows[selRow];
+        titleBar(x, y, w, fmt("ROW %.0f  ", selRow + 1) + ModMatrix::sourceLabel(r) + " > " + kModDestLabels[r.dest],
+                 learnArmed ? "LEARNING: MOVE A CONTROL" : "");
+        y += 32;
+        const float hw = w / 2 - 10;
+        auto rowStep = [&](float sx, float sy, const std::string& label, const std::string& value, std::function<void()> minus, std::function<void()> plus) {
+            stepper(sx, sy, hw, label, value, std::move(minus), std::move(plus), 90);
+        };
+        rowStep(x, y, "RANGE FROM", fmt("%.0f%%", r.lo * 100), [this] { auto& m = matrix.rows[selRow]; m.lo = std::max(0.f, m.lo - 0.05f); commitMatrix(); },
+                [this] { auto& m = matrix.rows[selRow]; m.lo = std::min(m.hi - 0.05f, m.lo + 0.05f); commitMatrix(); });
+        rowStep(x + hw + 20, y, "RANGE TO", fmt("%.0f%%", r.hi * 100), [this] { auto& m = matrix.rows[selRow]; m.hi = std::max(m.lo + 0.05f, m.hi - 0.05f); commitMatrix(); },
+                [this] { auto& m = matrix.rows[selRow]; m.hi = std::min(1.f, m.hi + 0.05f); commitMatrix(); });
+        y += 46;
+        rowStep(x, y, "SMOOTHING", fmt("%.0f MS", r.smoothMs), [this] { auto& m = matrix.rows[selRow]; m.smoothMs = std::max(0.f, m.smoothMs - 5.f); commitMatrix(); },
+                [this] { auto& m = matrix.rows[selRow]; m.smoothMs = std::min(500.f, m.smoothMs + 5.f); commitMatrix(); });
+        rowStep(x + hw + 20, y, "AMOUNT", fmt("%+.2f", r.amount), [this] { auto& m = matrix.rows[selRow]; m.amount = std::max(-1.f, m.amount - 0.05f); commitMatrix(); },
+                [this] { auto& m = matrix.rows[selRow]; m.amount = std::min(1.f, m.amount + 0.05f); commitMatrix(); });
+        y += 46;
+        if (r.src == kSrcCC)
+            rowStep(x, y, "CC NUMBER", fmt("%.0f", r.cc), [this] { auto& m = matrix.rows[selRow]; m.cc = (m.cc + 127) % 128; commitMatrix(); },
+                    [this] { auto& m = matrix.rows[selRow]; m.cc = (m.cc + 1) % 128; commitMatrix(); });
+        else text(x, y + 20, "CC NUMBER  (CC SOURCE ONLY)", 20, ink2);
+        const float bx2 = x + hw + 20, bw2 = (hw - 12) / 3;
+        button(bx2, y, bw2, 40, r.restMid ? "REST MID" : "REST 0", r.restMid, [this] { matrix.rows[selRow].restMid = !matrix.rows[selRow].restMid; commitMatrix(); }, 20);
+        button(bx2 + bw2 + 6, y, bw2, 40, "LEARN", learnArmed, [this] {
+            learnArmed = !learnArmed; learnFirst = -1; learnBest = -1;
+            learnLast = (int)pv[kOutLearn] / 1024; }, 20);
+        button(bx2 + 2 * (bw2 + 6), y, bw2, 40, "CLEAR", false, [this] { matrix.rows[selRow] = ModRow(); commitMatrix(); }, 20);
+        y += 50;
+        button(x, y, 150, 32, "ALL DEFAULTS", false, [this] { matrix.setDefaults(); commitMatrix(); toast = "MATRIX RESET TO DEFAULTS"; }, 19);
+        text(x + 166, y + 16, modDestGlobal(r.dest) ? "GLOBAL: FOLLOWS A CC OR THE LAST NOTE PLAYED" : "PER NOTE: EACH PALLET HAS ITS OWN VALUE", 19, ink2);
+        y += 42;
+        hline(x, y, w, true);
+        y += 8;
+        miniStep(x, y, "FAST", kParamPalletFast, 1.f, "%.0fMS");
+        miniStep(x + 200, y, "SOFT", kParamPalletSlow, 5.f, "%.0fMS");
+        miniStep(x + 400, y, "CLOSE", kParamReleaseMs, 1.f, "%.0fMS");
+        y += 30;
+        text(x, y + 12, "PALLET TIMES: STRIKE AND RELEASE VELOCITY MOVE BETWEEN THESE", 19, ink2);
+        vline(x + w + 12, 76, kH - 90);
+
+        // ---------------------------------------------------------- right
+        x = 962; w = 298; y = top;
+        titleBar(x, y, w, "DESTINATIONS NOW");
+        y += 32;
+        auto dst = [&](const char* k, const std::string& v, float frac) {
+            text(x + 6, y + 9, k, 19, ink2);
+            if (frac >= 0.f) segBar(x + 128, y + 3, 90, 12, 8, frac);
+            text(x + w - 6, y + 9, v, 19, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+            y += 21;
+        };
+        const bool note = key >= 0;
+        dst("PALLET", note ? fmt("%.0f%%", pv[kOutDstPallet]) : "-", note ? pv[kOutDstPallet] / 100.f : 0.f);
+        dst("WIND BOOST", note ? fmt("%+.0fMM", pv[kOutDstBoost]) : "-", note ? pv[kOutDstBoost] / std::max(1.f, pv[kParamPressMax] - 78.f) : 0.f);
+        dst("FOOT", note ? fmt("%.0fMM", pv[kOutDstFoot]) : "-", note ? pv[kOutDstFoot] / 160.f : 0.f);
+        dst("JET AIM", note ? fmt("%+.2f", pv[kOutDstJet]) : "-", note ? 0.5f + 0.5f * pv[kOutDstJet] : 0.5f);
+        dst("PITCH", note ? fmt("%+.0fC", pv[kOutDstPitch]) : "-", -1.f);
+        dst("CHIFF", note ? fmt("%.0f%%", pv[kOutDstChiff] * 100) : "-", note ? pv[kOutDstChiff] / 2.f : 0.f);
+        dst("SWELL BOX", fmt("%.0f%%", pv[kOutSwellEff]), pv[kOutSwellEff] / 100.f);
+        dst("TREMULANT", pv[kOutTremEff] < 0 ? std::string("OFF") : fmt("%.0f%%", pv[kOutTremEff]), std::max(0.f, pv[kOutTremEff]) / 100.f);
+        y += 10;
+        titleBar(x, y, w, "BOOST CEILING", "OVERBLOW >100MM");
+        y += 34;
+        miniStep(x, y, "MAX", kParamPressMax, 2.f, "%.0fMM");
+        y += 36;
+        button(x, y, w, 36, std::string(on(kParamStrict) ? "[X]" : "[ ]") + " STRICT PHYSICAL LIMITS", false, [this] { toggle(kParamStrict); }, 20);
+        y += 44;
+        titleBar(x, y, w, "BEND CEILING / FAMILY");
+        y += 32;
+        struct L { const char* n; int p; const char* how; };
+        const L ls[4] = { { "STOPPED FLUTE", kParamBendStopped, "SLIDING STOPPER" }, { "OPEN FLUE", kParamBendOpen, "MOUTH SHADE" },
+                          { "STRING", kParamBendString, "SHADE, NARROW SCALE" }, { "REED", kParamBendReed, "PRESSURE ONLY" } };
         for (int i = 0; i < 4; ++i)
         {
-            text(x, y + 10, ls[i].n, 21);
+            text(x, y + 10, ls[i].n, 20);
             const int p = ls[i].p;
-            button(x + w - 150, y - 2, 34, 26, "-", false, [this, p] { nudge(p, -5); }, 22);
-            text(x + w - 75, y + 10, fmt("±%.0fC", pv[p]), 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
-            button(x + w - 34, y - 2, 34, 26, "+", false, [this, p] { nudge(p, 5); }, 22);
-            segBar(x, y + 30, w, 10, 16, pv[p] / 200.f);
-            text(x, y + 56, ls[i].how, 19, ink2);
-            y += 84;
+            button(x + w - 140, y - 2, 30, 24, "-", false, [this, p] { nudge(p, -5); }, 20);
+            text(x + w - 70, y + 10, fmt("±%.0fC", pv[p]), 20, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+            button(x + w - 30, y - 2, 30, 24, "+", false, [this, p] { nudge(p, 5); }, 20);
+            text(x, y + 32, ls[i].how, 18, ink2);
+            segBar(x + 170, y + 26, w - 170, 10, 10, pv[p] / 400.f);
+            y += 50;
         }
-        if (!on(kParamStrict)) text(x, y + 10, "OFF: FULL CONTROLLER RANGE", 20);
+        if (!on(kParamStrict)) text(x, y + 6, "OFF: FULL CONTROLLER RANGE", 19);
+    }
+
+    // matrix helpers
+    void commitMatrix() { setStateValue(kStateMatrix, matrix.serialize()); }
+    void learnPoll()
+    {
+        if (!learnArmed) return;
+        const int v = (int)pv[kOutLearn];
+        const int counter = v / 1024;
+        if (counter != learnLast)
+        {
+            learnLast = counter;
+            const int code = v % 1024;
+            const int src = code / 128;
+            // pressure arrives with every key press: anything else that moves wins
+            auto rank = [](int s) { return s == kSrcCC ? 4 : s == kSrcCC74 ? 3 : s == kSrcBend ? 2 : s == kSrcPolyAT ? 1 : 0; };
+            if (learnBest < 0 || rank(src) > rank(learnBest / 128)) learnBest = code;
+            if (learnFirst < 0) learnFirst = (int)idleCount;
+        }
+        if (learnFirst >= 0 && (int)idleCount - learnFirst > 30)   // about a second of listening
+        {
+            ModRow& r = matrix.rows[selRow];
+            r.src = learnBest / 128;
+            if (r.src == kSrcCC) r.cc = learnBest % 128;
+            r.restMid = r.src == kSrcBend;
+            r.on = true;
+            learnArmed = false; learnFirst = -1;
+            toast = "LEARNED " + ModMatrix::sourceLabel(r);
+            commitMatrix();
+            repaint();
+        }
     }
     void miniStep(float x, float y, const char* label, int p, float step, const char* f)
     {
@@ -1018,66 +1149,134 @@ private:
     void drawRoom()
     {
         const float top = 84;
+        const int room = (int)pv[kParamRoom];
+        const int status = (int)pv[kOutRoomStatus];
+        const int usedPos = (int)pv[kOutRoomPos];
         titleBar(20, top, 220, "BUILDING");
-        float y = top + 32;
-        for (int r = 0; r < kNumRooms; ++r)
+        float y = top + 30;
+        auto entry = [&](int r, const std::string& sub) {
+            const bool sel = room == r;
+            if (sel) fill(20, y, 220, 44, ink);
+            frame(20, y, 220, 44);
+            std::string l = kRoomLabels[r];
+            if (l.rfind("LITE ", 0) == 0) l = l.substr(5);
+            text(28, y + 14, l, 20, sel ? lcd : ink);
+            text(28, y + 33, sub, 18, sel ? lcd : ink2);
+            addHit(20, y, 220, 44, [this, r] { setParam(kParamRoom, (float)r); });
+            y += 47;
+        };
+        text(20, y + 9, "MEASURED (CONVOLUTION)", 19, ink2); y += 20;
+        for (int r = kRoomStAndrews; r <= kRoomJackLyons; ++r)
         {
-            const bool sel = (int)pv[kParamRoom] == r;
-            if (sel) fill(20, y, 220, 54, ink);
-            frame(20, y, 220, 54);
-            text(30, y + 18, kRoomLabels[r], 21, sel ? lcd : ink);
-            text(30, y + 40, kRoomShapes[r].rt60 > 0 ? fmt("RT60 %.1f S", kRoomShapes[r].rt60) : std::string("NO ROOM"), 19, sel ? lcd : ink);
-            addHit(20, y, 220, 54, [this, r] { setParam(kParamRoom, (float)r); });
-            y += 60;
+            const irmeta::Position* p = firstPosition(r);
+            entry(r, p ? fmt("T30 %.1f S", 0.5f * (p->t30Low + p->t30High)) + fmt(" · %.0f POS", positionCount(r)) : std::string("NOT IN THIS BUILD"));
         }
-        titleBar(20, y + 10, 220, "QUALITY");
-        for (int q = 0; q < 3; ++q) button(20 + q * 74, y + 42, 70, 40, kQualityLabels[q], (int)pv[kParamQuality] == q, [this, q] { setParam(kParamQuality, (float)q); }, 20);
-        text(20, y + 100, "ECO 192 / STD 320 / HQ 448", 19, ink2);
-        text(20, y + 120, "FLUE PIPES AT ONCE", 19, ink2);
+        entry(kRoomCustom, st[kStateCustomIr].empty() ? std::string("NO FILE LOADED") : upper(fs::path(st[kStateCustomIr]).stem().string()).substr(0, 22));
+        text(20, y + 9, "LITE (ALGORITHMIC)", 19, ink2); y += 20;
+        for (int r = kRoomLiteVillage; r <= kRoomDry; ++r)
+        {
+            const RoomShape& rs = kRoomShapes[roomLiteIndex(r)];
+            entry(r, rs.rt60 > 0 ? fmt("RT60 %.1f S", rs.rt60) : std::string("NO ROOM"));
+        }
+        titleBar(20, y + 4, 220, "QUALITY");
+        for (int q = 0; q < 3; ++q) button(20 + q * 74, y + 34, 70, 36, kQualityLabels[q], (int)pv[kParamQuality] == q, [this, q] { setParam(kParamQuality, (float)q); }, 20);
+        text(20, y + 84, "ECO ALSO DOUBLES IR BLOCK", 18, ink2);
         vline(252, 76, kH - 90);
 
-        // plan
-        const int room = (int)pv[kParamRoom];
-        const RoomShape& rs = kRoomShapes[room];
+        // ------------------------------------------------------------ plan
         const float x = 266, w = 640;
-        titleBar(x, top, w, std::string(kRoomLabels[room]) + fmt("  %.0f", rs.lengthM) + fmt(" X %.0f M", rs.widthM), fmt("RT60 %.1f S", rs.rt60));
-        const float px = x + 10, py = top + 60, pw = w - 60, ph = 200;
+        const bool conv = roomIsConvolution(room);
+        std::string right;
+        if (conv)
+        {
+            switch (status)
+            {
+            case 1: right = "PREPARING IR..."; break;
+            case 2: right = "NO DATA: USING LITE ABBEY"; break;
+            case 3: right = "CAN'T READ THAT FILE"; break;
+            case 4: right = "LOAD A FILE BELOW"; break;
+            default: right = "CONVOLUTION"; break;
+            }
+        }
+        else right = "ALGORITHMIC";
+        titleBar(x, top, w, kRoomLabels[room], right);
+        const float px = x + 10, py = top + 60, pw = w - 60, ph = 170;
+        const irmeta::Position* pos = conv && roomIsMeasured(room) ? positionFor(room, usedPos) : nullptr;
+        const float roomLen = !conv ? kRoomShapes[roomLiteIndex(room)].lengthM
+                                    : std::max(12.f, 1.5f * maxDistance(room));
         beginPath(); rect(px, py, pw, ph); strokeColor(ink); strokeWidth(3); stroke();
-        beginPath(); rect(px + 14, py + ph / 2 - 50, 40, 100); stroke();
-        for (int i = 1; i < 6; ++i) { beginPath(); moveTo(px + 14, py + ph / 2 - 50 + i * 16.f); lineTo(px + 54, py + ph / 2 - 50 + i * 16.f); strokeWidth(2); stroke(); }
-        text(px + 4, py - 12, "WEST GALLERY · ORGAN CASE", 20);
-        text(px + pw, py - 12, "CHANCEL", 20, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-        const float lx = px + 54 + (pw - 70) * std::min(1.f, pv[kParamDistance] / std::max(10.f, rs.lengthM));
+        beginPath(); rect(px + 14, py + ph / 2 - 45, 40, 90); stroke();
+        for (int i = 1; i < 6; ++i) { beginPath(); moveTo(px + 14, py + ph / 2 - 45 + i * 15.f); lineTo(px + 54, py + ph / 2 - 45 + i * 15.f); strokeWidth(2); stroke(); }
+        text(px + 4, py - 12, conv ? "SOURCE · ORGAN" : "WEST GALLERY · ORGAN CASE", 20);
+        text(px + pw, py - 12, conv && roomIsMeasured(room) ? "PLAN NOT TO SCALE" : (conv ? "" : fmt("%.0f", kRoomShapes[roomLiteIndex(room)].lengthM) + fmt(" X %.0f M", kRoomShapes[roomLiteIndex(room)].widthM)), 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        // measured positions as ghost dots
+        if (conv && roomIsMeasured(room))
+            for (int i = 0; i < irmeta::kCount; ++i)
+            {
+                const irmeta::Position& q = irmeta::kPositions[i];
+                if (q.room != room) continue;
+                const float qx = px + 54 + (pw - 70) * std::min(1.f, q.distance / roomLen);
+                const float qy = py + ph / 2 + (q.index % 2 ? -1.f : 1.f) * (q.index == 0 ? 0.f : 22.f + 10.f * (q.index / 2));
+                beginPath(); circle(qx, qy, 6); strokeColor(ink2); strokeWidth(2); stroke();
+            }
+        const float listenD = pos ? pos->distance : pv[kParamDistance];
+        const float lx = px + 54 + (pw - 70) * std::min(1.f, listenD / std::max(10.f, roomLen));
         fill(lx - 5, py + ph / 2 - 18, 10, 10, ink);
         fill(lx - 5, py + ph / 2 + 8, 10, 10, ink);
-        beginPath(); moveTo(px + 54, py + ph / 2); lineTo(lx - 6, py + ph / 2 - 13); moveTo(px + 54, py + ph / 2); lineTo(lx - 6, py + ph / 2 + 13); strokeWidth(2); stroke();
-        text(lx + 12, py + ph / 2, std::string(kMicLabels[(int)pv[kParamMicType]]) + fmt("  %.0f M", pv[kParamDistance]), 21);
-        text(px + 4, py + ph + 20, "PIPES PLACED ON C / C# SIDES OF THE CASE", 20, ink2);
+        beginPath(); moveTo(px + 54, py + ph / 2); lineTo(lx - 6, py + ph / 2 - 13); moveTo(px + 54, py + ph / 2); lineTo(lx - 6, py + ph / 2 + 13); strokeColor(ink); strokeWidth(2); stroke();
+        text(std::min(lx + 12, px + pw - 200), py + ph / 2 + 34, std::string(kMicLabels[(int)pv[kParamMicType]]) + fmt("  %.1f M", listenD), 21);
+        std::string under;
+        if (pos) under = std::string("MEASURED AT ") + pos->name + fmt(", %.1f M", pos->distance) + " · DISTANCE PICKS NEAREST";
+        else if (room == kRoomCustom) under = "CUSTOM: DISTANCE SETS THE MODEL'S DIRECT SOUND";
+        else under = "PIPES PLACED ON C / C# SIDES OF THE CASE";
+        text(px + 4, py + ph + 20, under, 19, ink2);
+
         // decay
-        const float dy = py + ph + 48;
+        const float dy = py + ph + 42;
         hline(x, dy, w, true);
-        text(x, dy + 18, "DECAY (OCTAVE BANDS)", 21);
-        text(x + w, dy + 18, "── 125 HZ   - - 2 KHZ", 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
-        const float gx = x, gy = dy + 36, gw = w, gh = 180;
+        text(x, dy + 18, "DECAY", 21);
+        text(x + w, dy + 18, "── 125-500 HZ   - - 1-4 KHZ", 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        const float gx = x, gy = dy + 36, gw = w, gh = 130;
         vline(gx, gy, gh); hline(gx, gy + gh, gw);
-        const float tmax = std::max(2.f, rs.rt60 * 1.3f);
-        for (int pass = 0; pass < 2; ++pass)
+        float rtLo = 0.f, rtHi = 0.f;
+        if (!conv) { const RoomShape& rs = kRoomShapes[roomLiteIndex(room)]; rtLo = rs.rt60; rtHi = rs.rt60 * rs.hfRatio; }
+        else if (pos) { rtLo = pos->t30Low; rtHi = pos->t30High; }
+        if (rtLo > 0.f)
         {
-            const float rt = pass == 0 ? rs.rt60 : rs.rt60 * rs.hfRatio;
-            beginPath();
-            for (int i = 0; i <= 60; ++i)
+            const float tmax = std::max(2.f, std::max(rtLo, rtHi) * 1.3f);
+            for (int pass = 0; pass < 2; ++pass)
             {
-                const float t = tmax * i / 60.f;
-                const float db = rt > 0 ? -60.f * t / rt : -60.f;
-                const float yy = gy + gh * std::min(1.f, -db / 60.f);
-                if (i == 0) moveTo(gx, yy); else if (pass == 1 && (i % 2)) moveTo(gx + gw * i / 60.f, yy); else lineTo(gx + gw * i / 60.f, yy);
+                const float rt = pass == 0 ? rtLo : rtHi;
+                beginPath();
+                for (int i = 0; i <= 60; ++i)
+                {
+                    const float t = tmax * i / 60.f;
+                    const float yy = gy + gh * std::min(1.f, t / rt);
+                    if (i == 0) moveTo(gx, yy); else if (pass == 1 && (i % 2)) moveTo(gx + gw * i / 60.f, yy); else lineTo(gx + gw * i / 60.f, yy);
+                }
+                strokeColor(ink); strokeWidth(pass == 0 ? 3 : 2); stroke();
             }
-            strokeColor(ink); strokeWidth(pass == 0 ? 3 : 2); stroke();
+            text(gx + gw, gy + gh + 14, fmt("%.1f S", tmax), 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            text(gx + 10, gy + 14, conv ? fmt("T30 %.2f S", rtLo) + fmt(" / %.2f S (MEASURED)", rtHi) : fmt("RT60 %.1f S", rtLo), 20);
         }
-        text(gx + gw, gy + gh + 14, fmt("%.1f S", tmax), 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        else text(gx + 10, gy + gh / 2, room == kRoomCustom ? "DECAY COMES FROM YOUR FILE" : "NO REVERBERATION", 20, ink2);
+
+        // custom impulse response + options
+        float cy = gy + gh + 30;
+        hline(x, cy, w, true);
+        cy += 10;
+        button(x, cy, 170, 38, "LOAD IR FILE...", room == kRoomCustom, [this] { openFile(kFileIr, "Load impulse response (WAV)"); }, 20);
+        text(x + 184, cy + 12, st[kStateCustomIr].empty() ? std::string("NO CUSTOM FILE") : upper(fs::path(st[kStateCustomIr]).filename().string()).substr(0, 40), 20);
+        text(x + 184, cy + 30, "WAV: MONO, STEREO, OR 4-CH B-FORMAT", 18, ink2);
+        for (int o = 0; o < 2; ++o) button(x + w - 180 + o * 92, cy, 88, 38, kIrOrderLabels[o], (int)pv[kParamIrOrder] == o, [this, o] { setParam(kParamIrOrder, (float)o); }, 20);
+        cy += 48;
+        button(x, cy, 360, 34, std::string(on(kParamIrTrim) ? "[X]" : "[ ]") + " DIRECT SOUND FROM THE MODEL", false, [this] { toggle(kParamIrTrim); }, 20);
+        text(x + 372, cy + 17, on(kParamIrTrim) ? "IR'S OWN DIRECT CUT" : "IR PLAYS AS RECORDED", 19, ink2);
+        cy += 46;
+        text(x, cy + 8, "IMPULSE RESPONSES: OPENAIR, AUDIOLAB, UNIVERSITY OF YORK (CC BY 4.0)", 18, ink2);
         vline(918, 76, kH - 90);
 
-        // listener
+        // ------------------------------------------------------- listener
         const float rx = 932, rw = 330;
         titleBar(rx, top, rw, "LISTENER");
         const float ky = top + 76;
@@ -1089,7 +1288,8 @@ private:
         knob(rx + 275, ky + 128, kParamOutputGain, "OUTPUT", fmt("%+.0f DB", pv[kParamOutputGain]));
         titleBar(rx, ky + 226, rw, "MICS");
         for (int m = 0; m < 3; ++m) button(rx + m * 112, ky + 258, 106, 40, kMicLabels[m], (int)pv[kParamMicType] == m, [this, m] { setParam(kParamMicType, (float)m); }, 20);
-        const float oy = ky + 312;
+        text(rx, ky + 314, (int)pv[kParamMicType] == 2 ? "BINAURAL: FIXED HEAD, FOR HEADPHONES" : (int)pv[kParamMicType] == 0 ? "AB: SPACED PAIR, WIDE AND DIFFUSE" : "ORTF: CARDIOIDS AT ±55°", 18, ink2);
+        const float oy = ky + 332;
         frame(rx, oy, rw, 120);
         fill(rx + 6, oy + 6, rw - 12, 22, ink);
         text(rx + 12, oy + 17, "OUTPUT", 20, lcd);
@@ -1098,6 +1298,30 @@ private:
         text(rx + 12, oy + 66, "R", 20); segBar(rx + 30, oy + 58, rw - 42, 16, 20, (dbfs(pv[kOutPeakR]) + 60.f) / 60.f);
         text(rx + 12, oy + 94, fmt("PEAK %.1f DBFS", dbfs(std::max(pv[kOutPeakL], pv[kOutPeakR]))), 20);
         button(rx + rw - 140, oy + 80, 132, 32, on(kParamLimiter) ? "LIMITER ON" : "LIMITER OFF", on(kParamLimiter), [this] { toggle(kParamLimiter); }, 19);
+    }
+
+    // measured-room metadata (generated into IrMeta.hpp by the build)
+    static const irmeta::Position* firstPosition(int room)
+    {
+        for (int i = 0; i < irmeta::kCount; ++i) if (irmeta::kPositions[i].room == room) return &irmeta::kPositions[i];
+        return nullptr;
+    }
+    static const irmeta::Position* positionFor(int room, int index)
+    {
+        for (int i = 0; i < irmeta::kCount; ++i) if (irmeta::kPositions[i].room == room && irmeta::kPositions[i].index == index) return &irmeta::kPositions[i];
+        return firstPosition(room);
+    }
+    static float positionCount(int room)
+    {
+        int n = 0;
+        for (int i = 0; i < irmeta::kCount; ++i) n += irmeta::kPositions[i].room == room;
+        return (float)n;
+    }
+    static float maxDistance(int room)
+    {
+        float d = 0.f;
+        for (int i = 0; i < irmeta::kCount; ++i) if (irmeta::kPositions[i].room == room) d = std::max(d, irmeta::kPositions[i].distance);
+        return d;
     }
 
     // ============================================================= presets
@@ -1372,7 +1596,7 @@ private:
     }
 
     // =============================================================== data
-    enum { kFileNone = 0, kFileScl, kFileKbm, kFileImport, kFileExport };
+    enum { kFileNone = 0, kFileScl, kFileKbm, kFileImport, kFileExport, kFileIr };
     static constexpr int kHist = 120;
 
     const Color ink = Color(31, 42, 18), ink2 = Color(61, 77, 31), lcd = Color(195, 211, 107),
@@ -1397,6 +1621,11 @@ private:
     bool nameFocus = false, setMode = false;
     int lastPiston = -1;
     int fileAction = kFileNone;
+    ModMatrix matrix;
+    int selRow = 0;
+    float dragBase = 0.f;
+    bool learnArmed = false;
+    int learnLast = 0, learnFirst = -1, learnBest = -1;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PipeUI)
 };

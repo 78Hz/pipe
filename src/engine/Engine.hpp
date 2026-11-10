@@ -8,7 +8,8 @@
 #include "Tuning.hpp"
 #include "Voicing.hpp"
 #include "Wind.hpp"
-#include "Room.hpp"
+#include "RoomProcessor.hpp"
+#include "Matrix.hpp"
 #include "CalibrationTables.hpp"
 #include <atomic>
 #include <chrono>
@@ -66,6 +67,7 @@ struct ChannelState {
     float pressure = 0.f;      // 0..1
     float slide = 0.5f;        // 0..1 (CC74, MPE default 64)
     bool pressureSeen = false, slideSeen = false;
+    bool pressureFresh = false, slideFresh = false;   // received since this channel's current note began
     float bendRange = 48.f;    // semitones
     int rpnMsb = 127, rpnLsb = 127;
 };
@@ -81,6 +83,13 @@ struct Pallet {
     KeyPitch pitch;
     uint32_t order = 0;
     bool coupled = false;
+    // expression
+    float vel = 0.6f, relVel = -1.f;    // strike / release velocity 0..1 (<0: not sent)
+    float sinceOn = 0.f;                // seconds since the key went down
+    float modState[kNumModRows] = {};   // smoothed matrix row outputs
+    bool modInit[kNumModRows] = {};
+    float boost = 0.f, jet = 0.f, chiffScale = 1.f;
+    bool palletDriven = false;
     // live values for display
     float footRatio = 1.f, bendCents = 0.f;
 };
@@ -121,6 +130,9 @@ public:
         pendingVoicing = std::make_unique<Voicing>();
         voicing->setDefaults();
         pendingVoicing->setDefaults();
+        matrix.setDefaults();
+        pendingMatrix.setDefaults();
+        for (int i = 0; i < 128; ++i) { ccVal[i] = 0.f; ccSeen[i] = false; ccZone[i] = 0; }
         for (int i = 0; i < kNumParams; ++i) params[i] = paramInfo(i).def;
         for (int c = 0; c < 16; ++c) channels[c] = ChannelState();
         channels[0].bendRange = 2.f; channels[15].bendRange = 2.f;
@@ -174,6 +186,12 @@ public:
         pendingVoicing->parseTuning(text);
         tuningDirty = true;
     }
+    void setMatrixText(const std::string& text) {
+        std::lock_guard<std::mutex> lk(stateMutex);
+        pendingMatrix.parse(text);
+        matrixDirty = true;
+    }
+    void setCustomIrPath(const std::string& path) { room.setCustomPath(path); }
     void setScala(const std::string& scl, const std::string& kbm) {
         ScalaScale s; ScalaKbm k;
         if (!scl.empty()) parseScl(scl, s);
@@ -198,6 +216,7 @@ public:
         case 0xA0:
             if (size >= 3) {
                 seen[zone] |= kSeenPolyAT;
+                learn(kSrcPolyAT, 0);
                 for (int dv = 0; dv < kNumDivisions; ++dv) {
                     Pallet& p = pallets[dv][d[1] & 127];
                     if (p.holds > 0 && p.srcChannel == ch) p.polyPressure = d[2] / 127.f;
@@ -205,13 +224,17 @@ public:
             }
             break;
         case 0xD0:
-            if (size >= 2) { channels[ch].pressure = d[1] / 127.f; channels[ch].pressureSeen = true; seen[zone] |= kSeenPressure; }
+            if (size >= 2) {
+                channels[ch].pressure = d[1] / 127.f; channels[ch].pressureSeen = channels[ch].pressureFresh = true;
+                seen[zone] |= kSeenPressure; learn(kSrcPressure, 0);
+            }
             break;
         case 0xE0:
             if (size >= 3) {
                 const int v = (d[1] | (d[2] << 7)) - 8192;
                 channels[ch].bend = std::max(-1.f, v / 8192.f);
                 if (v != 0) seen[zone] |= kSeenBend;
+                if (v > 1024 || v < -1024) learn(kSrcBend, 0);
             }
             break;
         case 0xB0: if (size >= 3) controller(ch, d[1], d[2]); break;
@@ -272,8 +295,7 @@ private:
         ChannelState& c = channels[ch];
         const int zone = zoneOf(ch);
         switch (cc) {
-        case 74: c.slide = val / 127.f; c.slideSeen = true; seen[zone] |= kSeenSlide; break;
-        case 11: expressionCC = val / 127.f; break;
+        case 74: c.slide = val / 127.f; c.slideSeen = c.slideFresh = true; seen[zone] |= kSeenSlide; learn(kSrcCC74, 74); break;
         case 66: altSpellingCC = val >= 64; break;
         case 101: c.rpnMsb = val; break;
         case 100: c.rpnLsb = val; break;
@@ -295,6 +317,15 @@ private:
         case 120: case 123: allNotesOff(); break;
         default: break;
         }
+        if (cc != 6 && cc != 38 && cc != 100 && cc != 101 && cc < 120) {
+            ccVal[cc] = val / 127.f; ccSeen[cc] = true; ccZone[cc] = zone;
+            if (cc != 74) learn(kSrcCC, cc);
+        }
+    }
+
+    void learn(int src, int cc) {
+        ++learnCounter;
+        outputs[kOutLearn - kOutFirst] = (float)(src * 128 + cc) + 1024.f * (float)(learnCounter % 4096);
     }
 
     struct ActiveNote { int ch, key; int div[3]; int nDiv; };
@@ -311,6 +342,12 @@ private:
         const bool alt = (params[kParamEnharmonic] >= 0.5f) != altSpellingCC;
         const KeyPitch kp = tuning.keyPitch(key, mapMode, alt);
         if (!kp.valid) return;
+        // a new note on an MPE member channel: its expression starts afresh
+        if (ch != 0 && ch != 15) {
+            bool busy = false;
+            for (const auto& n : notes) if (n.ch == ch) { busy = true; break; }
+            if (!busy) { channels[ch].pressureFresh = channels[ch].slideFresh = false; channels[ch].pressure = 0.f; }
+        }
         ActiveNote an{ ch, key, { -1, -1, -1 }, 0 };
         const float v = vel / 127.f;
         auto press = [&](int d, bool coupled) {
@@ -332,9 +369,8 @@ private:
                     Pallet& p = pallets[notes[i].div[j]][key];
                     if (p.holds > 0 && --p.holds == 0) {
                         p.target = 0.f;
-                        p.closeTime = (relVel != 64 && relVel > 0)
-                            ? (0.080f - 0.075f * (relVel / 127.f))
-                            : params[kParamReleaseMs] * 0.001f;
+                        p.relVel = (relVel != 64 && relVel > 0) ? relVel / 127.f : -1.f;
+                        p.closeTime = params[kParamReleaseMs] * 0.001f;   // the matrix may change it
                     }
                 }
                 notes.erase(notes.begin() + (long)i);
@@ -353,12 +389,15 @@ private:
         p.target = 1.f;
         p.srcChannel = ch; p.srcZone = zone; p.coupled = coupled;
         const float fast = params[kParamPalletFast] * 0.001f, slow = params[kParamPalletSlow] * 0.001f;
-        p.openTime = slow + (fast - slow) * vel;
+        p.openTime = slow + (fast - slow) * 0.6f;   // the matrix may change it
         p.pitch = kp;
         p.order = ++orderCounter;
+        p.vel = vel; p.relVel = -1.f; p.sinceOn = 0.f;
         if (wasClosed) {
             p.polyPressure = -1.f;
             p.chiff = 1.f;
+            p.palletDriven = false;
+            for (int i = 0; i < kNumModRows; ++i) p.modInit[i] = false;
             for (int r = 0; r < kNumRanks; ++r) {
                 if (kRanks[r].division != d) continue;
                 const int s = stopForRank(r);
@@ -524,10 +563,11 @@ private:
     // --------------------------------------------------------- control block
     void controlUpdate() {
         // pick up state from the host/UI thread without blocking
-        if ((voicingDirty || tuningDirty || scalaDirty) && stateMutex.try_lock()) {
+        if ((voicingDirty || tuningDirty || scalaDirty || matrixDirty) && stateMutex.try_lock()) {
             if (voicingDirty) { std::memcpy(voicing->rank, pendingVoicing->rank, sizeof(voicing->rank)); voicingDirty = false; }
             if (tuningDirty) { std::memcpy(voicing->pipeTune, pendingVoicing->pipeTune, sizeof(voicing->pipeTune)); tuningDirty = false; }
             if (scalaDirty) { std::swap(tuning.scl, pendingScl); std::swap(tuning.kbm, pendingKbm); scalaDirty = false; }
+            if (matrixDirty) { matrix = pendingMatrix; matrixDirty = false; }
             stateMutex.unlock();
         }
         const float dt = kControlBlock / fs;
@@ -542,59 +582,105 @@ private:
         }
         wind.update(dt, flow);
 
-        // pallets
+        // pallets: the expression matrix decides how each key's mechanisms move
+        const float fastT = params[kParamPalletFast] * 0.001f, slowT = params[kParamPalletSlow] * 0.001f;
+        const float boostSpan = (params[kParamPressMax] - 78.f) / 78.f;
+        Pallet* latest = nullptr;
         for (int d = 0; d < kNumDivisions; ++d) {
             const float chestRatio = wind.chest[d] / kChestNominal[d];
             for (int k = 0; k < kNumKeys; ++k) {
                 Pallet& p = pallets[d][k];
                 if (p.holds == 0 && p.aperture <= 0.f) continue;
-                const float tc = p.target > p.aperture ? p.openTime : p.closeTime;
+                p.sinceOn += dt;
+                float sum[kNumModDests] = {}; bool has[kNumModDests] = {};
+                bool expects = false;
+                for (int i = 0; i < kNumModRows; ++i) {
+                    const ModRow& r = matrix.rows[i];
+                    if (!r.on || modDestGlobal(r.dest)) continue;
+                    const int z = r.src == kSrcCC ? ccZone[r.cc] : p.srcZone;
+                    if (r.zone != kZoneAll && r.zone != z) continue;
+                    float x;
+                    if (!sourceValue(r, p, x)) {
+                        // a controller that sends this kind of data normally sends it just after the note starts
+                        if (r.dest == kDstPallet && p.holds > 0 && seenBitFor(r.src) && (seen[p.srcZone] & seenBitFor(r.src))) expects = true;
+                        continue;
+                    }
+                    float out = r.eval(x);
+                    if (r.dest == kDstPitch) out *= r.src == kSrcBend ? 4800.f : 100.f;
+                    if (r.smoothMs > 0.f && p.modInit[i]) p.modState[i] += (1.f - std::exp(-dt * 1000.f / r.smoothMs)) * (out - p.modState[i]);
+                    else { p.modState[i] = out; p.modInit[i] = true; }
+                    sum[r.dest] += p.modState[i]; has[r.dest] = true;
+                }
+                auto clamp01 = [](float v) { return std::max(0.f, std::min(1.f, v)); };
+                if (has[kDstOpenSpeed]) p.openTime = slowT + (fastT - slowT) * clamp01(sum[kDstOpenSpeed]);
+                if (has[kDstCloseSpeed] && p.holds == 0) p.closeTime = 0.080f - 0.075f * clamp01(sum[kDstCloseSpeed]);
+                p.boost = has[kDstBoost] ? std::max(-1.f, std::min(1.f, sum[kDstBoost])) : 0.f;
+                p.jet = has[kDstJet] ? std::max(-1.f, std::min(1.f, sum[kDstJet])) : 0.f;
+                p.bendCents = has[kDstPitch] ? sum[kDstPitch] : 0.f;
+                p.chiffScale = has[kDstChiff] ? 2.f * clamp01(sum[kDstChiff]) : 1.f;
+                if (p.holds > 0) {
+                    if (has[kDstPallet]) { p.target = clamp01(sum[kDstPallet]); p.palletDriven = true; }
+                    else if (expects && !p.palletDriven && p.sinceOn < 0.04f) p.target = 0.f;   // wait briefly for the data
+                    else if (!p.palletDriven) p.target = 1.f;
+                }
+                // the key moves the pallet directly when it is pressure-driven
+                const float tOpen = p.palletDriven ? fastT : p.openTime;
+                const float tc = p.target > p.aperture ? tOpen : (p.holds > 0 && p.palletDriven ? fastT : p.closeTime);
                 const float step = dt / std::max(0.001f, tc);
                 if (p.target > p.aperture) p.aperture = std::min(p.target, p.aperture + step);
                 else p.aperture = std::max(p.target, p.aperture - step);
                 p.chiff *= std::exp(-dt / 0.035f);
                 const float a = p.aperture;
                 const float open = a * a / (a * a + 0.0144f) * 1.0144f;
-                // key pressure (MPE / polyphonic aftertouch) throttles the pallet
-                const ChannelState& c = channels[p.srcChannel];
-                float press = -1.f;
-                if (p.polyPressure >= 0.f) press = p.polyPressure;
-                else if (c.pressureSeen) press = c.pressure;
-                float mpe = 1.f;
-                if (press >= 0.f) {
-                    const float mm = params[kParamPressMin] + (params[kParamPressMax] - params[kParamPressMin]) * press;
-                    mpe = mm / 78.f;
-                }
-                p.footRatio = chestRatio * open * mpe;
-                // bend: member channel + zone master channel
-                const int master = p.srcZone == 0 ? 0 : 15;
-                float bend = c.bend * c.bendRange * 100.f;
-                if (p.srcChannel != master) bend += channels[master].bend * channels[master].bendRange * 100.f;
-                p.bendCents = bend;
+                // second pallet from the high-pressure chest adds wind (or a throttle takes it away)
+                p.footRatio = chestRatio * open * std::max(0.f, 1.f + p.boost * boostSpan);
+                if (p.holds > 0 && (!latest || p.order > latest->order)) latest = &p;
             }
+        }
+        if (latest) lastPallet = latest;
+
+        // whole-organ destinations (swell box, tremulant)
+        {
+            float sum[kNumModDests] = {}; bool has[kNumModDests] = {};
+            for (int i = 0; i < kNumModRows; ++i) {
+                const ModRow& r = matrix.rows[i];
+                if (!r.on || !modDestGlobal(r.dest)) continue;
+                float x;
+                if (r.src == kSrcCC) {
+                    if (!ccSeen[r.cc] || (r.zone != kZoneAll && r.zone != ccZone[r.cc])) continue;
+                    x = ccVal[r.cc];
+                } else {
+                    if (!lastPallet || (r.zone != kZoneAll && r.zone != lastPallet->srcZone) || !sourceValue(r, *lastPallet, x)) continue;
+                }
+                const float out = r.eval(x);
+                if (r.smoothMs > 0.f && globalInit[i]) globalState[i] += (1.f - std::exp(-dt * 1000.f / r.smoothMs)) * (out - globalState[i]);
+                else { globalState[i] = out; globalInit[i] = true; }
+                sum[r.dest] += globalState[i]; has[r.dest] = true;
+            }
+            auto clamp01 = [](float v) { return std::max(0.f, std::min(1.f, v)); };
+            swellEff = has[kDstSwell] ? params[kParamSwell] * clamp01(sum[kDstSwell]) : params[kParamSwell];
+            wind.tremDepth = has[kDstTremDepth] ? params[kParamTremDepth] * clamp01(sum[kDstTremDepth]) : params[kParamTremDepth];
+            wind.tremSpeed = has[kDstTremSpeed] ? params[kParamTremSpeed] * (0.6f + 0.8f * clamp01(sum[kDstTremSpeed])) : params[kParamTremSpeed];
         }
 
         // voices: targets for this block
         const bool strict = params[kParamStrict] >= 0.5f;
-        const float slideDepth = params[kParamSlideDepth];
         for (auto& v : voices) {
             if (!v.active) continue;
             const Pallet& p = pallets[v.division][v.key];
-            const ChannelState& c = channels[p.srcChannel];
             // foot pressure relative to the pressure the pipe was voiced on
             const float ratio = v.stopClosed ? 0.f : std::max(0.f, p.footRatio);
             float bend = p.bendCents;
             if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
             const float pitchMul = std::pow(2.f, -bend / 1200.f);
             float targetBreath, tBore = 0, tJet = 0, tA = 0, tB = 0;
-            const float slide = c.slideSeen ? (c.slide - 0.5f) * 2.f * slideDepth : 0.f;
             if (!v.reed) {
                 const float jetVel = std::sqrt(ratio);                  // jet speed ~ sqrt(pressure)
                 targetBreath = kFlueVoicedBreath * jetVel;
                 tBore = v.baseBore * pitchMul;
                 const float jet = v.baseJet * pitchMul / std::max(0.35f, jetVel);
                 tJet = std::min((float)(kJetSize - 8), jet);
-                v.curBias = v.languid * 0.04f + slide * 0.07f;
+                v.curBias = v.languid * 0.04f + p.jet * 0.07f;
             } else {
                 targetBreath = kReedVoicedBreath * std::sqrt(ratio);
                 tA = v.baseA * pitchMul; tB = v.baseB * pitchMul;
@@ -602,7 +688,7 @@ private:
             // targets stored for per-sample ramps
             v.tBreath = targetBreath;
             v.tBore = tBore; v.tJet = tJet; v.tA = tA; v.tB = tB;
-            v.tNoise = v.baseNoise + v.chiffAmt * p.chiff;
+            v.tNoise = v.baseNoise + v.chiffAmt * p.chiff * p.chiffScale;
 
             // end of a pipe's life: pallet shut (or stop in) and sound has died away
             if ((p.aperture <= 0.f || v.stopClosed) && v.env < 2e-5f) { if (++v.quiet > 8) v.active = false; }
@@ -648,12 +734,64 @@ private:
         outputs[kOutMembersHi - kOutFirst] = (float)upperMembers;
         outputs[kOutBendLo - kOutFirst] = channels[1].bendRange;
         outputs[kOutBendHi - kOutFirst] = channels[14].bendRange;
+        liveOutputs();
+        outputs[kOutRoomStatus - kOutFirst] = (float)room.status();
+        outputs[kOutRoomPos - kOutFirst] = (float)room.usedPosition();
+        outputs[kOutRoomPosDist - kOutFirst] = room.usedDistance();
 
-        // swell shutters (parameter x expression pedal CC11)
-        const float sw = std::max(0.f, std::min(1.f, params[kParamSwell] * expressionCC));
+        // swell shutters (parameter, and whatever the matrix sends to them)
+        const float sw = std::max(0.f, std::min(1.f, swellEff));
         swellGainT = 0.12f + 0.88f * std::pow(sw, 1.5f);
         swellCoefT = onePoleCoef(900.f + 17000.f * sw * sw, fs);
         blowerNoiseT = (params[kParamBlowerOn] >= 0.5f) ? std::pow(10.f, params[kParamBlowerNoise] / 20.f) : 0.f;
+    }
+
+    static int seenBitFor(int src) {
+        return src == kSrcPressure ? kSeenPressure : src == kSrcPolyAT ? kSeenPolyAT : src == kSrcCC74 ? kSeenSlide : 0;
+    }
+    // The value a matrix source has for this key, or false if it has sent nothing.
+    bool sourceValue(const ModRow& r, const Pallet& p, float& x) const {
+        const ChannelState& c = channels[p.srcChannel];
+        switch (r.src) {
+        case kSrcStrike: x = p.vel; return true;
+        case kSrcPressure: if (!c.pressureFresh) return false; x = c.pressure; return true;
+        case kSrcPolyAT: if (p.polyPressure < 0.f) return false; x = p.polyPressure; return true;
+        case kSrcCC74: if (!c.slideFresh) return false; x = c.slide; return true;
+        case kSrcBend: {
+            const int master = p.srcZone == 0 ? 0 : 15;
+            float cents = c.bend * c.bendRange * 100.f;
+            if (p.srcChannel != master) cents += channels[master].bend * channels[master].bendRange * 100.f;
+            x = std::max(0.f, std::min(1.f, 0.5f + cents / 9600.f));
+            return true;
+        }
+        case kSrcRelease: if (p.relVel < 0.f) return false; x = p.relVel; return true;
+        case kSrcCC: if (!ccSeen[r.cc]) return false; x = ccVal[r.cc]; return true;
+        default: return false;
+        }
+    }
+    void liveOutputs() {
+        float* o = outputs;
+        auto set = [&](int id, float v) { o[id - kOutFirst] = v; };
+        const Pallet* p = lastPallet;
+        if (!p) { set(kOutLiveKey, -1.f); return; }
+        const int d = (int)(p - &pallets[0][0]) / kNumKeys;
+        const ChannelState& c = channels[p->srcChannel];
+        set(kOutLiveKey, (float)((p - &pallets[0][0]) % kNumKeys));
+        set(kOutLiveZone, (float)p->srcZone);
+        set(kOutLiveStrike, p->vel * 127.f);
+        set(kOutLivePressure, c.pressureFresh ? c.pressure * 127.f : -1.f);
+        set(kOutLivePolyAT, p->polyPressure >= 0.f ? p->polyPressure * 127.f : -1.f);
+        set(kOutLiveCC74, c.slideFresh ? c.slide * 127.f : -1.f);
+        const int master = p->srcZone == 0 ? 0 : 15;
+        set(kOutLiveBend, c.bend * c.bendRange * 100.f + (p->srcChannel != master ? channels[master].bend * channels[master].bendRange * 100.f : 0.f));
+        set(kOutDstPallet, p->aperture * 100.f);
+        set(kOutDstBoost, p->boost * (params[kParamPressMax] - 78.f));
+        set(kOutDstJet, p->jet);
+        set(kOutDstPitch, p->bendCents);
+        set(kOutDstChiff, p->chiffScale);
+        set(kOutDstFoot, p->footRatio * kChestNominal[d]);
+        set(kOutSwellEff, swellEff * 100.f);
+        set(kOutTremEff, wind.tremOn ? wind.tremDepth * 100.f : -1.f);
     }
 
     void renderVoices(float* L, float* R, int n) {
@@ -734,13 +872,16 @@ private:
         case kParamTuning: tuning.system = (int)v; break;
         case kParamEdoN: tuning.customN = (int)v; break;
         case kParamARef: tuning.aRef = v; break;
-        case kParamRoom: room.preset = (int)v; room.configure(); break;
+        case kParamRoom: room.room = (int)v; room.configure(); break;
         case kParamDistance: room.distance = v; room.configure(); break;
         case kParamMicHeight: room.height = v; room.configure(); break;
         case kParamWidth: room.width = v; room.configure(); break;
         case kParamRoomMix: room.mix = v; room.configure(); break;
         case kParamPreDelay: room.preDelayMs = v; room.configure(); break;
         case kParamMicType: room.mic = (int)v; room.configure(); break;
+        case kParamQuality: room.quality = (int)v; room.configure(); break;
+        case kParamIrTrim: room.trimDirect = v >= 0.5f; room.configure(); break;
+        case kParamIrOrder: room.order = (int)v; room.configure(); break;
         case kParamOutputGain: outGain = std::pow(10.f, v / 20.f); break;
         case kParamLimiter: limiter = v >= 0.5f; break;
         default: break;
@@ -766,7 +907,6 @@ private:
     Pallet pallets[kNumDivisions][kNumKeys];
     ChannelState channels[16];
     int seen[2] = { 0, 0 };
-    float expressionCC = 1.f;
     bool altSpellingCC = false;
     uint32_t orderCounter = 0, ageCounter = 0;
     Tuning tuning;
@@ -775,7 +915,14 @@ private:
     std::mutex stateMutex;
     std::atomic<bool> voicingDirty{false}, tuningDirty{false}, scalaDirty{false};
     WindSystem wind;
-    Room room;
+    RoomProcessor room;
+    ModMatrix matrix, pendingMatrix;
+    std::atomic<bool> matrixDirty{false};
+    float ccVal[128]; bool ccSeen[128]; int ccZone[128];
+    float globalState[kNumModRows] = {}; bool globalInit[kNumModRows] = {};
+    float swellEff = 0.64f;
+    Pallet* lastPallet = nullptr;
+    uint32_t learnCounter = 0;
     float outGain = 0.5f;
     bool limiter = false;
     double cpuAvg = 0;

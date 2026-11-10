@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Params.hpp"
+#include "Matrix.hpp"
 #include <map>
 #include <string>
 #include <sstream>
@@ -17,21 +18,23 @@ static const char* const kGroupIds[kNumGroups] = { "stops", "voicing", "tuning",
 static const char* const kGroupLabels[kNumGroups] = { "STOPS & COUPLERS", "VOICING (PER PIPE)", "TUNING + PIPE OFFSETS", "WIND", "ROOM & OUTPUT", "EXPRESSION MAPPING", "INPUT ROUTING" };
 
 // State keys (non-parameter data)
-enum StateKey { kStateVoicing = 0, kStatePipeTune, kStateScalaScl, kStateScalaKbm, kStateScalaName, kStateCombos, kStatePresetName, kNumStates };
-static const char* const kStateKeys[kNumStates] = { "voicing", "pipetune", "scala_scl", "scala_kbm", "scala_name", "combos", "preset_name" };
+enum StateKey { kStateVoicing = 0, kStatePipeTune, kStateScalaScl, kStateScalaKbm, kStateScalaName, kStateCombos, kStatePresetName,
+                kStateMatrix, kStateCustomIr, kNumStates };
+static const char* const kStateKeys[kNumStates] = { "voicing", "pipetune", "scala_scl", "scala_kbm", "scala_name", "combos", "preset_name",
+                "matrix", "custom_ir" };
 
 inline int paramGroup(int id) {
     if (id < kNumStops) return kGroupStops;
     switch (id) {
     case kParamSwell: case kParamTremSpeed: case kParamTremDepth: case kParamTremTarget: case kParamStability:
     case kParamReservoir: case kParamBlowerNoise: case kParamConcussion: case kParamBlowerOn: return kGroupWind;
-    case kParamStrict: case kParamPressMin: case kParamPressMax: case kParamPalletFast: case kParamPalletSlow:
-    case kParamReleaseMs: case kParamSlideDepth: case kParamBendStopped: case kParamBendOpen: case kParamBendString:
+    case kParamStrict: case kParamPressMax: case kParamPalletFast: case kParamPalletSlow:
+    case kParamReleaseMs: case kParamBendStopped: case kParamBendOpen: case kParamBendString:
     case kParamBendReed: return kGroupExpression;
     case kParamTuning: case kParamEdoN: case kParamARef: case kParamMapLo: case kParamMapHi: case kParamMapPed:
     case kParamEnharmonic: case kParamPipeTemp: case kParamAgeDrift: return kGroupTuning;
     case kParamRoom: case kParamDistance: case kParamMicHeight: case kParamWidth: case kParamRoomMix: case kParamPreDelay:
-    case kParamOutputGain: case kParamMicType: case kParamQuality: case kParamLimiter: return kGroupRoom;
+    case kParamOutputGain: case kParamMicType: case kParamQuality: case kParamLimiter: case kParamIrTrim: case kParamIrOrder: return kGroupRoom;
     case kParamZoneLoDiv: case kParamZoneHiDiv: case kParamPedalSplit: return kGroupRouting;
     default: return -1;
     }
@@ -41,6 +44,8 @@ inline int stateGroup(int s) {
     case kStateVoicing: return kGroupVoicing;
     case kStatePipeTune: case kStateScalaScl: case kStateScalaKbm: case kStateScalaName: return kGroupTuning;
     case kStateCombos: return kGroupStops;
+    case kStateMatrix: return kGroupExpression;
+    case kStateCustomIr: return kGroupRoom;
     default: return -1;
     }
 }
@@ -145,6 +150,8 @@ inline PresetData factoryPreset(int index) {
     p.states[kStateScalaKbm] = "";
     p.states[kStateScalaName] = "";
     p.states[kStateCombos] = "";
+    p.states[kStateMatrix] = "";
+    p.states[kStateCustomIr] = "";
     switch (kFactoryRecipe[index]) {
     case 0:
         on({ "gt_principal", "gt_octave", "gt_superoct", "gt_mixtur", "pd_subbass", "pd_octavbass", "pd_choralbass", "cp_gt_pd" });
@@ -180,11 +187,24 @@ inline PresetData factoryPreset(int index) {
         set(kParamTuning, kTun19); set(kParamMapLo, kMapSubset); set(kParamMapHi, kMapSequential); break;
     case 10:
         on({ "gt_rohrflote", "sw_flute" });
-        set(kParamTuning, kTun12); set(kParamPressMin, 25.f); set(kParamPressMax, 130.f); set(kParamSlideDepth, 1.f);
+        set(kParamTuning, kTun12); set(kParamPressMax, 130.f);
+        {   // breath: the key is the pallet all the way, aftertouch aims the jet
+            ModMatrix m; m.setDefaults();
+            m.rows[0].hi = 1.f; m.rows[0].curve = kCurveSoft; m.rows[0].smoothMs = 20.f;
+            m.rows[1].dest = kDstJet; m.rows[1].restMid = false; m.rows[1].amount = 0.8f;
+            m.rows[2].dest = kDstJet; m.rows[2].amount = 0.8f;
+            p.states[kStateMatrix] = m.serialize();
+        }
         set(kParamPalletSlow, 120.f); set(kParamStability, 0.9f); break;
     case 11:
         on({ "gt_trompete", "sw_hautbois", "pd_posaune" });
-        set(kParamTuning, kTun12); set(kParamPressMin, 45.f); set(kParamPressMax, 140.f); set(kParamSwell, 1.f); break;
+        set(kParamTuning, kTun12); set(kParamPressMax, 140.f); set(kParamSwell, 1.f);
+        {   // reeds: aftertouch pushes the wind hard
+            ModMatrix m; m.setDefaults();
+            m.rows[1].zone = kZoneAll; m.rows[1].curve = kCurveLin;
+            p.states[kStateMatrix] = m.serialize();
+        }
+        break;
     default: break;
     }
     return p;

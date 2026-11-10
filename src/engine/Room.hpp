@@ -10,8 +10,10 @@
 
 namespace pipe {
 
+// Lite (algorithmic) buildings, indexed by roomLiteIndex(); the last entry is "dry".
 struct RoomShape { float rt60, hfRatio, size, lengthM, widthM; };
-constexpr RoomShape kRoomShapes[kNumRooms] = {
+constexpr int kNumLiteShapes = 5;
+constexpr RoomShape kRoomShapes[kNumLiteShapes] = {
     { 1.8f, 0.55f, 0.55f, 22.f, 9.f },    // village church
     { 4.2f, 0.50f, 1.00f, 42.f, 14.f },   // abbey nave
     { 7.5f, 0.45f, 1.60f, 90.f, 24.f },   // cathedral
@@ -31,7 +33,12 @@ struct DelayLine {
     void clear() { std::fill(buf.begin(), buf.end(), 0.f); }
 };
 
-class Room {
+inline int roomLiteIndex(int room) {
+    if (room >= kRoomLiteVillage && room <= kRoomLiteHall) return room - kRoomLiteVillage;
+    return 4;   // dry
+}
+
+class LiteRoom {
 public:
     void prepare(double sampleRate) {
         fs = (float)sampleRate;
@@ -50,11 +57,11 @@ public:
         airL = airR = 0.f; shL = shR = 0.f;
     }
 
-    int preset = kRoomAbbey, mic = 0;
+    int preset = 1, mic = 0;   // preset: lite index
     float distance = 18.f, height = 3.f, width = 1.1f, mix = 0.55f, preDelayMs = 22.f;
 
     void configure() {
-        const RoomShape& r = kRoomShapes[std::max(0, std::min(kNumRooms - 1, preset))];
+        const RoomShape& r = kRoomShapes[std::max(0, std::min(kNumLiteShapes - 1, preset))];
         static const float base[8] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
         for (int i = 0; i < 8; ++i) {
             len[i] = std::max(8, (int)(base[i] * r.size * fs * 1.6f));

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <vector>
 #include <cstring>
+#include <thread>
 using namespace pipe;
 
 static void writeWav(const char* path, const std::vector<float>& L, const std::vector<float>& R, int fs) {
@@ -66,7 +67,7 @@ int main(int argc, char** argv) {
     // ---- 2. full organ chord: stability + cost
     e->prepare(fs);
     for (int s = 0; s < kNumStops; ++s) e->setParameter(s, paramInfo(s).def);
-    e->setParameter(kParamRoom, kRoomAbbey); e->setParameter(kParamRoomMix, 0.55f); e->setParameter(kParamDistance, 18.f);
+    e->setParameter(kParamRoom, kRoomLiteAbbey); e->setParameter(kParamRoomMix, 0.55f); e->setParameter(kParamDistance, 18.f);
     e->setParameter(kParamTuning, kTun31); e->setParameter(kParamStability, 0.7f); e->setParameter(kParamBlowerNoise, -62.f);
     e->setParameter(kParamZoneLoDiv, kGreat); e->setParameter(kParamPedalSplit, 48.f);
     int N = fs * 6; std::vector<float> L(N), R(N);
@@ -101,6 +102,114 @@ int main(int argc, char** argv) {
     double h1 = measureHz(L2, fs / 2, fs, 261.63, fs), h2 = measureHz(L2, fs + fs / 2, fs, 261.63 * 1.1);
     if (std::fabs(1200 * std::log2(h1 / 261.63)) > 5) ++failures;
     printf("MPE bend on stopped flute: %.1f Hz -> %.1f Hz (%+.0f cents, limit 200)\n", h1, h2, 1200 * std::log2(h2 / h1));
+
+    // ---- 4. Expression matrix with the three kinds of controller
+    auto run = [&](std::unique_ptr<Engine>& en, int samples) { std::vector<float> a(samples), b(samples); for (int i = 0; i < samples; i += 64) en->render(&a[i], &b[i], std::min(64, samples - i)); return a; };
+    auto setup = [&](std::unique_ptr<Engine>& en) {
+        en->prepare(fs); silenceAllStops(*en); en->setParameter(9, 1.f);   // Principal 8
+        en->setParameter(kParamTuning, kTun12); en->setParameter(kParamRoom, kRoomDry); en->setParameter(kParamAgeDrift, 0.f);
+        en->setParameter(kParamZoneLoDiv, kGreat); en->setParameter(kParamPedalSplit, 0.f);
+    };
+    {   // Osmose (MPE): pressure travel then aftertouch on CC74
+        auto en = std::make_unique<Engine>(); setup(en);
+        uint8_t on[3] = { 0x91, 60, 90 }; en->midi(on, 3);
+        run(en, fs / 50);                                   // before any pressure arrives
+        const float waiting = en->getParameter(kOutDstPallet);
+        for (int v = 0; v <= 127; v += 16) { uint8_t m[2] = { 0xD1, (uint8_t)v }; en->midi(m, 2); run(en, 256); }
+        uint8_t full[2] = { 0xD1, 127 }; en->midi(full, 2);
+        uint8_t cc0[3] = { 0xB1, 74, 0 }; en->midi(cc0, 3);
+        auto a = run(en, fs);
+        const float footVoiced = en->getParameter(kOutDstFoot);
+        const double hz = measureHz(a, fs / 2, fs, 261.63);
+        uint8_t cc1[3] = { 0xB1, 74, 127 }; en->midi(cc1, 3);
+        run(en, fs / 2);
+        const float footBoost = en->getParameter(kOutDstFoot);
+        uint8_t offA[3] = { 0x81, 60, 64 }; en->midi(offA, 3); run(en, fs / 4);
+        uint8_t on2[3] = { 0x92, 64, 90 }; en->midi(on2, 3); run(en, 480);
+        const float waiting2 = en->getParameter(kOutDstPallet);
+        printf("Osmose MPE: second note waits for its pressure: pallet %.0f%%\n", waiting2);
+        if (waiting2 > 5.f) ++failures;
+        printf("Osmose MPE: pallet %.0f%% before pressure arrives, foot %.0f mm at full key travel (%+.1f c), %.0f mm deep in aftertouch\n",
+               waiting, footVoiced, 1200 * std::log2(hz / 261.63), footBoost);
+        if (std::fabs(footVoiced - 78.f) > 3.f || footBoost < 100.f || std::fabs(1200 * std::log2(hz / 261.63)) > 8) ++failures;
+    }
+    {   // keyboard with polyphonic aftertouch
+        auto en = std::make_unique<Engine>(); setup(en);
+        uint8_t on[3] = { 0x90, 60, 100 }; en->midi(on, 3); run(en, fs / 4);
+        const float f0 = en->getParameter(kOutDstFoot);
+        uint8_t at[3] = { 0xA0, 60, 64 }; en->midi(at, 3); run(en, fs / 4);
+        const float f1 = en->getParameter(kOutDstFoot);
+        printf("poly aftertouch keyboard: %.0f mm, with half aftertouch %.0f mm\n", f0, f1);
+        if (std::fabs(f0 - 78.f) > 3.f || f1 <= f0) ++failures;
+    }
+    {   // plain keyboard: no expression data at all
+        auto en = std::make_unique<Engine>(); setup(en);
+        uint8_t on[3] = { 0x90, 60, 64 }; en->midi(on, 3); run(en, fs / 4);
+        printf("plain keyboard: %.0f mm\n", en->getParameter(kOutDstFoot));
+        if (std::fabs(en->getParameter(kOutDstFoot) - 78.f) > 3.f) ++failures;
+    }
+
+    // ---- 5. Measured rooms (convolution), if this build has them
+    {
+        auto en = std::make_unique<Engine>(); setup(en);
+        en->setParameter(kParamRoom, kRoomMinster); en->setParameter(kParamRoomMix, 0.5f);
+        int waited = 0;
+        do { run(en, 480); std::this_thread::sleep_for(std::chrono::milliseconds(10)); ++waited; }
+        while (en->getParameter(kOutRoomStatus) == kRoomBuilding && waited < 400);
+        const int st = (int)en->getParameter(kOutRoomStatus);
+        if (st == kRoomNoData) printf("measured rooms: not in this build (lite fallback)\n");
+        else {
+            uint8_t on[3] = { 0x90, 60, 100 }, off[3] = { 0x80, 60, 64 };
+            en->midi(on, 3); run(en, fs / 2); en->midi(off, 3);
+            auto t0 = std::chrono::steady_clock::now();
+            auto tail = run(en, fs * 3);
+            const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            double e1 = 0, e2 = 0; for (int i = 0; i < fs / 2; ++i) e1 += tail[i] * tail[i]; for (int i = fs * 2; i < fs * 5 / 2; ++i) e2 += tail[i] * tail[i];
+            printf("York Minster: status %d, position %.0f at %.1f m, tail after 2 s %.1f dB below release, cost %.1f%% of one core\n",
+                   st, en->getParameter(kOutRoomPos), en->getParameter(kOutRoomPosDist), 10 * std::log10(e2 / (e1 + 1e-20) + 1e-20), 100 * el / 3.0);
+            if (st != kRoomReady || !(e2 > 0) || e2 > e1) ++failures;
+        }
+    }
+    // ---- 6. Custom impulse response from a WAV file (stereo, 24-bit), and a bad path
+    {
+        const char* path = "custom_ir_test.wav";
+        {
+            const int n = fs * 2; std::vector<uint8_t> d;
+            auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) d.push_back((uint8_t)(v >> (8 * i))); };
+            auto u16 = [&](uint16_t v) { d.push_back((uint8_t)v); d.push_back((uint8_t)(v >> 8)); };
+            d.insert(d.end(), { 'R', 'I', 'F', 'F' }); u32(36 + n * 6); d.insert(d.end(), { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
+            u32(16); u16(1); u16(2); u32(44100); u32(44100 * 6); u16(6); u16(24);
+            d.insert(d.end(), { 'd', 'a', 't', 'a' }); u32(n * 6);
+            uint32_t rng = 1;
+            for (int i = 0; i < n; ++i)
+                for (int c = 0; c < 2; ++c) {
+                    rng = rng * 1664525u + 1013904223u;
+                    const float v = i == 0 ? 0.9f : ((int)(rng >> 9) / 4194304.f - 1.f) * 0.3f * std::exp(-3.f * i / 44100.f);
+                    const int32_t q = (int32_t)(v * 8388607.f);
+                    d.push_back((uint8_t)q); d.push_back((uint8_t)(q >> 8)); d.push_back((uint8_t)(q >> 16));
+                }
+            FILE* f = std::fopen(path, "wb"); std::fwrite(d.data(), 1, d.size(), f); std::fclose(f);
+        }
+        auto wait = [&](std::unique_ptr<Engine>& en) {
+            int waited = 0;
+            do { run(en, 480); std::this_thread::sleep_for(std::chrono::milliseconds(10)); ++waited; }
+            while (en->getParameter(kOutRoomStatus) == kRoomBuilding && waited < 400);
+            return (int)en->getParameter(kOutRoomStatus);
+        };
+        auto en = std::make_unique<Engine>(); setup(en);
+        en->setCustomIrPath(path); en->setParameter(kParamRoom, kRoomCustom);
+        const int stOk = wait(en);
+        uint8_t on[3] = { 0x90, 60, 100 }, off[3] = { 0x80, 60, 64 };
+        en->midi(on, 3); run(en, fs / 2); en->midi(off, 3);
+        auto tail = run(en, fs * 2);
+        double e1 = 0, e2 = 0; for (int i = 0; i < fs / 4; ++i) e1 += tail[i] * tail[i]; for (int i = fs; i < fs * 5 / 4; ++i) e2 += tail[i] * tail[i];
+        en->setCustomIrPath("/no/such/file.wav");
+        const int stBad = wait(en);
+        printf("custom IR: status %d, tail after 1 s %.1f dB; missing file -> status %d\n", stOk, 10 * std::log10(e2 / (e1 + 1e-20) + 1e-20), stBad);
+        if (stOk != kRoomReady || !(e2 > 0) || stBad != kRoomCustomError) ++failures;
+        std::remove(path);
+    }
+
     printf("%s\n", failures ? "FAILURES" : "ALL CHECKS PASSED");
     return failures ? 1 : 0;
 }

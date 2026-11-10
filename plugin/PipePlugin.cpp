@@ -158,6 +158,8 @@ private:
         case kStatePipeTune: engine->setPipeTuningText(states[i]); break;
         case kStateScalaScl:
         case kStateScalaKbm: engine->setScala(states[kStateScalaScl], states[kStateScalaKbm]); break;
+        case kStateMatrix: engine->setMatrixText(states[i]); break;
+        case kStateCustomIr: engine->setCustomIrPath(states[i]); break;
         default: break;
         }
     }

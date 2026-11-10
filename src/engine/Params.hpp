@@ -29,8 +29,14 @@ enum TuningSystem { kTun12 = 0, kTunWerck, kTunMeantone, kTunKirn, kTunVallotti,
     kTun19, kTun22, kTun24, kTun31, kTun41, kTun53, kTunCustomEdo, kTunScala, kNumTuningSystems };
 static const char* const kMapLabels[] = { "SUBSET", "SEQUENTIAL", "SCALA KBM" };
 enum KeyMapMode { kMapSubset = 0, kMapSequential, kMapKbm };
-static const char* const kRoomLabels[] = { "VILLAGE CHURCH", "ABBEY NAVE", "CATHEDRAL", "CONCERT HALL", "DRY / CLOSE" };
-enum RoomPreset { kRoomVillage = 0, kRoomAbbey, kRoomCathedral, kRoomHall, kRoomDry, kNumRooms };
+static const char* const kRoomLabels[] = { "ST ANDREW'S LYNDHURST", "ST MARGARET'S YORK", "YORK MINSTER", "JACK LYONS HALL",
+    "CUSTOM IR", "LITE VILLAGE CHURCH", "LITE ABBEY NAVE", "LITE CATHEDRAL", "LITE CONCERT HALL", "DRY / CLOSE" };
+enum RoomPreset { kRoomStAndrews = 0, kRoomStMargarets, kRoomMinster, kRoomJackLyons, kRoomCustom,
+    kRoomLiteVillage, kRoomLiteAbbey, kRoomLiteCathedral, kRoomLiteHall, kRoomDry, kNumRooms };
+constexpr int kNumMeasuredRooms = 4;
+inline bool roomIsMeasured(int r) { return r >= kRoomStAndrews && r <= kRoomJackLyons; }
+inline bool roomIsConvolution(int r) { return r <= kRoomCustom; }
+static const char* const kIrOrderLabels[] = { "FUMA", "AMBIX" };
 static const char* const kMicLabels[] = { "AB", "ORTF", "BINAURAL" };
 static const char* const kQualityLabels[] = { "ECO", "STD", "HQ" };
 static const char* const kZoneDivLabels[] = { "PEDAL", "GREAT", "SWELL", "OFF" };
@@ -40,18 +46,23 @@ enum ParamId {
     kParamSwell = kNumStops,
     kParamTremSpeed, kParamTremDepth, kParamTremTarget,
     kParamStability, kParamReservoir, kParamBlowerNoise, kParamConcussion, kParamBlowerOn,
-    kParamStrict, kParamPressMin, kParamPressMax, kParamPalletFast, kParamPalletSlow, kParamReleaseMs,
-    kParamSlideDepth, kParamBendStopped, kParamBendOpen, kParamBendString, kParamBendReed,
+    kParamStrict, kParamPressMax, kParamPalletFast, kParamPalletSlow, kParamReleaseMs,
+    kParamBendStopped, kParamBendOpen, kParamBendString, kParamBendReed,
     kParamTuning, kParamEdoN, kParamARef, kParamMapLo, kParamMapHi, kParamMapPed, kParamEnharmonic,
     kParamPipeTemp, kParamAgeDrift,
     kParamRoom, kParamDistance, kParamMicHeight, kParamWidth, kParamRoomMix, kParamPreDelay,
-    kParamOutputGain, kParamMicType, kParamQuality, kParamLimiter,
+    kParamOutputGain, kParamMicType, kParamQuality, kParamLimiter, kParamIrTrim, kParamIrOrder,
     kParamZoneLoDiv, kParamZoneHiDiv, kParamPedalSplit,
     // ---- outputs (DSP -> UI meters) ----
     kOutFirst,
     kOutReservoir = kOutFirst, kOutChestPd, kOutChestGt, kOutChestSw, kOutDemand, kOutPipes, kOutCpu,
     kOutPeakL, kOutPeakR,
     kOutSeenLo, kOutSeenHi, kOutMembersLo, kOutMembersHi, kOutBendLo, kOutBendHi,
+    // live view of the most recent note: sources in, mechanisms out
+    kOutLiveKey, kOutLiveZone, kOutLiveStrike, kOutLivePressure, kOutLivePolyAT, kOutLiveCC74, kOutLiveBend,
+    kOutDstPallet, kOutDstBoost, kOutDstJet, kOutDstPitch, kOutDstChiff, kOutDstFoot, kOutSwellEff, kOutTremEff,
+    kOutLearn,                       // last expressive message (type*128 + cc) + 1024 * counter
+    kOutRoomStatus, kOutRoomPos, kOutRoomPosDist,
     kOutNote0,                       // 5 x (key, source, foot pressure mm, cents)
     kOutNoteLast = kOutNote0 + 5 * 4 - 1,
     kNumParams
@@ -88,12 +99,10 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamConcussion,  { "concussion", "Concussion Bellows", 0.f, 1.f, 0.4f, kPFloat, "", 0, nullptr });
         set(kParamBlowerOn,    { "blower", "Blower", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamStrict,      { "strict", "Strict Physical Limits", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
-        set(kParamPressMin,    { "press_min", "Key Pressure Min", 20.f, 78.f, 50.f, kPFloat, "mm", 0, nullptr });
-        set(kParamPressMax,    { "press_max", "Key Pressure Max", 78.f, 160.f, 110.f, kPFloat, "mm", 0, nullptr });
+        set(kParamPressMax,    { "boost_max", "Wind Boost Max Pressure", 80.f, 160.f, 110.f, kPFloat, "mm", 0, nullptr });
         set(kParamPalletFast,  { "pallet_fast", "Pallet Open (hard strike)", 2.f, 40.f, 8.f, kPFloat, "ms", 0, nullptr });
         set(kParamPalletSlow,  { "pallet_slow", "Pallet Open (soft strike)", 10.f, 200.f, 60.f, kPFloat, "ms", 0, nullptr });
         set(kParamReleaseMs,   { "pallet_close", "Pallet Close (default)", 5.f, 80.f, 20.f, kPFloat, "ms", 0, nullptr });
-        set(kParamSlideDepth,  { "slide_depth", "Slide To Jet Offset", 0.f, 1.f, 1.f, kPFloat, "", 0, nullptr });
         set(kParamBendStopped, { "bend_stopped", "Bend Limit Stopped", 0.f, 400.f, 200.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendOpen,    { "bend_open", "Bend Limit Open Flue", 0.f, 200.f, 50.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendString,  { "bend_string", "Bend Limit String", 0.f, 200.f, 30.f, kPFloat, "ct", 0, nullptr });
@@ -107,7 +116,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamEnharmonic,  { "enharmonic", "Flats Instead Of Sharps", 0.f, 1.f, 0.f, kPBool, "", 0, nullptr });
         set(kParamPipeTemp,    { "pipe_temp", "Pipe Temperature", 5.f, 35.f, 18.f, kPFloat, "C", 0, nullptr });
         set(kParamAgeDrift,    { "age_drift", "Age Drift", 0.f, 10.f, 1.5f, kPFloat, "ct", 0, nullptr });
-        set(kParamRoom,        { "room", "Building", 0.f, (float)(kNumRooms - 1), 1.f, kPEnum, "", kNumRooms, kRoomLabels });
+        set(kParamRoom,        { "room", "Building", 0.f, (float)(kNumRooms - 1), (float)kRoomStMargarets, kPEnum, "", kNumRooms, kRoomLabels });
         set(kParamDistance,    { "distance", "Listener Distance", 2.f, 40.f, 18.f, kPFloat, "m", 0, nullptr });
         set(kParamMicHeight,   { "mic_height", "Listener Height", 1.f, 8.f, 3.f, kPFloat, "m", 0, nullptr });
         set(kParamWidth,       { "width", "Stereo Width", 0.f, 2.f, 1.1f, kPFloat, "", 0, nullptr });
@@ -117,6 +126,8 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamMicType,     { "mics", "Microphones", 0.f, 2.f, 0.f, kPEnum, "", 3, kMicLabels });
         set(kParamQuality,     { "quality", "Quality", 0.f, 2.f, 1.f, kPEnum, "", 3, kQualityLabels });
         set(kParamLimiter,     { "limiter", "Output Limiter", 0.f, 1.f, 0.f, kPBool, "", 0, nullptr });
+        set(kParamIrTrim,      { "ir_trim_direct", "IR Direct Sound From Model", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
+        set(kParamIrOrder,     { "ir_order", "Custom IR 4-Channel Order", 0.f, 1.f, 0.f, kPEnum, "", 2, kIrOrderLabels });
         set(kParamZoneLoDiv,   { "zone_lo", "Lower Zone Plays", 0.f, 3.f, 1.f, kPEnum, "", 4, kZoneDivLabels });
         set(kParamZoneHiDiv,   { "zone_hi", "Upper Zone Plays", 0.f, 3.f, 2.f, kPEnum, "", 4, kZoneDivLabels });
         set(kParamPedalSplit,  { "pedal_split", "Pedal Split Key (0=off)", 0.f, 72.f, 0.f, kPInt, "", 0, nullptr });
@@ -135,6 +146,11 @@ inline const ParamInfo& paramInfo(int id) {
         set(kOutMembersHi,     { "out_members_hi", "Upper Zone Channels", 0.f, 15.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutBendLo,        { "out_bend_lo", "Lower Zone Bend Range", 0.f, 96.f, 48.f, kPOutput, "st", 0, nullptr });
         set(kOutBendHi,        { "out_bend_hi", "Upper Zone Bend Range", 0.f, 96.f, 48.f, kPOutput, "st", 0, nullptr });
+        static const char* liveSyms[] = { "out_live_key", "out_live_zone", "out_live_strike", "out_live_pressure", "out_live_polyat",
+            "out_live_cc74", "out_live_bend", "out_dst_pallet", "out_dst_boost", "out_dst_jet", "out_dst_pitch", "out_dst_chiff",
+            "out_dst_foot", "out_swell_eff", "out_trem_eff", "out_learn", "out_room_status", "out_room_pos", "out_room_pos_dist" };
+        for (int i = kOutLiveKey; i <= kOutRoomPosDist; ++i)
+            table[i] = { liveSyms[i - kOutLiveKey], liveSyms[i - kOutLiveKey] + 4, -100000.f, 100000.f, 0.f, kPOutput, "", 0, nullptr };
         static char noteSyms[kNumShownNotes * 4][24];
         static char noteNames[kNumShownNotes * 4][32];
         static const char* fields[4] = { "key", "src", "mm", "ct" };

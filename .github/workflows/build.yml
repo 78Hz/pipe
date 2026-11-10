@@ -11,8 +11,41 @@ permissions:
   contents: write
 
 jobs:
+  irs:
+    name: Measured rooms (OpenAIR)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python packages
+        run: pip install numpy scipy
+      - name: Download cache
+        uses: actions/cache@v4
+        with:
+          path: ir-cache
+          key: openair-${{ hashFiles('tools/prepare_irs.py') }}
+          restore-keys: openair-
+      - name: Download and prepare impulse responses
+        run: |
+          if ! python3 tools/prepare_irs.py --out irs --cache ir-cache; then
+            echo "::warning::OpenAIR download failed - building with the lite rooms only"
+            rm -rf irs
+            python3 tools/prepare_irs.py --out irs --empty
+          fi
+          ls -la irs
+          head -30 irs/IrMeta.hpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irs
+          path: |
+            irs/ir_blob.bin
+            irs/IrMeta.hpp
+
   build:
     name: ${{ matrix.name }}
+    needs: irs
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -38,6 +71,11 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: irs
+          path: irs
+
       - name: Windows toolchain (MSYS2 MinGW)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -54,11 +92,11 @@ jobs:
       - name: Configure
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPIPE_IR_DIR="$PWD/irs" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPIPE_IR_DIR="$PWD/irs"
           else
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPIPE_IR_DIR="$PWD/irs"
           fi
 
       - name: Build
@@ -87,7 +125,8 @@ jobs:
           mkdir -p dist/Pipe
           cp -R build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.lv2 dist/Pipe/
           [ -e build/bin/Pipe.component ] && cp -R build/bin/Pipe.component dist/Pipe/ || true
-          cp README.md resources/OFL-VT323.txt dist/Pipe/
+          cp README.md resources/OFL-VT323.txt third_party/pffft/LICENSE.txt dist/Pipe/
+          mv dist/Pipe/LICENSE.txt dist/Pipe/LICENSE-pffft.txt
           cd dist
           zip -r -y ../Pipe-${{ matrix.slug }}.zip Pipe
 
@@ -107,13 +146,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: Pipe-*
       - name: Create or refresh the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=$(sed -nE 's/^project\(pipe VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
           TAG="v${VER}"
-          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README. Built from ${GITHUB_SHA::7}."
+          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
           gh release create "$TAG" artifacts/*/*.zip \
             --repo "$GITHUB_REPOSITORY" \

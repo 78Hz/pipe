@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
-project(pipe VERSION 0.1.0 LANGUAGES C CXX)
+project(pipe VERSION 0.2.0 LANGUAGES C CXX ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,13 +24,43 @@ if(APPLE)
   list(APPEND PIPE_TARGETS au)
 endif()
 
+# ---- measured rooms (OpenAIR impulse responses, prepared by tools/prepare_irs.py)
+set(PIPE_IR_DIR "${CMAKE_BINARY_DIR}/irs" CACHE PATH "Folder with ir_blob.bin and IrMeta.hpp")
+if(NOT EXISTS "${PIPE_IR_DIR}/ir_blob.bin" OR NOT EXISTS "${PIPE_IR_DIR}/IrMeta.hpp")
+  message(STATUS "Pipe: no measured rooms in ${PIPE_IR_DIR} - building with lite rooms only")
+  set(PIPE_IR_DIR "${CMAKE_BINARY_DIR}/irs-empty")
+  file(MAKE_DIRECTORY "${PIPE_IR_DIR}")
+  file(WRITE "${PIPE_IR_DIR}/ir_blob.bin" "EMPTY")
+  file(WRITE "${PIPE_IR_DIR}/IrMeta.hpp" "#pragma once\nnamespace pipe { namespace irmeta {\nstruct Position { int room; int index; const char* name; float distance; float t30Low; float t30High; };\nconstexpr int kCount = 0;\nstatic const Position kPositions[] = { { -1, -1, \"\", 0.f, 0.f, 0.f } };\nstatic const int kAbPair[4][2] = { { -1, -1 }, { -1, -1 }, { -1, -1 }, { -1, -1 } };\nstatic const char* const kCredits[4] = { \"\", \"\", \"\", \"\" };\n}}\n")
+else()
+  message(STATUS "Pipe: measured rooms from ${PIPE_IR_DIR}")
+endif()
+set(PIPE_IR_BLOB "${PIPE_IR_DIR}/ir_blob.bin")
+configure_file(src/engine/IrBlob.S.in "${CMAKE_BINARY_DIR}/IrBlob.S" @ONLY)
+set_property(SOURCE "${CMAKE_BINARY_DIR}/IrBlob.S" APPEND PROPERTY OBJECT_DEPENDS "${PIPE_IR_BLOB}")
+
+add_library(pipe_dsp_support STATIC
+  third_party/pffft/pffft.c
+  third_party/pffft/pffft_common.c
+  src/engine/IrBlob.cpp
+  "${CMAKE_BINARY_DIR}/IrBlob.S")
+target_include_directories(pipe_dsp_support PUBLIC third_party/pffft "${PIPE_IR_DIR}")
+target_compile_definitions(pipe_dsp_support PRIVATE PIPE_HAVE_IR_BLOB)
+set_target_properties(pipe_dsp_support PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_definitions(pipe_dsp_support PRIVATE _USE_MATH_DEFINES)
+else()
+  target_compile_options(pipe_dsp_support PRIVATE $<$<COMPILE_LANGUAGE:C>:-O3>)
+endif()
+
 dpf_add_plugin(Pipe
   TARGETS ${PIPE_TARGETS}
   USE_FILE_BROWSER
   FILES_DSP plugin/PipePlugin.cpp
   FILES_UI  plugin/PipeUI.cpp)
 
-target_include_directories(Pipe PUBLIC plugin src)
+target_include_directories(Pipe PUBLIC plugin src third_party/pffft "${PIPE_IR_DIR}")
+target_link_libraries(Pipe-dsp PRIVATE pipe_dsp_support)
 
 if(MSVC)
   target_compile_options(Pipe PUBLIC /fp:fast /O2)
@@ -44,6 +74,9 @@ option(PIPE_BUILD_TESTS "Build the offline engine test" ON)
 if(PIPE_BUILD_TESTS)
   add_executable(pipe_render_test tests/render_test.cpp)
   target_include_directories(pipe_render_test PRIVATE src)
+  target_link_libraries(pipe_render_test PRIVATE pipe_dsp_support)
+  find_package(Threads REQUIRED)
+  target_link_libraries(pipe_render_test PRIVATE Threads::Threads)
   if(MSVC)
     target_compile_definitions(pipe_render_test PRIVATE _USE_MATH_DEFINES NOMINMAX)
   endif()
