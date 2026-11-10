@@ -63,8 +63,8 @@ constexpr FlueFamilyConst kFlueFamily[kNumFlueFamilies] = {
 };
 struct ReedFamilyConst { float position, slope, boreFc; };
 constexpr ReedFamilyConst kReedFamily[kNumReedFamilies] = {
-    { 0.35f, 0.30f, 6.0f },   // trumpet / trombone: full conical resonator
-    { 0.30f, 0.32f, 9.0f },   // oboe: narrow resonator, nasal
+    { 0.22f, 0.28f, 8.0f },   // trumpet / trombone: full conical resonator
+    { 0.25f, 0.28f, 10.0f },  // oboe: narrow resonator, nasal
 };
 constexpr float kFlueVoicedBreath = 0.9f;   // jet drive at the voiced foot pressure
 constexpr float kReedVoicedBreath = 0.72f;  // reed blowing pressure at the voiced foot pressure

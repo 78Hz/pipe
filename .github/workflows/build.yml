@@ -21,16 +21,29 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
             slug: linux-x64
+            shell: bash
           - name: macOS universal
-            os: macos-14
+            os: macos-latest
             slug: macos-universal
+            shell: bash
           - name: Windows x64
             os: windows-latest
             slug: windows-x64
+            shell: msys2 {0}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Windows toolchain (MSYS2 MinGW)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja zip
 
       - name: Linux dependencies
         if: runner.os == 'Linux'
@@ -39,12 +52,11 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev
 
       - name: Configure
-        shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            cmake -S . -B build -A x64
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           else
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           fi
@@ -53,9 +65,7 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: Engine checks (tuning, stability, MPE)
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then ./build/Release/pipe_render_test.exe build/chord.wav; else ./build/pipe_render_test build/chord.wav; fi
+        run: ./build/pipe_render_test build/chord.wav
 
       - name: Load the built CLAP and play it (Linux)
         if: runner.os == 'Linux'
@@ -72,18 +82,13 @@ jobs:
           ls -la build/bin
 
       - name: Package
-        shell: bash
         run: |
           mkdir -p dist/Pipe
           cp -R build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.lv2 dist/Pipe/
           [ -e build/bin/Pipe.component ] && cp -R build/bin/Pipe.component dist/Pipe/ || true
           cp README.md resources/OFL-VT323.txt dist/Pipe/
           cd dist
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            7z a -tzip ../Pipe-${{ matrix.slug }}.zip Pipe
-          else
-            zip -r -y ../Pipe-${{ matrix.slug }}.zip Pipe
-          fi
+          zip -r -y ../Pipe-${{ matrix.slug }}.zip Pipe
 
       - uses: actions/upload-artifact@v4
         with:

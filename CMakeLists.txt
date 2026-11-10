@@ -9,6 +9,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+if(MINGW)
+  # self-contained plugins: no libstdc++/libgcc/winpthread DLLs needed next to the host
+  set(PIPE_STATIC "-static -static-libgcc -static-libstdc++")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${PIPE_STATIC}")
+  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${PIPE_STATIC}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${PIPE_STATIC}")
+endif()
+
 add_subdirectory(dpf)
 
 set(PIPE_TARGETS lv2 vst3 clap)

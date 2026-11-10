@@ -98,6 +98,7 @@ struct Voice {
     float voicedRatio = 1.f;    // toe pressure / division nominal
     float gain = 0.f, gL = 0.f, gR = 0.f;
     float lpCoef = 1.f, lp = 0.f;
+    float emph = 0.f, emphCoef = 0.f, emphLp = 0.f;   // radiation shelf: narrow mouths and reed bells radiate highs
     float baseNoise = 0.01f, chiffAmt = 0.f, languid = 0.f;
     float bendLimit = 50.f;
     float flowWeight = 1.f;
@@ -455,7 +456,10 @@ private:
             float fcOut = (float)(3.0 * kSpeedOfSound / (M_PI * g.diameterMM * 0.001));
             if (rd.kind == kKindStopped) fcOut *= 0.7f;
             v.lpCoef = onePoleCoef(std::max(1200.f, fcOut), fs);
+            v.emph = rd.kind == kKindString ? 3.0f : rd.kind == kKindStopped ? 0.0f : 1.0f;
+            v.emphCoef = onePoleCoef((rd.kind == kKindString ? 2.5f : 4.0f) * (float)f, fs);
             v.gain = 0.12f * reg * std::pow((float)g.flowWeight, 0.25f);
+            if (rd.kind == kKindString) v.gain *= 1.6f;
             v.bendLimit = rd.kind == kKindStopped ? params[kParamBendStopped]
                         : rd.kind == kKindString ? params[kParamBendString] : params[kParamBendOpen];
             v.curBore = v.baseBore; v.curJet = v.baseJet;
@@ -476,6 +480,8 @@ private:
             core.delayA = v.baseA; core.delayB = v.baseB;
             v.baseNoise = 0.005f;
             v.lpCoef = onePoleCoef(std::min(0.45f * fs, (float)f * 14.f + 2500.f), fs);
+            v.emph = v.family == kReedOboe ? 2.5f : 2.0f;
+            v.emphCoef = onePoleCoef(3.0f * (float)f, fs);
             v.gain = 0.16f * reg;
             v.bendLimit = params[kParamBendReed];
             v.curA = v.baseA; v.curB = v.baseB;
@@ -670,7 +676,8 @@ private:
                     c.breath = v.curBreath; c.boreDelay = v.curBore; c.jetDelay = v.curJet; c.noiseAmt = v.curNoise;
                     float x = c.tick();
                     v.lp += v.lpCoef * (x - v.lp);
-                    x = v.lp * v.gain;
+                    v.emphLp += v.emphCoef * (v.lp - v.emphLp);
+                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
@@ -683,7 +690,8 @@ private:
                     c.breath = v.curBreath; c.delayA = v.curA; c.delayB = v.curB; c.noiseAmt = v.curNoise;
                     float x = c.tick();
                     v.lp += v.lpCoef * (x - v.lp);
-                    x = v.lp * v.gain;
+                    v.emphLp += v.emphCoef * (v.lp - v.emphLp);
+                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
