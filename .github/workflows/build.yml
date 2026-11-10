@@ -1,0 +1,109 @@
+name: Build plugins
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-22.04
+            slug: linux-x64
+          - name: macOS universal
+            os: macos-14
+            slug: macos-universal
+          - name: Windows x64
+            os: windows-latest
+            slug: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -S . -B build -A x64
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Engine checks (tuning, stability, MPE)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then ./build/Release/pipe_render_test.exe build/chord.wav; else ./build/pipe_render_test build/chord.wav; fi
+
+      - name: Load the built CLAP and play it (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_host_test.cpp -o clap_host_test -ldl
+          ./clap_host_test build/bin/Pipe.clap
+
+      - name: Sign (macOS, ad-hoc)
+        if: runner.os == 'macOS'
+        run: |
+          for b in build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.component build/bin/Pipe.lv2; do
+            [ -e "$b" ] && codesign --force --deep --sign - "$b"
+          done
+          ls -la build/bin
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist/Pipe
+          cp -R build/bin/Pipe.clap build/bin/Pipe.vst3 build/bin/Pipe.lv2 dist/Pipe/
+          [ -e build/bin/Pipe.component ] && cp -R build/bin/Pipe.component dist/Pipe/ || true
+          cp README.md resources/OFL-VT323.txt dist/Pipe/
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip ../Pipe-${{ matrix.slug }}.zip Pipe
+          else
+            zip -r -y ../Pipe-${{ matrix.slug }}.zip Pipe
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pipe-${{ matrix.slug }}
+          path: Pipe-${{ matrix.slug }}.zip
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" artifacts/*/*.zip \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Pipe ${GITHUB_REF_NAME}" \
+            --notes "Compiled plugins for Windows, macOS (Apple Silicon + Intel) and Linux. Download the zip for your system; installation steps are in the README."
