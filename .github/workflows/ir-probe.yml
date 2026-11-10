@@ -6,36 +6,12 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Find OpenAIR download links and inspect the files
+      - name: Look at the pages
         run: |
-          set -x
-          pip install numpy >/dev/null
-          echo "--- webfiles cert check"; curl -sSI https://webfiles.york.ac.uk/OPENAIR/IRs/heslington-church-vaa-group-2/Read%20Me.txt | head -3 || echo "webfiles cert FAILED"
-          for id in 683 696 797 571; do
-            echo "=== page $id"
-            curl -sSLk "https://www.openair.hosted.york.ac.uk/?page_id=$id" -o page_$id.html || true
-            grep -oE 'https?://[^"'"'"' )]*webfiles[^"'"'"' )]*' page_$id.html | sort -u | tee links_$id.txt
-            echo "size $(stat -c %s page_$id.html)"
-            grep -oiE '(href|src|data-[a-z-]+)="[^"]*"' page_$id.html | grep -iE 'zip|wav|ir|download|webfiles|OPENAIR|media|uploads' | grep -viE 'css|\.js|png|jpg|svg|feed|xmlrpc|wp-json|fonts' | sort -u | head -40
-            grep -oiE '[a-z0-9_/.:-]*\.(zip|wav)' page_$id.html | sort -u | head -20
-          done
-          mkdir -p dl
-          cat links_*.txt | grep -iE '\.(zip|wav)$' | sort -u > all.txt
-          wc -l all.txt
-          while read -r u; do
-            f="dl/$(echo "$u" | md5sum | cut -c1-8)_$(basename "$u" | tr ' %' '__')"
-            (curl -sSL --fail "$u" -o "$f" || curl -sSLk --fail "$u" -o "$f") && echo "OK $u -> $f ($(stat -c %s "$f") bytes)" || echo "FAIL $u"
-          done < all.txt
-          cd dl
-          for z in *.zip; do [ -e "$z" ] && { echo "=== $z"; unzip -l "$z" | head -60; mkdir -p "x_$z"; unzip -q -o "$z" -d "x_$z"; }; done
-          python3 - <<'PY'
-          import os, struct, glob
-          for p in sorted(glob.glob('**/*.wav', recursive=True)) + sorted(glob.glob('**/*.WAV', recursive=True)):
-              with open(p,'rb') as f: d=f.read(4096)
-              try:
-                  i=d.index(b'fmt '); fmt,ch,sr,br,ba,bits=struct.unpack('<HHIIHH', d[i+8:i+24])
-                  sz=os.path.getsize(p); print(f"{p}: fmt={fmt} ch={ch} sr={sr} bits={bits} secs~{sz/max(1,br):.1f}")
-              except Exception as e: print(p, 'unparsed', e)
-          PY
-          sha256sum *.zip *.wav 2>/dev/null || true
-          find . -iname '*.txt' -exec sh -c 'echo "--- $1"; head -40 "$1"' _ {} \;
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+          curl -sSLk "https://www.openair.hosted.york.ac.uk/?page_id=683" -o p.html; sed -e 's/<[^>]*>/ /g' p.html | tr -s ' \n' | head -c 1500; echo
+          curl -sSLk -A "$UA" "https://www.openair.hosted.york.ac.uk/?page_id=683" -o p2.html; echo "UA size $(stat -c %s p2.html)"
+          curl -sSLk -A "$UA" "https://www.openair.hosted.york.ac.uk/wp-json/wp/v2/pages/683" -o j.json; echo "json size $(stat -c %s j.json)"; head -c 600 j.json; echo
+          for f in p2.html j.json; do echo "== links in $f"; grep -oE 'https?:[^"'"'"' <>\\]*' $f | sed 's#\\/#/#g' | grep -iE 'zip|wav|webfiles|OPENAIR' | sort -u | head -40; done
+          echo "== webfiles index"; curl -sSL "https://webfiles.york.ac.uk/OPENAIR/IRs/" | sed -e 's/<[^>]*>/ /g' | tr -s ' \n' | head -c 3000; echo
+          for slug in st-andrews-church st-margarets-church york-minster jack-lyons-concert-hall-university-of-york; do echo "== $slug"; curl -sSL "https://webfiles.york.ac.uk/OPENAIR/IRs/$slug/" | sed -e 's/<[^>]*>/ /g' | tr -s ' \n' | head -c 1500; echo; done
