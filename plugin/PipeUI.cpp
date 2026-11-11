@@ -521,7 +521,18 @@ private:
         // sounding notes strip
         const float sy = 640;
         hline(10, sy - 6, kW - 20);
-        text(20, sy + 12, "SOUNDING  NOTE > PIPE PHYSICS", 21);
+        {
+            // a key that cannot sound says why, instead of just staying silent
+            const int sk = (int)pv[kOutSilentKey];
+            static const char* const nn[12] = { "C", "C#", "D", "EB", "E", "F", "F#", "G", "G#", "A", "BB", "B" };
+            if (sk >= 1000) {
+                const int key = sk % 1000;
+                const std::string name = std::string(nn[key % 12]) + std::to_string(key / 12 - 1);
+                text(20, sy + 12, sk >= 2000 ? "KEY " + name + ": NO STOP DRAWN ON ITS DIVISION"
+                                             : "KEY " + name + ": OUTSIDE THE COMPASS (MANUALS C2-A6, PEDAL C2-F4)", 21);
+            } else
+                text(20, sy + 12, "SOUNDING  NOTE > PIPE PHYSICS", 21);
+        }
         std::string info = std::string(kTuningLabels[(int)pv[kParamTuning]]) + fmt("  A=%.1f", pv[kParamARef]) +
                            fmt("   %.0f PIPES", pv[kOutPipes]) + fmt("   DSP %.0f%%", pv[kOutCpu])
                            + (pv[kOutClip] > 1.f ? (on(kParamLimiter) ? "   LIMITING" : "   CLIP!") : "");
@@ -740,7 +751,7 @@ private:
         dst("SWELL BOX", fmt("%.0f%%", pv[kOutSwellEff]), pv[kOutSwellEff] / 100.f);
         dst("TREMULANT", pv[kOutTremEff] < 0 ? std::string("OFF") : fmt("%.0f%%", pv[kOutTremEff]), std::max(0.f, pv[kOutTremEff]) / 100.f);
         y += 10;
-        titleBar(x, y, w, "BOOST CEILING", "OVERBLOW >100MM");
+        titleBar(x, y, w, "BOOST CEILING", "LOUDER, FLUES SHARPEN");
         y += 34;
         miniStep(x, y, "MAX", kParamPressMax, 2.f, "%.0fMM");
         y += 36;

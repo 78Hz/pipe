@@ -48,7 +48,7 @@ Expression runs through a **modulation matrix** of 10 rows. Each row takes a sou
 | Destination | Mechanism |
 |---|---|
 | Pallet open | a proportional pallet valve under the pipe |
-| Wind boost | extra wind at the pipe foot, up to the *boost ceiling* (flues overblow above 100 mm) |
+| Wind boost | extra wind at the pipe foot, up to the *boost ceiling* (louder, and flues go a few cents sharp) |
 | Jet aim | the jet's aim at the upper lip, from breathy to bright |
 | Pitch | a sliding stopper or mouth shade, limited per pipe family |
 | Chiff, pallet speed, close speed | how the valve opens and closes |
@@ -58,7 +58,7 @@ Rows aimed at the same destination add together. If a note sends no data for a r
 
 The defaults suit an Osmose in MPE mode and most other MPE controllers:
 
-- The first stage of key travel (MPE pressure) opens the pallet; it's fully open at 90 %. Strict physics applies: a pipe needs enough wind to speak, so a very light press can leave it silent.
+- The first stage of key travel (MPE pressure) opens the pallet; it's fully open at 90 %. A pipe speaks, quietly, from about a quarter of its voiced wind, which the pallet passes within the first tenth of the travel; a key resting at zero pressure is silent until pressed.
 - The aftertouch stage (CC74 in the lower zone) and aftertouch boost the wind, above a small dead zone.
 - Bend moves the pitch. CC74 in the upper zone aims the jet, and CC11 drives the swell box.
 
@@ -139,7 +139,11 @@ Without `PIPE_IR_DIR`, the build has only the lite rooms. `--synthetic` makes st
 
 On Linux, install `libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev` first. Built plugins land in `build/bin`.
 
-`tools/calibrate.cpp` regenerates `src/engine/CalibrationTables.hpp`. That table holds the pitch each pipe model actually sounds at its voiced point, which is how pipes stay in tune while still bending in pitch with wind pressure. Rerun it whenever a model constant in `PipeModels.hpp` changes.
+### How pipes stay in tune
+
+The pipe models are self-oscillating loops, so the exciter pulls each one a few cents off its resonator. Three things keep them on pitch: the resonator length is solved for the target frequency (`solveFlueBore` in `PipeModels.hpp`); each sounding pipe then measures its own fundamental against the target and trims its length (`Engine::tunerUpdate`); and the trim is remembered per pipe, so a pipe that has spoken once starts in tune. Wind pressure sets loudness and moves a flue's pitch by a few cents at most. The exciters stay on their operating point for any foot pressure above about a quarter of the voiced one, so wind sag or a half-open pallet cannot silence a pipe.
+
+`tests/pipes_test.cpp` checks all of this on the sound itself: every pipe of every rank speaks in the right register and in tune, every tuning system lands where the literature puts it, MPE notes sound for any timing of the first pressure message, and short notes and full chords speak.
 
 ## Credits
 

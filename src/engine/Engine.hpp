@@ -11,7 +11,6 @@
 #include "RoomProcessor.hpp"
 #include "Matrix.hpp"
 #include "MpeInput.hpp"
-#include "CalibrationTables.hpp"
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -35,25 +34,6 @@ struct ScopedFlushDenormals {
     ~ScopedFlushDenormals() { asm volatile("msr fpcr, %0" : : "r"(old)); }
 #endif
 };
-
-// Calibration lookup: cents by which a family sounds sharp of its nominal pitch.
-inline float calibFlueCents(int fam, float jr, float lf) {
-    using namespace calib;
-    float x = (lf - kLfMin) / kLfStep, y = (jr - kJrMin) / kJrStep;
-    x = std::max(0.f, std::min((float)kLfN - 1.001f, x));
-    y = std::max(0.f, std::min((float)kJrN - 1.001f, y));
-    int xi = (int)x, yi = (int)y; float fx = x - xi, fy = y - yi;
-    const float a = kFlue[fam][yi][xi] * (1 - fx) + kFlue[fam][yi][xi + 1] * fx;
-    const float b = kFlue[fam][yi + 1][xi] * (1 - fx) + kFlue[fam][yi + 1][xi + 1] * fx;
-    return a * (1 - fy) + b * fy;
-}
-inline float calibReedCents(int fam, float lf) {
-    using namespace calib;
-    float x = (lf - kLfMin) / kLfStep;
-    x = std::max(0.f, std::min((float)kLfN - 1.001f, x));
-    int xi = (int)x; float fx = x - xi;
-    return kReed[fam][xi] * (1 - fx) + kReed[fam][xi + 1] * fx;
-}
 
 inline uint32_t hash32(uint32_t x) {
     x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x;
@@ -106,6 +86,17 @@ struct Voice {
     float env = 0.f;
     int quiet = 0;
     uint32_t age = 0;
+    float level = 0.f, tLevel = 0.f, levelLag = 0.f;    // loudness follows the wind at the foot
+    // tuner: holds the sounding pitch on the target (see Engine::tunerUpdate)
+    float trim = 0.f;           // cents added to the model so that it sounds at the target
+    float rotC = 1.f, rotS = 0.f, phC = 1.f, phS = 0.f;
+    float tgtW = 0.f;           // target frequency, rad/sample
+    double accRe = 0, accIm = 0, accE = 0;
+    int accN = 0, winLen = 480, winMin = 64, winMax = 960, prevN = 0;
+    float prevPh = 0.f, prevMag = 0.f;
+    bool prevOk = false, cacheable = false, tunable = false;
+    bool twice = false;         // model run at twice the sample rate (pipes only a few samples long)
+    float rawEnv = 0.f;         // level inside the resonator
 };
 
 class Engine {
@@ -143,6 +134,7 @@ public:
         wind.reset();
         for (auto& v : voices) v.active = false;
         for (int d = 0; d < kNumDivisions; ++d) for (int k = 0; k < kNumKeys; ++k) pallets[d][k] = Pallet();
+        std::memset(trimValid, 0, sizeof(trimValid));
         room.clear();
         for (int d = 0; d < kNumDivisions; ++d) { swellLpL = swellLpR = 0.f; }
     }
@@ -247,6 +239,7 @@ public:
     }
 
     // ------------------------------------------------------------ for tests
+    float debugTrim(int rank, int key) const { for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return v.trim; return trimValid[rank][key] ? trimCache[rank][key] : 0.f; }
     float debugAperture(int d, int k) const { return pallets[d][k].aperture; }
     float debugFootMm(int d, int k) const { return pallets[d][k].footRatio * kChestNominal[d]; }
     float debugBoostMm(int d, int k) const { return pallets[d][k].boost * (params[kParamPressMax] - 78.f); }
@@ -296,7 +289,7 @@ private:
         if (div < 0 || div >= kNumDivisions) return;
         const bool alt = (params[kParamEnharmonic] >= 0.5f) != altSpellingCC;
         const KeyPitch kp = tuning.keyPitch(key, mapMode, alt);
-        if (!kp.valid) return;
+        if (!kp.valid) { silentKey = 1000 + key; silentTimer = 3.f; return; }
         ActiveNote an{ ch, key, { -1, -1, -1 }, 0 };
         const float v = vel / 127.f;
         auto press = [&](int d, bool coupled) {
@@ -307,6 +300,18 @@ private:
         if (div == kPedal && stopOn(6)) press(kGreat, true);            // GT > PED
         if (div == kPedal && stopOn(7)) press(kSwell, true);            // SW > PED
         if (an.nDiv > 0) notes.push_back(an);
+        // tell the player why a key makes no sound: no pipe at that pitch, or no stop drawn
+        if (an.nDiv == 0) { silentKey = 1000 + key; silentTimer = 3.f; }
+        else {
+            bool any = false;
+            for (int j = 0; j < an.nDiv && !any; ++j)
+                for (int r = 0; r < kNumRanks && !any; ++r) {
+                    const int s = stopForRank(r);
+                    any = kRanks[r].division == an.div[j] && s >= 0 && stopOn(s)
+                          && !(kRanks[r].lowestKey > 0 && kp.keyFloat < kRanks[r].lowestKey - 0.5f);
+                }
+            if (!any) { silentKey = 2000 + key; silentTimer = 3.f; } else silentTimer = 0.f;
+        }
     }
 
     void releaseNote(size_t i, int relVel) {
@@ -371,26 +376,68 @@ private:
     }
 
     // ----------------------------------------------------------------- voices
-    void startVoice(int rank, int d, int key) {
+    // Frequency the pipe under (rank, key) is tuned to right now.
+    double pipeFrequency(int rank, const Pallet& p, int key) const {
         const RankDef& rd = kRanks[rank];
-        const Pallet& p = pallets[d][key];
-        if (rd.lowestKey > 0 && p.pitch.keyFloat < rd.lowestKey - 0.5f) return;
-        // already speaking (re-struck or stop redrawn)?
-        for (auto& v : voices) if (v.active && v.rank == rank && v.key == key && v.division == d) { v.stopClosed = false; return; }
-
-        const bool isReed = rd.kind == kKindReed;
         double f = p.pitch.hz * rankRatio(rank, key);
         // tuning offsets: rank, pipe, celeste, age, temperature
-        const RankVoicing& rv = voicing->rank[rank];
-        (void)rv;
         double cents = voicing->pipeTune[rank][p.pitch.pipeIndex] + rd.detuneCents;
         const float drift = params[kParamAgeDrift];
         if (drift > 0) cents += drift * ((hash32((uint32_t)(rank * 4096 + p.pitch.pipeIndex)) & 0xFFFF) / 32767.5f - 1.f);
         const double tC = params[kParamPipeTemp];
         const double tempCents = 1200.0 * std::log2(std::sqrt((273.15 + tC) / (273.15 + 18.0)));
-        cents += isReed ? 0.15 * tempCents : tempCents;
-        f *= std::pow(2.0, cents / 1200.0);
+        cents += rd.kind == kKindReed ? 0.15 * tempCents : tempCents;
+        return f * std::pow(2.0, cents / 1200.0);
+    }
+
+    // The smallest pipes are only a few samples long at the host's rate, too coarse
+    // for the jet model; they run at twice the rate.
+    float modelRate(const Voice& v) const { return v.twice ? 2.f * fs : fs; }
+
+    // Resonator lengths for the voice's frequency.
+    void tuneVoice(Voice& v) {
+        const double f = v.freq;
+        if (!v.reed) {
+            const RankDef& rd = kRanks[v.rank];
+            const double mfs = modelRate(v);
+            const double T = mfs / f;
+            const double jet = std::min((double)kJetSize - 8.0, v.jr * T);
+            const double bore = solveFlueBore(*flues[(size_t)v.slot], f, mfs, jet, rd.kind == kKindStopped ? T * 0.5 : T);
+            // the bore line is read before it is written, which is one more sample round the loop
+            v.baseJet = (float)jet; v.baseBore = (float)std::max(4.0, bore - 1.0);
+        } else {
+            const auto& rc = kReedFamily[v.family];
+            // one period round the two sections, less what the loop already holds: the
+            // loss filter's phase delay and one sample for each line (read before write)
+            const double w = 2.0 * M_PI * f / fs, a = reeds[(size_t)v.slot]->aBore;
+            const double lag = std::atan2((1.0 - a) * std::sin(w), 1.0 - (1.0 - a) * std::cos(w));
+            const double D = std::max(8.0, fs / f - lag / w - 2.0);
+            v.baseA = (float)((1.0 - rc.position) * D);
+            v.baseB = (float)(rc.position * D);
+        }
+        // short windows catch a large error, long ones settle to a fraction of a cent
+        v.winMin = std::max(64, (int)(6.0 * fs / f));
+        v.winMax = std::max((int)(0.020f * fs), (int)(24.0 * fs / f));
+        v.winLen = v.winMin;
+        v.levelLag = 1.f - std::exp(-(kControlBlock / fs) / std::max(0.003f, 3.f / (float)f));
+        // until a pipe has been heard once, the usual residual of its model stands in
+        v.trim = trimValid[v.rank][v.key] ? trimCache[v.rank][v.key] : v.reed ? -4.f : 14.f;
+        v.prevOk = false; v.accRe = v.accIm = v.accE = 0; v.accN = 0;
+    }
+
+    void startVoice(int rank, int d, int key) {
+        const RankDef& rd = kRanks[rank];
+        const Pallet& p = pallets[d][key];
+        if (rd.lowestKey > 0 && p.pitch.keyFloat < rd.lowestKey - 0.5f) return;
+        const bool isReed = rd.kind == kKindReed;
+        const double f = pipeFrequency(rank, p, key);
         if (f > 0.42 * fs || f < 15.0) return;
+        // already speaking (re-struck or stop redrawn)? It keeps sounding, at today's tuning.
+        for (auto& v : voices) if (v.active && v.rank == rank && v.key == key && v.division == d) {
+            v.stopClosed = false;
+            v.freq = (float)f; tuneVoice(v);
+            return;
+        }
 
         // pick a free voice slot of the right kind, or steal
         const int limit = qualityLimit(isReed);
@@ -419,22 +466,18 @@ private:
         if (!isReed) {
             v.family = rd.family;
             v.jr = (float)std::max(kJetModelMin, std::min(kJetModelMax, modelJetRatio(g.jetRatio)));
-            // The jet pulls the pipe off its resonator pitch; build the model at
-            // the frequency that makes it sound exactly f at the voiced point.
-            double fe = f;
-            for (int it = 0; it < 2; ++it) fe = f * std::pow(2.0, -calibFlueCents(v.family, v.jr, (float)std::log2(fe / fs)) / 1200.0);
-            const double Te = fs / fe;
-            v.baseBore = (float)((rd.kind == kKindStopped) ? Te * 0.5 : Te);
-            v.baseJet = (float)(v.jr * Te);
             FlueCore& core = *flues[(size_t)v.slot];
             core.reset();
             core.noise.seed(seed);
             const auto& fc = kFlueFamily[v.family];
             core.sign = rd.kind == kKindStopped ? -1.f : 1.f;
             core.loopGain = fc.loopGain;
-            core.aBore = onePoleCoef(fc.boreFc * (float)fe, fs);
-            core.aJet = onePoleCoef(fc.jetFc * (float)fe, fs);
-            core.aDc = onePoleCoef(kDcFc * (float)fe, fs);
+            v.twice = f > 0.09 * fs;
+            const float mfs = modelRate(v);
+            core.aBore = onePoleCoef(fc.boreFc * (float)f, mfs);
+            core.aJet = onePoleCoef(fc.jetFc * (float)f, mfs);
+            core.aDc = onePoleCoef(kDcFc * (float)f, mfs);
+            tuneVoice(v);
             core.boreDelay = v.baseBore; core.jetDelay = v.baseJet;
             const float nick = voicing->rank[rank].key[kVNicking][k];
             v.baseNoise = 0.02f * (1.f - 0.3f * nick);
@@ -454,19 +497,16 @@ private:
         } else {
             v.family = rd.family;
             const auto& rc = kReedFamily[v.family];
-            double fe = f;
-            for (int it = 0; it < 2; ++it) fe = f * std::pow(2.0, -calibReedCents(v.family, (float)std::log2(fe / fs)) / 1200.0);
-            const double D = fs / fe;
-            v.baseA = (float)((1.0 - rc.position) * D);
-            v.baseB = (float)(rc.position * D);
             ReedCore& core = *reeds[(size_t)v.slot];
             core.reset();
             core.noise.seed(seed);
             core.reedSlope = rc.slope; core.reedOffset = 0.7f;
-            core.aBore = onePoleCoef(rc.boreFc * (float)fe, fs);
-            core.aDc = onePoleCoef(kDcFc * (float)fe, fs);
+            core.aBore = onePoleCoef(rc.boreFc * (float)f, fs);
+            core.aDc = onePoleCoef(kDcFc * (float)f, fs);
+            tuneVoice(v);
             core.delayA = v.baseA; core.delayB = v.baseB;
             v.baseNoise = 0.005f;
+            v.chiffAmt = 0.06f;     // the tongue's first flutter: gets the reed going promptly
             v.lpCoef = onePoleCoef(std::min(0.45f * fs, (float)f * 14.f + 2500.f), fs);
             v.emph = v.family == kReedOboe ? 2.5f : 2.0f;
             v.emphCoef = onePoleCoef(3.0f * (float)f, fs);
@@ -482,6 +522,33 @@ private:
         const float pan = side * spread;
         v.gL = std::cos((pan + 1.f) * (float)M_PI * 0.25f);
         v.gR = std::sin((pan + 1.f) * (float)M_PI * 0.25f);
+    }
+
+    // The pipe models are self-oscillating loops whose pitch is pulled a few
+    // cents by the exciter, by the interpolated delays and by voicing. Each
+    // voice therefore measures its own fundamental against the frequency it is
+    // meant to sound (phase drift of a quadrature detector running at the
+    // target) and trims its resonator until the two agree. The trim is
+    // remembered per pipe, so a pipe that has spoken once starts in tune.
+    void tunerUpdate(Voice& v) {
+        const double re = v.accRe, im = v.accIm, e = v.accE; const int n = v.accN;
+        v.accRe = v.accIm = v.accE = 0; v.accN = 0;
+        const double mag2 = re * re + im * im;
+        const bool ok = e / n > 1e-5 && 2.0 * mag2 > 0.1 * (double)n * e && v.tgtW > 0.f;
+        const float ph = (float)std::atan2(im, re), mag = (float)(std::sqrt(mag2) / n);
+        // only a settled pipe is measured: while it is still building up, its pitch is on the move
+        if (ok && v.prevOk && v.tunable && mag > 0.95f * v.prevMag && mag < 1.05f * v.prevMag) {
+            float d = ph - v.prevPh;
+            if (d > (float)M_PI) d -= 2.f * (float)M_PI; else if (d < -(float)M_PI) d += 2.f * (float)M_PI;
+            const float spacing = 0.5f * (float)(n + v.prevN);
+            float err = 1200.f * std::log2(std::max(0.5f, 1.f + d / (spacing * v.tgtW)));   // cents sharp of target
+            err = std::max(-40.f, std::min(40.f, err));
+            v.trim = std::max(-150.f, std::min(150.f, v.trim - (std::fabs(err) > 2.f ? 0.6f : 0.3f) * err));
+            if (v.cacheable) { trimCache[v.rank][v.key] = v.trim; trimValid[v.rank][v.key] = true; }
+            if (std::fabs(err) < 3.f) v.winLen = std::min(v.winMax, v.winLen * 2);
+            else if (std::fabs(err) > 10.f) v.winLen = v.winMin;
+        }
+        v.prevOk = ok && v.tunable; v.prevPh = ph; v.prevMag = mag; v.prevN = n;
     }
 
     bool slotKind(int i) const { return i >= kMaxFlueVoices; }
@@ -520,6 +587,8 @@ private:
             stateMutex.unlock();
         }
         const float dt = kControlBlock / fs;
+        if (silentTimer > 0.f) silentTimer -= dt;
+        outputs[kOutSilentKey - kOutFirst] = silentTimer > 0.f ? (float)silentKey : 0.f;
 
         // wind
         float flow = 0.f; int speaking = 0;
@@ -615,26 +684,41 @@ private:
             const float ratio = v.stopClosed ? 0.f : std::max(0.f, p.footRatio);
             float bend = p.bendCents;
             if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
-            const float pitchMul = std::pow(2.f, -bend / 1200.f);
+            // Pitch follows the wind a little: a flue goes slightly sharp on more wind and flat on less.
+            const float windCents = v.reed ? 0.f
+                : std::max(-12.f, std::min(6.f, 12.f * std::log2(std::max(0.05f, ratio))));
+            const float cents = bend + windCents;
+            const float pitchMul = std::pow(2.f, -(cents + v.trim) / 1200.f);
+            v.tgtW = 2.f * (float)M_PI * v.freq * std::pow(2.f, cents / 1200.f) / fs;
+            v.rotC = std::cos(v.tgtW); v.rotS = std::sin(v.tgtW);
+            v.cacheable = std::fabs(bend) < 0.5f && ratio > 0.9f && ratio < 1.1f;
+            const bool tunable = ratio > 0.5f;          // not while the wind is coming or going
+            if (tunable != v.tunable) { v.tunable = tunable; v.prevOk = false; v.winLen = v.winMin; }
+            // The wind at the foot sets how loud the pipe is; the exciter stays on its
+            // operating point while there is enough wind to speak at all and falls out
+            // of speech below that.
+            const float over = 1.f + 0.1f * std::max(0.f, std::min(1.f, ratio - 1.f));
             float targetBreath, tBore = 0, tJet = 0, tA = 0, tB = 0;
             if (!v.reed) {
-                const float jetVel = std::sqrt(ratio);                  // jet speed ~ sqrt(pressure)
-                targetBreath = kFlueVoicedBreath * jetVel;
+                targetBreath = kFlueVoicedBreath * std::sqrt(std::min(1.f, ratio / kFlueSpeakRatio)) * over;
                 tBore = v.baseBore * pitchMul;
-                const float jet = v.baseJet * pitchMul / std::max(0.35f, jetVel);
-                tJet = std::min((float)(kJetSize - 8), jet);
+                tJet = std::min((float)(kJetSize - 8), v.baseJet * pitchMul);
                 v.curBias = v.languid * 0.04f + p.jet * 0.07f;
             } else {
-                targetBreath = kReedVoicedBreath * std::sqrt(ratio);
+                targetBreath = kReedVoicedBreath * std::sqrt(std::min(1.f, ratio / kReedSpeakRatio));
                 tA = v.baseA * pitchMul; tB = v.baseB * pitchMul;
             }
             // targets stored for per-sample ramps
             v.tBreath = targetBreath;
             v.tBore = tBore; v.tJet = tJet; v.tA = tA; v.tB = tB;
             v.tNoise = v.baseNoise + v.chiffAmt * p.chiff * p.chiffScale;
+            v.tLevel += v.levelLag * (std::pow(ratio, 0.8f) - v.tLevel);
 
-            // end of a pipe's life: pallet shut (or stop in) and sound has died away
-            if ((p.aperture <= 0.f || v.stopClosed) && v.env < 2e-5f) { if (++v.quiet > 8) v.active = false; }
+            // End of a pipe's life: its pallet has been let go and has shut (or its stop is
+            // in) and the sound has died away. A pallet that is held but not yet open - a
+            // key resting at the top of its pressure travel - keeps its pipes.
+            const bool shut = v.stopClosed || (p.holds == 0 && p.aperture <= 0.f);
+            if (shut && v.env < 2e-5f) { if (++v.quiet > 8) v.active = false; }
             else v.quiet = 0;
         }
 
@@ -748,18 +832,24 @@ private:
             // per-sample ramps towards this block's targets (over a whole control block)
             const float dBreath = (v.tBreath - v.curBreath) * inv;
             const float dNoise = (v.tNoise - v.curNoise) * inv;
+            const float dLevel = (v.tLevel - v.level) * inv;
             float env = v.env;
+            float pc = v.phC, ps = v.phS, aRe = 0.f, aIm = 0.f, aE = 0.f;
+            float rawEnv = v.rawEnv; const float rawDecay = 1.f - 0.35f * v.freq / fs;   // falls over about three periods
             if (!v.reed) {
                 FlueCore& c = *flues[(size_t)v.slot];
                 const float dBore = (v.tBore - v.curBore) * inv, dJet = (v.tJet - v.curJet) * inv;
                 c.bias = v.curBias;
                 for (int i = 0; i < n; ++i) {
-                    v.curBreath += dBreath; v.curBore += dBore; v.curJet += dJet; v.curNoise += dNoise;
+                    v.curBreath += dBreath; v.curBore += dBore; v.curJet += dJet; v.curNoise += dNoise; v.level += dLevel;
                     c.breath = v.curBreath; c.boreDelay = v.curBore; c.jetDelay = v.curJet; c.noiseAmt = v.curNoise;
                     float x = c.tick();
+                    if (v.twice) x = 0.5f * (x + c.tick());
+                    aRe += x * pc; aIm -= x * ps; aE += x * x;
+                    { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
                     v.lp += v.lpCoef * (x - v.lp);
                     v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain;
+                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain * v.level;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
@@ -768,19 +858,25 @@ private:
                 ReedCore& c = *reeds[(size_t)v.slot];
                 const float dA = (v.tA - v.curA) * inv, dB = (v.tB - v.curB) * inv;
                 for (int i = 0; i < n; ++i) {
-                    v.curBreath += dBreath; v.curA += dA; v.curB += dB; v.curNoise += dNoise;
+                    v.curBreath += dBreath; v.curA += dA; v.curB += dB; v.curNoise += dNoise; v.level += dLevel;
                     c.breath = v.curBreath; c.delayA = v.curA; c.delayB = v.curB; c.noiseAmt = v.curNoise;
                     float x = c.tick();
+                    { const float ax = std::fabs(x); rawEnv = ax > rawEnv ? ax : rawEnv * rawDecay; }
+                    aRe += x * pc; aIm -= x * ps; aE += x * x;
+                    { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
                     v.lp += v.lpCoef * (x - v.lp);
                     v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain;
+                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain * v.level;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
                 }
             }
             if (!std::isfinite(env)) { v.active = false; env = 0.f; }
-            v.env = env;
+            v.env = env; v.rawEnv = rawEnv;
+            { const float g = 1.5f - 0.5f * (pc * pc + ps * ps); v.phC = pc * g; v.phS = ps * g; }
+            v.accRe += aRe; v.accIm += aIm; v.accE += aE; v.accN += n;
+            if (v.accN >= v.winLen) tunerUpdate(v);
         }
         // swell box: closing the shutters makes the division quieter and darker
         for (int i = 0; i < n; ++i) {
@@ -852,6 +948,9 @@ private:
     std::unique_ptr<Voicing> voicing, pendingVoicing;
     ScalaScale pendingScl; ScalaKbm pendingKbm;
     std::mutex stateMutex;
+    int silentKey = 0; float silentTimer = 0.f;
+    float trimCache[kNumRanks][kNumKeys] = {};
+    bool trimValid[kNumRanks][kNumKeys] = {};
     std::atomic<bool> voicingDirty{false}, tuningDirty{false}, scalaDirty{false};
     WindSystem wind;
     RoomProcessor room;

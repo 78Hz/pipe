@@ -8,6 +8,7 @@
 #include "ext/note-ports.h"
 #include "events.h"
 #include <dlfcn.h>
+#include <unistd.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -18,7 +19,7 @@ static const void* hostExt(const clap_host_t*, const char*) { return nullptr; }
 static void hostNoop(const clap_host_t*) {}
 static clap_host_t host = { CLAP_VERSION, nullptr, "test", "test", "", "1", hostExt, hostNoop, hostNoop, hostNoop };
 
-union AnyEvent { clap_event_header_t header; clap_event_midi_t midi; clap_event_note_t note; clap_event_note_expression_t expr; };
+union AnyEvent { clap_event_header_t header; clap_event_midi_t midi; clap_event_note_t note; clap_event_note_expression_t expr; clap_event_param_value_t param; };
 struct EvList { std::vector<AnyEvent> ev; };
 static uint32_t inSize(const clap_input_events_t* l) { return (uint32_t)((EvList*)l->ctx)->ev.size(); }
 static const clap_event_header_t* inGet(const clap_input_events_t* l, uint32_t i) { return &((EvList*)l->ctx)->ev[i].header; }
@@ -36,6 +37,8 @@ struct Instance {
     Instance(const clap_plugin_factory_t* fac, const char* id) {
         p = fac->create_plugin(fac, &host, id); p->init(p); p->activate(p, 48000, 1, 512); p->start_processing(p);
         ob.data32 = outs; ob.channel_count = 2;
+        // The measured room is prepared on a worker thread; levels are only comparable once it is in.
+        usleep(700000);
     }
     ~Instance() { p->stop_processing(p); p->deactivate(p); p->destroy(p); }
     void note(int type, int id, int ch, int key, double vel = 0.6, uint32_t t = 0) {
@@ -46,6 +49,29 @@ struct Instance {
         AnyEvent x{}; x.expr.header.size = sizeof(clap_event_note_expression_t); x.expr.header.type = CLAP_EVENT_NOTE_EXPRESSION; x.expr.header.time = t;
         x.expr.expression_id = which; x.expr.note_id = id; x.expr.port_index = 0; x.expr.channel = (int16_t)ch; x.expr.key = (int16_t)key; x.expr.value = v; evs.ev.push_back(x);
     }
+    // parameter by its display name, set through an event like a host automation lane would
+    void param(const char* name, double value) {
+        auto* pp = (const clap_plugin_params_t*)p->get_extension(p, CLAP_EXT_PARAMS);
+        for (uint32_t i = 0; pp && i < pp->count(p); ++i) {
+            clap_param_info_t info{};
+            if (!pp->get_info(p, i, &info) || strcmp(info.name, name) != 0) continue;
+            AnyEvent e{}; e.param.header.size = sizeof(clap_event_param_value_t); e.param.header.type = CLAP_EVENT_PARAM_VALUE;
+            e.param.param_id = info.id; e.param.cookie = info.cookie; e.param.note_id = -1; e.param.port_index = -1; e.param.channel = -1; e.param.key = -1; e.param.value = value;
+            evs.ev.push_back(e); return;
+        }
+        printf("  FAIL parameter '%s' not found\n", name); exit(1);
+    }
+    std::vector<float> cap;     // everything played so far (left channel)
+    // strongest partial between lo and hi Hz in the last `seconds` of audio
+    double peakHz(double seconds, double lo, double hi) const {
+        const size_t n = (size_t)(seconds * 48000), o = cap.size() - n; double best = -1, bf = 0;
+        for (double f = lo; f <= hi; f += 0.05) {
+            double re = 0, im = 0;
+            for (size_t i = 0; i < n; ++i) { const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), a = 2 * M_PI * f * i / 48000; re += w * cap[o + i] * std::cos(a); im += w * cap[o + i] * std::sin(a); }
+            if (re * re + im * im > best) { best = re * re + im * im; bf = f; }
+        }
+        return bf;
+    }
     void midi(uint8_t a, uint8_t b, uint8_t c, uint32_t t = 0) {
         AnyEvent m{}; m.midi.header.size = sizeof(clap_event_midi_t); m.midi.header.type = CLAP_EVENT_MIDI; m.midi.header.time = t;
         m.midi.port_index = 0; m.midi.data[0] = a; m.midi.data[1] = b; m.midi.data[2] = c; evs.ev.push_back(m);
@@ -55,7 +81,7 @@ struct Instance {
         const int nb = (int)(seconds * 48000 / 512); double e = 0; int n = 0;
         for (int b = 0; b < nb; ++b) {
             clap_process_t pr{}; pr.steady_time = -1; pr.frames_count = 512; pr.audio_outputs = &ob; pr.audio_outputs_count = 1; pr.in_events = &in; pr.out_events = &out;
-            p->process(p, &pr); evs.ev.clear();
+            p->process(p, &pr); evs.ev.clear(); cap.insert(cap.end(), L, L + 512);
             if (b >= nb / 2) { for (int i = 0; i < 512; ++i) e += L[i] * L[i]; n += 512; }
         }
         return 10 * std::log10(e / std::max(1, n) + 1e-20);
@@ -117,7 +143,8 @@ int main(int argc, char** argv) {
         s.note(CLAP_EVENT_NOTE_CHOKE, -1, -1, -1);
         s.play(0.5);
         const double off = s.play(0.6);
-        check(off < on - 30, "NOTE_CHOKE with key/channel -1 stops all voices (dB, dB)", on, off);
+        // what is left half a second later is the room dying away, not pipes
+        check(off < on - 20, "NOTE_CHOKE with key/channel -1 stops all voices (dB, dB)", on, off);
     }
     {   // velocity 0 is a valid NOTE_ON in CLAP
         Instance s(fac, id); s.play(0.2);
@@ -131,6 +158,36 @@ int main(int argc, char** argv) {
         s.note(CLAP_EVENT_NOTE_ON, 1, 0, 60, 0.6, 505);
         const double l = s.play(0.6);
         check(l > -60, "note-on after 3000 events in one block still sounds (dB)", l);
+    }
+    {   // MIDI MPE as a controller sends it: the key rests at pressure 0, the note-on comes, pressure follows later
+        for (int gapMs : { 0, 5, 20, 100, 500 }) {
+            Instance s(fac, id);
+            s.midi(0xB0, 101, 0); s.midi(0xB0, 100, 6); s.midi(0xB0, 6, 15); s.play(0.2);
+            s.midi(0xD1, 0, 0); s.midi(0x91, 60, 100, 1); s.play(0.011);
+            if (gapMs) s.play(gapMs / 1000.0);
+            for (int v = 10; v <= 127; v += 13) { s.midi(0xD1, (uint8_t)v, 0); s.play(0.011); }
+            s.midi(0xD1, 127, 0);
+            const double l = s.play(1.0);
+            check(l > -40, "MPE note whose first pressure comes after a gap sounds (dB, gap ms)", l, gapMs);
+        }
+    }
+    {   // the Tuning screen's parameters reach the sound
+        Instance s(fac, id); s.param("Room Mix", 0.0); s.play(0.2);
+        auto pitch = [&](int key, double lo, double hi) {
+            s.note(CLAP_EVENT_NOTE_ON, 1, 0, key); s.play(1.5);
+            const double f = s.peakHz(0.7, lo, hi);
+            s.note(CLAP_EVENT_NOTE_OFF, 1, 0, key); s.play(0.5);
+            return f;
+        };
+        s.param("Tuning System", 0); s.param("Age Drift", 0); s.play(0.05);
+        double f = pitch(69, 400, 470); check(std::fabs(f - 440.0) < 0.3, "12-TET: a' sounds at 440 Hz (Hz)", f);
+        f = pitch(60, 250, 275); check(std::fabs(f - 261.63) < 0.3, "12-TET: c' sounds at 261.63 Hz (Hz)", f);
+        s.param("Tuning System", 2); s.play(0.05);       // quarter-comma meantone: c' is 889.7 cents below a'
+        f = pitch(60, 250, 275); check(std::fabs(f - 263.18) < 0.3, "meantone: c' sounds at 263.18 Hz (Hz)", f);
+        s.param("A4 Reference", 415.0); s.param("Tuning System", 0); s.play(0.05);
+        f = pitch(69, 400, 470); check(std::fabs(f - 415.0) < 0.3, "a' = 415: a' sounds at 415 Hz (Hz)", f);
+        s.param("A4 Reference", 440.0); s.param("Tuning System", 8); s.play(0.05);     // 31-EDO on the 12-key subset
+        f = pitch(64, 310, 345); check(std::fabs(f - 440.0 * std::pow(2.0, -13.0 / 31.0)) < 0.35, "31-EDO: e' is 13 steps below a' (Hz)", f);
     }
     printf("%s\n", failures ? "CLAP MPE FAILURES" : "CLAP MPE CHECKS PASSED");
     return failures ? 1 : 0;

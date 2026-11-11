@@ -164,7 +164,7 @@ inline PipeGeometry pipeGeometry(const Voicing& v, int rank, int key, double fre
 // Jet ratio used by the model for a given physical jet ratio (jet transit time
 // over the period). The model's mouth is idealised, so the physical value is
 // mapped (compressively, keeping its direction) into the range where the model
-// speaks its fundamental; see CalibrationTables.hpp.
+// speaks its fundamental.
 constexpr double kJetModelMin = 0.34, kJetModelMax = 0.62;
 inline double modelJetRatio(double physical) {
     return 0.44 * std::pow(std::max(1e-4, physical) / 0.197, 0.4);

@@ -66,6 +66,7 @@ enum ParamId {
     kOutViaLo, kOutViaHi, kOutClip, kOutLimitDb, kOutLiveChannel,
     kOutNote0,                       // 5 x (key, source, foot pressure mm, cents)
     kOutNoteLast = kOutNote0 + 5 * 4 - 1,
+    kOutSilentKey,                   // a key that was played but cannot sound: key + 1000 (outside the compass) or + 2000 (no stop drawn); 0 = none
     kNumParams
 };
 constexpr int kNumShownNotes = 5;
@@ -108,7 +109,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamBendOpen,    { "bend_open", "Bend Limit Open Flue", 0.f, 200.f, 50.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendString,  { "bend_string", "Bend Limit String", 0.f, 200.f, 30.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendReed,    { "bend_reed", "Bend Limit Reed", 0.f, 100.f, 15.f, kPFloat, "ct", 0, nullptr });
-        set(kParamTuning,      { "tuning", "Tuning System", 0.f, (float)(kNumTuningSystems - 1), (float)kTunWerck, kPEnum, "", kNumTuningSystems, kTuningLabels });
+        set(kParamTuning,      { "tuning", "Tuning System", 0.f, (float)(kNumTuningSystems - 1), (float)kTun12, kPEnum, "", kNumTuningSystems, kTuningLabels });
         set(kParamEdoN,        { "edo_n", "Custom EDO Steps", 5.f, 72.f, 31.f, kPInt, "", 0, nullptr });
         set(kParamARef,        { "a_ref", "A4 Reference", 400.f, 480.f, 440.f, kPFloat, "Hz", 0, nullptr });
         set(kParamMapLo,       { "map_lo", "Key Map Lower Zone", 0.f, 2.f, 0.f, kPEnum, "", 3, kMapLabels });
@@ -157,6 +158,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kOutClip,          { "out_clip", "Peak Before Limiter", 0.f, 16.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutLimitDb,       { "out_limit_db", "Limiter Gain Reduction", 0.f, 60.f, 0.f, kPOutput, "dB", 0, nullptr });
         set(kOutLiveChannel,   { "out_live_channel", "Last Note Channel", 0.f, 15.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutSilentKey,     { "out_silent_key", "Key Without Pipes", 0.f, 4000.f, 0.f, kPOutput, "", 0, nullptr });
         static char noteSyms[kNumShownNotes * 4][24];
         static char noteNames[kNumShownNotes * 4][32];
         static const char* fields[4] = { "key", "src", "mm", "ct" };

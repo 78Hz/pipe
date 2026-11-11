@@ -109,6 +109,11 @@ jobs:
       - name: Engine checks (tuning, stability, MPE)
         run: ./build/pipe_render_test build/chord.wav
 
+      - name: Every pipe speaks and is in tune (measured on the sound, 48 and 44.1 kHz)
+        run: |
+          ./build/pipe_pipes_test
+          PIPE_TEST_FS=44100 ./build/pipe_pipes_test
+
       - name: Load the built CLAP and play it (Linux)
         if: runner.os == 'Linux'
         run: |

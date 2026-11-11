@@ -248,7 +248,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h3>Expressive E Osmose</h3>
   <p>Put the Osmose in its MPE mode and choose its first MIDI port (called <b>Port 1</b> on firmware 2.3 and later) in your music program. The Osmose's keys have two stages. Pipe's standard setup uses them like this:</p>
   <ul>
-    <li><b>First part of the key's travel</b>: opens the pipe's valve. A pipe needs about half this travel before it speaks properly, and at the bottom of the stage (the pressure point) it sounds at full, normal wind. A very light press can leave a pipe silent: that's how a real valve behaves.</li>
+    <li><b>First part of the key's travel</b>: opens the pipe's valve. The pipe begins to speak, softly, almost as soon as the key moves, grows as you press, and at the bottom of the stage (the pressure point) it sounds at full, normal wind. A key that is only resting at the top stays silent and speaks the moment you press it.</li>
     <li><b>Pressing into the second stage</b> (the aftertouch): pushes extra wind into the note.</li>
     <li><b>Wiggling the key sideways</b>: bends the pitch.</li>
   </ul>
@@ -301,7 +301,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <div class="tip"><span class="label">Example: mod wheel controls the tremulant</span>The last row is already set up for this but switched off. Click its <span class="ui">[ ]</span> to switch it on, then draw the <span class="ui">TREMULANT</span> stop and move the mod wheel.</div>
 
   <h2>Right: the organ right now</h2>
-  <p><span class="ui">DESTINATIONS NOW</span> shows, for the last note, how open its valve is, how much extra wind it has, the wind at the pipe's foot, and so on. <span class="ui">BOOST CEILING</span> sets the most wind the boost can deliver; above about 100 mm flue pipes overblow to a higher note. <span class="ui">BEND CEILING / FAMILY</span> sets how far each kind of pipe may bend while strict limits are on.</p>
+  <p><span class="ui">DESTINATIONS NOW</span> shows, for the last note, how open its valve is, how much extra wind it has, the wind at the pipe's foot, and so on. <span class="ui">BOOST CEILING</span> sets the most wind the boost can deliver; more wind makes a pipe louder and, for flue pipes, very slightly sharp. <span class="ui">BEND CEILING / FAMILY</span> sets how far each kind of pipe may bend while strict limits are on.</p>
 </section>
 
 <!-- ============================================================ 6 WIND -->
@@ -358,7 +358,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 
   <h2>Choosing a tuning</h2>
   <ul>
-    <li><b>Historical</b>: <span class="ui">12-TET</span> is modern equal temperament. <span class="ui">WERCKMEISTER III</span> (Pipe's default), <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
+    <li><b>Historical</b>: <span class="ui">12-TET</span> is modern equal temperament (Pipe's default). <span class="ui">WERCKMEISTER III</span>, <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
     <li><b>Equal divisions</b> (EDO): the octave is split into 19, 22, 24, 31, 41 or 53 equal steps, or any number from 5 to 72 with <span class="ui">CUSTOM</span> and the <span class="ui">EDO</span> stepper. 31-EDO was used on a real Dutch organ built for Adriaan Fokker in 1950.</li>
     <li><b>Scala files</b>: <span class="ui">LOAD .SCL</span> loads a tuning from the large free Scala archive. <span class="ui">LOAD .KBM</span> optionally loads a keyboard map that says which key plays which note.</li>
   </ul>
@@ -467,8 +467,8 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h3>My pressure keyboard plays, but pressing doesn't do anything.</h3>
   <p>Look at <span class="ui">SEEN</span> on the Expression screen. If <span class="ui">PRES</span>, <span class="ui">AT</span> or <span class="ui">Y</span> never appear, your keyboard isn't sending that data. Check that it is in MPE mode (or that aftertouch is turned on) and, on the Osmose, that you are using Port 1. If the data is arriving, check the matrix rows are switched on.</p>
 
-  <h3>Some notes don't sound, or only breathe, when I play lightly.</h3>
-  <p>That's the valve following your key: a pipe needs enough wind to speak, so a key pressed only a little way leaves it silent, as a real pallet would. Press further into the key. If you would rather every note start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix.</p>
+  <h3>A key makes no sound.</h3>
+  <p>Look at the line above the keyboard strip at the bottom of the window: when a key cannot sound, Pipe says why for a few seconds. <span class="ui">OUTSIDE THE COMPASS</span> means the organ has no pipe for that key: the manuals run from C2 to A6 and the pedals from C2 to F4, so move your keyboard's octave setting. <span class="ui">NO STOP DRAWN</span> means every stop of that keyboard's division is pushed in: pull one out on the Console screen. With a pressure keyboard, a key resting at the very top of its travel is also silent until you press it; if you would rather every note start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix.</p>
 
   <h3>Every keystroke adds extra wind, or notes go missing, in my music program.</h3>
   <p>Your music program is probably not passing MPE to Pipe: it squeezes the notes onto one channel and turns each key's pressure into aftertouch. Switch MPE on for Pipe in your program (in Bitwig Studio, look for the MPE switch in the plugin device's settings), for whichever format you use. On the Expression screen, <span class="ui">NOTES ARRIVING ON</span> then shows a single channel and Pipe reports <span class="ui">SEVERAL NOTES SHARE A CHANNEL</span>.</p>
@@ -477,7 +477,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p>Try <span class="ui">ECO</span> quality, or a lite room instead of a measured one. Fewer stops and couplers also help. Raising your music program's audio buffer size gives Pipe more time to work.</p>
 
   <h3>The organ is out of tune.</h3>
-  <p>Check the tuning on the Tuning screen. Werckmeister III is the default and is intentionally not equal; choose <span class="ui">12-TET</span> for modern tuning. Set <span class="ui">AGE DRIFT</span> to 0 and keep <span class="ui">PIPE TEMP</span> near 18 °C for the most precise result. Heavy chords may also sag the wind slightly; turn <span class="ui">FLEXIBLE</span> down for steadier pitch.</p>
+  <p>Check the tuning on the Tuning screen. <span class="ui">12-TET</span> is the default and matches other modern instruments; the historical temperaments are intentionally not equal. Every pipe holds its note to within a few hundredths of a semitone. Set <span class="ui">AGE DRIFT</span> to 0 and keep <span class="ui">PIPE TEMP</span> near 18 °C for the most precise result. Heavy chords may also sag the wind slightly; turn <span class="ui">FLEXIBLE</span> down for steadier pitch.</p>
 
   <h3>My custom room went silent.</h3>
   <p>The file has probably moved. Load it again with <span class="ui">LOAD IR FILE...</span>.</p>

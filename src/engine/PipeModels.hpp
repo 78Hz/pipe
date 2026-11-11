@@ -49,25 +49,33 @@ inline float onePoleCoef(float fc, float fs) {
 }
 
 // Model families. The loop filters scale with the pipe's own frequency, so a
-// family behaves the same across the compass; the tuning calibration tables in
-// CalibrationTables.hpp were generated with these exact constants
-// (tools/calibrate.cpp) and must be regenerated if they change.
+// family behaves the same across the compass.
 enum FluePipeFamily { kFamilyOpen = 0, kFamilyStopped = 1, kFamilyString = 2, kNumFlueFamilies = 3 };
 enum ReedPipeFamily { kReedTrumpet = 0, kReedOboe = 1, kNumReedFamilies = 2 };
 
 struct FlueFamilyConst { float boreFc, jetFc, loopGain; };
 constexpr FlueFamilyConst kFlueFamily[kNumFlueFamilies] = {
-    { 6.0f, 3.0f, 0.985f },   // open: principals, open flutes
-    { 6.0f, 3.0f, 0.985f },   // stopped: gedackts, bourdons
-    { 11.0f, 3.2f, 0.99f },   // strings: narrow scale, many harmonics
+    { 6.0f, 1.5f, 0.985f },   // open: principals, open flutes
+    { 6.0f, 1.5f, 0.985f },   // stopped: gedackts, bourdons
+    { 11.0f, 1.7f, 0.99f },   // strings: narrow scale, many harmonics
 };
 struct ReedFamilyConst { float position, slope, boreFc; };
+// The excitation point decides which register the cone settles in: nearer the apex
+// than about 0.3 the model prefers the octave except in a sliver of blowing
+// pressures; at 0.36 - 0.40 it speaks its fundamental over the whole range.
 constexpr ReedFamilyConst kReedFamily[kNumReedFamilies] = {
-    { 0.22f, 0.28f, 8.0f },   // trumpet / trombone: full conical resonator
-    { 0.25f, 0.28f, 10.0f },  // oboe: narrow resonator, nasal
+    { 0.36f, 0.34f, 8.0f },   // trumpet / trombone: full conical resonator
+    { 0.40f, 0.34f, 10.0f },  // oboe: narrow resonator, nasal
 };
-constexpr float kFlueVoicedBreath = 0.9f;   // jet drive at the voiced foot pressure
-constexpr float kReedVoicedBreath = 0.72f;  // reed blowing pressure at the voiced foot pressure
+// Operating points of the two exciters. Both models only oscillate inside a
+// window of "breath" (flue: above about 0.84, more for wide cut-ups; reed:
+// about 0.55 to 0.86, blown shut above that), so the voiced point sits well inside that window and the
+// engine maps foot pressure onto it (Engine::controlUpdate) instead of letting
+// a few percent of wind sag push a pipe out of speech.
+constexpr float kFlueVoicedBreath = 1.0f;   // jet drive at the voiced foot pressure
+constexpr float kReedVoicedBreath = 0.74f;  // reed blowing pressure at the voiced foot pressure
+constexpr float kFlueSpeakRatio = 0.25f;    // foot pressure (re voiced) above which a flue is fully on its operating point
+constexpr float kReedSpeakRatio = 0.30f;
 constexpr float kDcFc = 0.25f;              // DC blocker cutoff, multiple of f0
 
 // ---------------------------------------------------------------------------
@@ -124,6 +132,39 @@ struct FlueCore {
         return in;
     }
 };
+
+// Bore delay that makes a flue loop sound at exactly `f` (first-harmonic
+// balance): the loop must return the fundamental with gain 1 and no phase
+// error. The effective jet gain G at the limit cycle is whatever makes the
+// magnitude 1; the delay then follows from the phase. `nominal` is the plain
+// delay (a period, or half of one for a stopped pipe) used to pick the branch.
+inline double solveFlueBore(const FlueCore& c, double f, double fs, double jetDelay, double nominal) {
+    const double w = 2.0 * M_PI * f / fs;
+    const double cr = std::cos(w), ci = -std::sin(w);                 // z^-1
+    auto onePole = [&](double a, double& re, double& im) {             // a / (1 - (1-a) z^-1)
+        const double dr = 1.0 - (1.0 - a) * cr, di = -(1.0 - a) * ci, n = dr * dr + di * di;
+        re = a * dr / n; im = -a * di / n;
+    };
+    double br, bi, jr, ji; onePole(c.aBore, br, bi); onePole(c.aJet, jr, ji);
+    // DC blocker (1 - z^-1) / (1 - (1-aDc) z^-1)
+    const double nr = 1.0 - cr, ni = -ci, dr = 1.0 - (1.0 - c.aDc) * cr, di = -(1.0 - c.aDc) * ci, dn = dr * dr + di * di;
+    const double hr = (nr * dr + ni * di) / dn, hi = (ni * dr - nr * di) / dn;
+    const double g0 = (double)c.sign * c.loopGain;
+    const double ar = g0 * (br * hr - bi * hi), ai = g0 * (br * hi + bi * hr);     // A = sign * loopGain * HB * HDC
+    const double er = std::cos(w * jetDelay), ei = -std::sin(w * jetDelay);
+    const double ur = -(jr * er - ji * ei), ui = -(jr * ei + ji * er);             // u = -HJ * e^{-j w Tj}
+    const double e = c.endRefl, k = c.jetRefl, R = 1.0 / std::max(1e-12, ar * ar + ai * ai);
+    const double qa = k * k * (ur * ur + ui * ui), qb = 2.0 * e * k * ur, qc = e * e - R;
+    const double G = (-qb + std::sqrt(std::max(0.0, qb * qb - 4.0 * qa * qc))) / (2.0 * qa);
+    const double xr = e + k * G * ur, xi = k * G * ui;
+    const double th = std::atan2(ar * xi + ai * xr, ar * xr - ai * xi);
+    double best = nominal, bd = 1e30;
+    for (int n = -2; n <= 3; ++n) {
+        const double Tb = (th + 2.0 * M_PI * n) / w;
+        if (std::fabs(Tb - nominal) < bd) { bd = std::fabs(Tb - nominal); best = Tb; }
+    }
+    return std::max(4.0, std::min((double)kBoreSize - 8.0, best));
+}
 
 // ---------------------------------------------------------------------------
 // Reed pipe: a brass tongue beats against the shallot; the conical resonator

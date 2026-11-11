@@ -26,7 +26,7 @@ constexpr RoomShape kRoomShapes[kNumLiteShapes] = {
     { 0.0f, 1.0f, 0.30f, 6.f, 5.f },      // dry
 };
 
-constexpr float kLiteWetNorm[kNumLiteShapes] = { 0.641f, 0.573f, 0.546f, 0.744f, 1.f };
+constexpr float kLiteWetNorm[kNumLiteShapes] = { 0.598f, 0.430f, 0.546f, 0.744f, 1.f };
 
 struct DelayLine {
     std::vector<float> buf; int w = 0, mask = 0;
