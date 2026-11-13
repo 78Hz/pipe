@@ -53,6 +53,7 @@ enum ParamId {
     kParamRoom, kParamDistance, kParamMicHeight, kParamWidth, kParamRoomMix, kParamPreDelay,
     kParamOutputGain, kParamMicType, kParamQuality, kParamLimiter, kParamIrTrim, kParamIrOrder,
     kParamZoneLoDiv, kParamZoneHiDiv, kParamPedalSplit,
+    kParamAnchorKey,                 // sequential map: the key that plays C4 (added last so older parameter numbers stay put)
     // ---- outputs (DSP -> UI meters) ----
     kOutFirst,
     kOutReservoir = kOutFirst, kOutChestPd, kOutChestGt, kOutChestSw, kOutDemand, kOutPipes, kOutCpu,
@@ -112,9 +113,10 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamTuning,      { "tuning", "Tuning System", 0.f, (float)(kNumTuningSystems - 1), (float)kTun12, kPEnum, "", kNumTuningSystems, kTuningLabels });
         set(kParamEdoN,        { "edo_n", "Custom EDO Steps", 5.f, 72.f, 31.f, kPInt, "", 0, nullptr });
         set(kParamARef,        { "a_ref", "A4 Reference", 400.f, 480.f, 440.f, kPFloat, "Hz", 0, nullptr });
-        set(kParamMapLo,       { "map_lo", "Key Map Lower Zone", 0.f, 2.f, 0.f, kPEnum, "", 3, kMapLabels });
+        set(kParamMapLo,       { "map_lo", "Key Map Lower Zone", 0.f, 2.f, 1.f, kPEnum, "", 3, kMapLabels });
         set(kParamMapHi,       { "map_hi", "Key Map Upper Zone", 0.f, 2.f, 1.f, kPEnum, "", 3, kMapLabels });
-        set(kParamMapPed,      { "map_ped", "Key Map Pedal Split", 0.f, 2.f, 0.f, kPEnum, "", 3, kMapLabels });
+        set(kParamAnchorKey,   { "anchor_key", "Key For Middle C", 0.f, 127.f, 60.f, kPInt, "", 0, nullptr });
+        set(kParamMapPed,      { "map_ped", "Key Map Pedal Split", 0.f, 2.f, 1.f, kPEnum, "", 3, kMapLabels });
         set(kParamEnharmonic,  { "enharmonic", "Flats Instead Of Sharps", 0.f, 1.f, 0.f, kPBool, "", 0, nullptr });
         set(kParamPipeTemp,    { "pipe_temp", "Pipe Temperature", 5.f, 35.f, 18.f, kPFloat, "C", 0, nullptr });
         set(kParamAgeDrift,    { "age_drift", "Age Drift", 0.f, 10.f, 1.5f, kPFloat, "ct", 0, nullptr });

@@ -95,6 +95,7 @@ class Tuning {
 public:
     int system = kTun31;
     int customN = 31;
+    int anchor = 60;            // SEQUENTIAL (and linear Scala): the key that plays C4
     double aRef = 440.0;
 
     ScalaScale scl;
@@ -125,6 +126,27 @@ public:
         }
     }
     bool isEdo() const { return edoN() > 0; }
+
+    // SUBSET picks the 12 keys' notes along the chain of fifths. That only gives
+    // 12 different notes when the division's fifth generates them: in 5-, 10-,
+    // 15-, 20-EDO and others, several keys would land on one pitch. Those
+    // divisions are played SEQUENTIAL instead.
+    static bool subsetUsable(int n) {
+        if (n <= 0) return true;
+        const int F = fifthSteps(n);
+        bool seen[128] = {};
+        int distinct = 0;
+        for (int pc = 0; pc < 12; ++pc) { const int s = ((fifthPos(pc, false) * F) % n + n) % n; if (!seen[s]) { seen[s] = true; ++distinct; } }
+        return distinct == 12;
+    }
+    // the map a zone actually plays with this tuning
+    int effectiveMap(int mapMode) const {
+        if (system == kTunScala) return mapMode;
+        const int n = edoN();
+        if (n <= 0) return mapMode;                         // 12-note temperaments: every map is the same
+        if (mapMode == kMapSubset && subsetUsable(n)) return kMapSubset;
+        return kMapSequential;                              // a .kbm only applies to a Scala scale
+    }
 
     // Steps of the best fifth in n-EDO
     static int fifthSteps(int n) { return (int)std::lround(n * std::log2(1.5)); }
@@ -161,8 +183,8 @@ public:
         const double C4 = c4();
         if (system == kTunScala && scl.valid()) return scalaPitch(key, mapMode);
         if (n > 0) {
-            if (mapMode == kMapSequential) {
-                int step = key - 60;
+            if (effectiveMap(mapMode) == kMapSequential) {
+                int step = key - anchor;
                 kp.hz = C4 * std::pow(2.0, (double)step / n);
                 int oct = (int)std::floor((double)step / n);
                 int s = step - oct * n;
@@ -254,8 +276,8 @@ private:
             kp.hz = kbm.refFreq * std::pow(2.0, (degreeCents(degree) - degreeCents(refDegree)) / 1200.0);
             kp.pipeIndex = degree + 4 * deg + 64;
         } else {
-            // linear: middle C (60) = degree 0 at C4 scaled by A reference
-            int degree = key - 60;
+            // linear: the anchor key = degree 0 at C4 scaled by A reference
+            int degree = key - anchor;
             kp.hz = c4() * std::pow(2.0, degreeCents(degree) / 1200.0);
             kp.pipeIndex = degree + 4 * deg + 64;
         }

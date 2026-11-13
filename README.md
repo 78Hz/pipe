@@ -99,9 +99,11 @@ The convolution adds no latency. It runs on a background thread, so changing roo
 
 There are three key mappings, set per zone:
 
-- **Subset:** each key plays one pitch of the chain of fifths. Hold CC66, or tick *flats instead of sharps*, to swap C♯/D♭ and the other pairs.
-- **Sequential:** each key plays the next step, which suits grid controllers.
-- **Scala KBM:** the loaded keyboard map decides.
+- **Sequential** (default): each key plays the next step, so every note of an EDO is reachable and the octave is *n* keys wide. *C4 on key* (parameter `anchor_key`, default 60) chooses which key plays middle C; the Tuning screen shows which keys then cover the manual compass.
+- **Subset:** each key plays one pitch of the chain of fifths, keeping a 12-key octave. Hold CC66, or tick *flats instead of sharps*, to swap C♯/D♭ and the other pairs. EDOs whose fifth cannot generate 12 different notes (5, 6, 10, 14, 15, 20, 21, 25, 28, 30, 35-EDO, ...) have no subset and play sequential.
+- **Scala KBM:** the loaded keyboard map decides (Scala tunings only).
+
+Voicing is set per place in the compass, so a key always gets the voicing of the pitch it plays, whatever the mapping.
 
 Every pipe can be retuned individually in cents. Pipe temperature (flue pipes go sharp as they warm; reeds barely move) and a random age drift are also available. Mutations and mixture ranks are tuned pure against their key, as on real organs.
 

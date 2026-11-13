@@ -93,7 +93,7 @@ protected:
         if (index >= (uint32_t)kNumParams) return;
         if (index < (uint32_t)kOutFirst && pv[index] != value && !loading) dirty = true;
         pv[index] = value;
-        if (index == kParamTuning || index == kParamEdoN || index == kParamARef) syncTuning();
+        if (index == kParamTuning || index == kParamEdoN || index == kParamARef || index == kParamAnchorKey) syncTuning();
         if (index < (uint32_t)kOutFirst || screen == kScrConsole || screen == kScrWind || screen == kScrExpression || screen == kScrRoom)
             repaint();
     }
@@ -385,7 +385,7 @@ private:
         pv[id] = v;
         setParameterValue((uint32_t)id, v);
         if (!loading) dirty = true;
-        if (id == kParamTuning || id == kParamEdoN || id == kParamARef) syncTuning();
+        if (id == kParamTuning || id == kParamEdoN || id == kParamARef || id == kParamAnchorKey) syncTuning();
     }
     void toggle(int id) { editParameter((uint32_t)id, true); setParam(id, pv[id] >= 0.5f ? 0.f : 1.f); editParameter((uint32_t)id, false); }
     void nudge(int id, float step)
@@ -406,6 +406,7 @@ private:
     {
         tuning.system = (int)pv[kParamTuning];
         tuning.customN = (int)pv[kParamEdoN];
+        tuning.anchor = (int)pv[kParamAnchorKey];
         tuning.aRef = pv[kParamARef];
         parseScl(st[kStateScalaScl], tuning.scl);
         tuning.kbm = ScalaKbm();
@@ -920,8 +921,8 @@ private:
         const int d = kRanks[selRank].division;
         const int lo = d == kPedal ? kPedalLow : kManualLow, hi = d == kPedal ? kPedalHigh : kManualHigh;
         selKey = std::max(lo, std::min(hi, selKey));
-        const KeyPitch kp = tuning.keyPitch(selKey, (int)pv[kParamMapLo], on(kParamEnharmonic));
-        const double f = kp.hz * rankRatio(selRank, selKey);
+        // voicing is set per place in the compass (a 12-TET pitch slot), whatever the keys are mapped to
+        const double f = 440.0 * std::pow(2.0, (selKey - 69) / 12.0) * rankRatio(selRank, selKey);
         titleBar(x, top, w, std::string(kRanks[selRank].name) + "  " + noteName12(lo) + "-" + noteName12(hi), std::string("KEY ") + noteName12(selKey) + fmt("  %.1f HZ", f));
         text(x, top + 44, "REGULATION PER KEY (CLICK TO SELECT)", 20);
         text(x + w, top + 44, "DB", 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
@@ -1077,7 +1078,8 @@ private:
         const double step = tuning.stepCents();
         titleBar(x, top, w, std::string(kTuningLabels[(int)pv[kParamTuning]]) + (tuning.isEdo() ? fmt("  STEP %.2f C", step) : std::string()),
                  fmt("A4 = %.1f HZ", pv[kParamARef]));
-        // intervals: measured from C4 using the subset mapping
+        // intervals of the tuning itself: for an EDO the step nearest each just interval
+        // (whatever the keys are mapped to), otherwise the notes C-G, C-E, C-Eb
         const KeyPitch c4 = tuning.keyPitch(60, kMapSubset, false);
         struct Iv { const char* name; int key; double just; };
         const Iv ivs[3] = { { "FIFTH C-G", 67, 701.955 }, { "MAJOR THIRD C-E", 64, 386.314 }, { "MINOR THIRD C-EB", 63, 315.641 } };
@@ -1085,8 +1087,13 @@ private:
         {
             const float bx = x + i * 216, by = top + 34;
             frame(bx, by, 208, 84);
-            const KeyPitch k2 = tuning.keyPitch(ivs[i].key, kMapSubset, false);
-            const double c = 1200.0 * std::log2(k2.hz / c4.hz);
+            double c;
+            if (tuning.isEdo())
+            {
+                const int n = tuning.edoN();
+                c = 1200.0 * std::lround(n * ivs[i].just / 1200.0) / n;
+            }
+            else c = 1200.0 * std::log2(tuning.keyPitch(ivs[i].key, kMapSubset, false).hz / c4.hz);
             text(bx + 8, by + 16, ivs[i].name, 20, ink2);
             text(bx + 8, by + 42, fmt("%.1f C", c), 28);
             text(bx + 8, by + 68, fmt("JUST %+.1f C", c - ivs[i].just), 20);
@@ -1117,7 +1124,9 @@ private:
         // key mapping
         hline(x, ry, w, true);
         text(x, ry + 18, "KEY MAPPING", 21);
-        text(x + w, ry + 18, "12-KEY BOARDS CAN'T REACH EVERY STEP", 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        const bool subsetOk = Tuning::subsetUsable(tuning.edoN());
+        text(x + w, ry + 18, tuning.isEdo() && !subsetOk ? fmt("%.0f-EDO HAS NO 12-NOTE SUBSET", (double)tuning.edoN()) : std::string("SEQUENTIAL REACHES EVERY STEP"),
+             19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
         ry += 36;
         const int maps[3] = { kParamMapLo, kParamMapHi, kParamMapPed };
         static const char* mapNames[3] = { "LOWER ZONE", "UPPER ZONE", "PEDAL SPLIT" };
@@ -1127,13 +1136,42 @@ private:
             for (int i = 0; i < 3; ++i)
             {
                 const int p = maps[m];
-                button(x + 160 + i * 150, ry, 144, 40, kMapLabels[i], (int)pv[p] == i, [this, p, i] { setParam(p, (float)i); }, 20);
+                // what the zone really plays: an EDO without a 12-note subset is always sequential
+                const int eff = tuning.effectiveMap((int)pv[p]);
+                if (i == kMapSubset && tuning.isEdo() && !subsetOk)
+                {
+                    frame(x + 160 + i * 150, ry, 144, 40);
+                    text(x + 160 + i * 150 + 72, ry + 21, "SUBSET N/A", 20, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
+                    continue;
+                }
+                button(x + 160 + i * 150, ry, 144, 40, kMapLabels[i], eff == i || (!tuning.isEdo() && (int)pv[p] == i), [this, p, i] { setParam(p, (float)i); }, 20);
             }
             ry += 46;
         }
-        button(x, ry + 4, w, 36, std::string(on(kParamEnharmonic) ? "[X]" : "[ ]") + " FLATS INSTEAD OF SHARPS (HOLD CC66 TO SWAP LIVE)", false, [this] { toggle(kParamEnharmonic); }, 20);
-        text(x, ry + 60, "SUBSET: EACH KEY PLAYS ONE PIPE OF THE CHAIN OF FIFTHS.", 19, ink2);
-        text(x, ry + 80, "SEQUENTIAL: EACH KEY IS THE NEXT STEP (GRID CONTROLLERS).", 19, ink2);
+        {
+            // which key plays middle C, and which keys then cover the organ's compass
+            const int a = (int)pv[kParamAnchorKey];
+            stepper(x, ry, 330, "C4 ON KEY", fmt("%.0f  ", (double)a) + noteName12(a),
+                    [this] { nudge(kParamAnchorKey, -1); }, [this] { nudge(kParamAnchorKey, 1); }, 120);
+            int lo = -1, hi = -1;
+            for (int k = 0; k < 128; ++k)
+            {
+                const KeyPitch q = tuning.keyPitch(k, (int)pv[kParamMapLo], false);
+                if (q.valid && q.keyFloat >= kManualLow - 0.5f && q.keyFloat <= kManualHigh + 0.5f) { if (lo < 0) lo = k; hi = k; }
+            }
+            text(x + w, ry + 12, "MANUAL COMPASS C2-A6", 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            // how many keys the whole compass needs; more than MIDI has means some of it is always out of reach
+            const int need = tuning.pipesInRange(440.0 * std::pow(2.0, (kManualLow - 69) / 12.0), 440.0 * std::pow(2.0, (kManualHigh - 69) / 12.0));
+            std::string reach;
+            if (lo < 0) reach = "OUT OF REACH";
+            else if (hi - lo + 1 < need) reach = fmt("NEEDS %.0f KEYS; ", (double)need) + fmt("KEYS %.0f-", (double)lo) + fmt("%.0f REACH PART", (double)hi);
+            else reach = fmt("ON KEYS %.0f-", (double)lo) + fmt("%.0f", (double)hi) + fmt(" (%.0f KEYS)", (double)need);
+            text(x + w, ry + 32, reach, 20, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+            ry += 46;
+        }
+        button(x, ry + 4, w, 36, std::string(on(kParamEnharmonic) ? "[X]" : "[ ]") + " FLATS INSTEAD OF SHARPS (SUBSET; HOLD CC66 TO SWAP LIVE)", false, [this] { toggle(kParamEnharmonic); }, 20);
+        text(x, ry + 60, "SEQUENTIAL: EACH KEY IS THE NEXT STEP; THE OCTAVE IS N KEYS WIDE.", 19, ink2);
+        text(x, ry + 80, "SUBSET: 12 KEYS PLAY 12 STEPS ALONG THE FIFTHS; OCTAVE STAYS 12 KEYS.", 19, ink2);
         vline(930, 76, kH - 90);
 
         // per-pipe tuning
@@ -1173,7 +1211,8 @@ private:
         paramStepper(px, ty, pw, "PIPE TEMP", kParamPipeTemp, 1.f, "%.0f C", 1.f, 90); ty += 46;
         paramStepper(px, ty, pw, "AGE DRIFT", kParamAgeDrift, 0.5f, "±%.1f C", 1.f, 90); ty += 50;
         // build check
-        const double flo = tuning.keyPitch(kManualLow, kMapSubset, false).hz, fhi = tuning.keyPitch(kManualHigh, kMapSubset, false).hz;
+        // the compass is fixed in pitch (C2-A6), whatever the keys are mapped to
+        const double flo = 440.0 * std::pow(2.0, (kManualLow - 69) / 12.0), fhi = 440.0 * std::pow(2.0, (kManualHigh - 69) / 12.0);
         const int pipes = tuning.pipesInRange(flo, fhi);
         frame(px, ty, pw, 92);
         fill(px + 6, ty + 6, pw - 12, 22, ink);

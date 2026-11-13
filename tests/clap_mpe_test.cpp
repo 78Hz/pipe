@@ -186,8 +186,19 @@ int main(int argc, char** argv) {
         f = pitch(60, 250, 275); check(std::fabs(f - 263.18) < 0.3, "meantone: c' sounds at 263.18 Hz (Hz)", f);
         s.param("A4 Reference", 415.0); s.param("Tuning System", 0); s.play(0.05);
         f = pitch(69, 400, 470); check(std::fabs(f - 415.0) < 0.3, "a' = 415: a' sounds at 415 Hz (Hz)", f);
-        s.param("A4 Reference", 440.0); s.param("Tuning System", 8); s.play(0.05);     // 31-EDO on the 12-key subset
-        f = pitch(64, 310, 345); check(std::fabs(f - 440.0 * std::pow(2.0, -13.0 / 31.0)) < 0.35, "31-EDO: e' is 13 steps below a' (Hz)", f);
+        // 31-EDO with no key-map setting touched: each key is the next step and the octave is
+        // 31 keys wide. a' is step 23 above middle C, so middle C sounds 440 * 2^(-23/31).
+        s.param("A4 Reference", 440.0); s.param("Tuning System", 8); s.play(0.05);
+        const double c31 = 440.0 * std::pow(2.0, -23.0 / 31.0);
+        f = pitch(60, 240, 285); check(std::fabs(f - c31) < 0.3, "31-EDO as shipped: middle C sounds C4 (Hz)", f);
+        const double f61 = pitch(61, 240, 285);
+        check(std::fabs(1200 * std::log2(f61 / f) - 1200.0 / 31) < 2.0, "31-EDO as shipped: the next key is one step (38.7 cents) up (cents)", 1200 * std::log2(f61 / f));
+        const double f72 = pitch(72, 300, 420);
+        check(std::fabs(f72 - c31 * std::pow(2.0, 12.0 / 31.0)) < 0.4, "31-EDO as shipped: key 72 is 12 steps up, not an octave (Hz)", f72);
+        const double f91 = pitch(91, 500, 560);
+        check(std::fabs(f91 - 2 * c31) < 0.5, "31-EDO as shipped: the octave is 31 keys wide (Hz)", f91);
+        s.param("Key For Middle C", 48); s.play(0.05);
+        f = pitch(48, 240, 285); check(std::fabs(f - c31) < 0.3, "31-EDO, C4 moved to key 48: key 48 sounds C4 (Hz)", f);
     }
     printf("%s\n", failures ? "CLAP MPE FAILURES" : "CLAP MPE CHECKS PASSED");
     return failures ? 1 : 0;

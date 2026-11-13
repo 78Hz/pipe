@@ -32,7 +32,7 @@ inline int paramGroup(int id) {
     case kParamReleaseMs: case kParamBendStopped: case kParamBendOpen: case kParamBendString:
     case kParamBendReed: return kGroupExpression;
     case kParamTuning: case kParamEdoN: case kParamARef: case kParamMapLo: case kParamMapHi: case kParamMapPed:
-    case kParamEnharmonic: case kParamPipeTemp: case kParamAgeDrift: return kGroupTuning;
+    case kParamAnchorKey: case kParamEnharmonic: case kParamPipeTemp: case kParamAgeDrift: return kGroupTuning;
     case kParamRoom: case kParamDistance: case kParamMicHeight: case kParamWidth: case kParamRoomMix: case kParamPreDelay:
     case kParamOutputGain: case kParamMicType: case kParamQuality: case kParamLimiter: case kParamIrTrim: case kParamIrOrder: return kGroupRoom;
     case kParamZoneLoDiv: case kParamZoneHiDiv: case kParamPedalSplit: return kGroupRouting;
@@ -181,10 +181,10 @@ inline PresetData factoryPreset(int index) {
         set(kParamTuning, kTun12); set(kParamSwell, 1.f); break;
     case 8:
         on({ "gt_principal", "gt_octave", "gt_quinte", "gt_superoct", "pd_subbass", "pd_octavbass", "cp_gt_pd" });
-        set(kParamTuning, kTun31); set(kParamMapLo, kMapSubset); set(kParamMapHi, kMapSequential); break;
+        set(kParamTuning, kTun31); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
     case 9:
         on({ "gt_rohrflote", "sw_gedackt", "pd_subbass" });
-        set(kParamTuning, kTun19); set(kParamMapLo, kMapSubset); set(kParamMapHi, kMapSequential); break;
+        set(kParamTuning, kTun19); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
     case 10:
         on({ "gt_rohrflote", "sw_flute" });
         set(kParamTuning, kTun12); set(kParamPressMax, 130.f);

@@ -367,10 +367,12 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h2>Key mapping</h2>
   <p>A normal keyboard has 12 keys per octave, but 31-EDO has 31 notes, so Pipe needs to know how to lay them out. You set this separately for each zone and the pedal:</p>
   <ul>
-    <li><span class="ui">SUBSET</span>: each key plays the closest sensible note, so a normal keyboard plays “normally” in the new tuning. Tick <span class="ui">FLATS INSTEAD OF SHARPS</span>, or hold the sostenuto pedal (CC66), to switch black keys between, say, C♯ and D♭.</li>
-    <li><span class="ui">SEQUENTIAL</span>: each key plays the next step up. This is ideal for grid controllers like the Exquis, which can reach every note.</li>
-    <li><span class="ui">SCALA KBM</span>: the loaded keyboard map decides.</li>
+    <li><span class="ui">SEQUENTIAL</span> (the default): each key plays the next step up, so you can reach every note of the tuning. The octave is as many keys wide as the tuning has steps: 19 keys in 19-EDO, 31 keys in 31-EDO. This is also what grid controllers like the Exquis expect.</li>
+    <li><span class="ui">SUBSET</span>: the 12 keys of each octave play 12 of the tuning's notes, chosen along the circle of fifths, so the octave stays 12 keys wide and familiar fingering still works, but the other notes are out of reach. Tick <span class="ui">FLATS INSTEAD OF SHARPS</span>, or hold the sostenuto pedal (CC66), to switch black keys between, say, C♯ and D♭. Some divisions (5, 10, 15 and 20-EDO, for example) have no 12-note subset; for those the button shows <span class="ui">SUBSET N/A</span> and the keys stay sequential.</li>
+    <li><span class="ui">SCALA KBM</span>: the loaded keyboard map decides (Scala tunings only).</li>
   </ul>
+  <p><span class="ui">C4 ON KEY</span> chooses which key plays middle C when the keys are sequential; it starts on middle C itself. Because a whole octave now takes more keys, your keyboard covers fewer octaves: next to it, Pipe shows which keys cover the organ's manual compass (C2 to A6). Move middle C, or your keyboard's octave setting, to reach the part of the compass you want.</p>
+  <p>A project or preset saved with an earlier version of Pipe keeps the key mapping it was saved with, which was <span class="ui">SUBSET</span> for the lower zone. Choose <span class="ui">SEQUENTIAL</span> once on the Tuning screen and save again.</p>
 
   <h2>Tuning single pipes</h2>
   <p>On the right, pick a rank with the arrows and a key from the list, then use <span class="ui">OFFSET</span> to raise or lower that one pipe in cents (hundredths of a semitone). <span class="ui">PIPE TEMP</span> sets the temperature of the building: flue pipes go sharp as a church warms up, while reed pipes barely move, so a warm church puts the two slightly out of tune with each other, just as in real life. <span class="ui">AGE DRIFT</span> adds the small random mistuning of an organ that hasn't been tuned for a while. Set it to 0 for perfection.</p>

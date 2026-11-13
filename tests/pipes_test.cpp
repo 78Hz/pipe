@@ -216,26 +216,47 @@ static void tuningSystems() {
         }
         check(worst <= 2.0, "%s: all twelve notes within 2 cents (worst %.2f)", ref.name, worst);
     }
-    // equal divisions: the keys run through the steps one after another on the upper zone map
-    static const struct { int sys, n; } edos[] = { { kTun19, 19 }, { kTun22, 22 }, { kTun24, 24 }, { kTun31, 31 }, { kTun41, 41 }, { kTun53, 53 } };
+    // Equal divisions, as shipped: no key-map setting is touched, so this is what a
+    // player gets by choosing the tuning. Each key must be the next step, and the
+    // octave must be n keys wide (not 12).
+    static const struct { int sys, n; } edos[] = { { kTun19, 19 }, { kTun22, 22 }, { kTun24, 24 }, { kTun31, 31 }, { kTun41, 41 }, { kTun53, 53 },
+                                                  { kTunCustomEdo, 17 }, { kTunCustomEdo, 10 }, { kTunCustomEdo, 72 } };
     for (const auto& e : edos) {
         g.reset(); g.draw(principal); g.en->setParameter(kParamTuning, (float)e.sys);
-        g.en->setParameter(kParamMapLo, (float)kMapSequential);
+        if (e.sys == kTunCustomEdo) g.en->setParameter(kParamEdoN, (float)e.n);
         g.run(0.05);
-        // key 60 is C; the step that serves as A (three fifths up) sits on 440 Hz
+        // middle C (key 60) plays C4; the step that serves as A (three fifths up) sits on 440 Hz
         const int fifth = (int)std::lround(e.n * std::log2(1.5));
         const int aStep = ((3 * fifth) % e.n + e.n) % e.n;
+        auto expect = [&](int key, int anchor) { return 440.0 * std::pow(2.0, (double)(key - anchor - aStep) / e.n); };
+        // every key of one octave for the divisions people play most, a sample for the rest
+        std::vector<int> keys;
+        if (e.n == 19 || e.n == 31 || e.n == 10) for (int k = 60; k <= 60 + e.n; ++k) keys.push_back(k);
+        else if (60 + e.n <= 127) keys = { 48, 60, 61, 62, 60 + aStep, 60 + e.n - 1, 60 + e.n };
+        else keys = { 127 - e.n, 128 - e.n, 59, 60, 61, 62, 127 };      // MIDI's 128 keys: the octave ends on key 127
         double worst = 0;
-        for (int key : { 48, 60, 61, 62, 60 + aStep, 60 + e.n > kManualHigh ? 72 : 60 + e.n, 84 }) {
-            const double expect = 440.0 * std::pow(2.0, (double)(key - 60 - aStep) / e.n);
-            worst = std::max(worst, std::fabs(play(key, expect)));
+        for (int key : keys) {
+            const double c = play(key, expect(key, 60));
+            if (std::getenv("PIPE_TEST_VERBOSE") && std::fabs(c) > 2) std::printf("      key %d (%.1f Hz): %+.2f\n", key, expect(key, 60), c);
+            worst = std::max(worst, std::fabs(c));
         }
-        check(worst <= 2.0, "%d-EDO, keys in step order: within 2 cents (worst %.2f)", e.n, worst);
-        // on the 12-key subset map a fifth on the keyboard is the division's own fifth
+        check(worst <= 2.0, "%d-EDO as shipped: %d keys from middle C, each the next step, octave %d keys wide (worst %.2f ct)",
+              e.n, (int)keys.size(), e.n, worst);
+        // the anchor moves where C4 sits
+        g.en->setParameter(kParamAnchorKey, 48.f);
+        const double w = std::max(std::fabs(play(48, expect(48, 48))), std::fabs(play(49, expect(49, 48))));
+        check(w <= 2.0, "%d-EDO, C4 on key 48: key 48 plays C4, key 49 the step above (worst %.2f ct)", e.n, w);
+        g.en->setParameter(kParamAnchorKey, 60.f);
+        // the 12-key subset, when asked for: a fifth on the keyboard is the division's own fifth.
+        // Divisions whose fifth cannot generate 12 notes stay sequential.
         g.en->setParameter(kParamMapLo, (float)kMapSubset);
-        const double a = 440.0, eAbove = 440.0 * std::pow(2.0, (double)fifth / e.n);
-        const double w = std::max(std::fabs(play(69, a)), std::fabs(play(76, eAbove)));
-        check(w <= 2.0, "%d-EDO, 12-key subset: a' = 440 and the fifth above it (worst %.2f)", e.n, w);
+        if (Tuning::subsetUsable(e.n)) {
+            const double ws = std::max(std::fabs(play(69, 440.0)), std::fabs(play(76, 440.0 * std::pow(2.0, (double)fifth / e.n))));
+            check(ws <= 2.0, "%d-EDO, 12-key subset chosen: a' = 440 and the fifth above it (worst %.2f ct)", e.n, ws);
+        } else {
+            const double ws = std::max(std::fabs(play(61, expect(61, 60))), std::fabs(play(62, expect(62, 60))));
+            check(ws <= 2.0, "%d-EDO has no 12-note subset: subset chosen still plays every step (worst %.2f ct)", e.n, ws);
+        }
     }
     // a' reference, one pipe's own offset, and the tuning changing under a held key
     g.reset(); g.draw(principal); g.en->setParameter(kParamARef, 415.f); g.run(0.05);

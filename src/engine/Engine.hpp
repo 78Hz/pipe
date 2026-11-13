@@ -144,6 +144,11 @@ public:
         if (id < 0 || id >= kOutFirst) return;
         const float old = params[id];
         params[id] = v;
+        // A key's remembered tuning trim belongs to the pipe it played; once the keys
+        // play other pipes, the trims are learnt again.
+        if (v != old && (id == kParamTuning || id == kParamEdoN || id == kParamAnchorKey || id == kParamMapLo
+                         || id == kParamMapHi || id == kParamMapPed || id == kParamEnharmonic))
+            std::memset(trimValid, 0, sizeof(trimValid));
         if (id < kNumStops) {
             if ((old >= 0.5f) != (v >= 0.5f)) stopChanged(id, v >= 0.5f);
             if (kStops[id].type == kStopTremulant) wind.tremOn = v >= 0.5f;
@@ -456,7 +461,8 @@ private:
         v.rank = rank; v.division = d; v.key = key; v.freq = (float)f;
         v.age = ++ageCounter;
 
-        const int k = std::max(0, std::min(kNumKeys - 1, key));
+        // voicing belongs to a place in the compass, i.e. to the pitch the key plays, not to the key number
+        const int k = std::max(0, std::min(kNumKeys - 1, (int)std::lround(p.pitch.keyFloat)));
         const PipeGeometry g = pipeGeometry(*voicing, rank, k, f);
         v.voicedRatio = (float)(g.toeMM / kChestNominal[d]);
         v.flowWeight = (float)g.flowWeight;
@@ -911,6 +917,7 @@ private:
         case kParamBlowerOn: wind.blowerOn = v >= 0.5f; break;
         case kParamTuning: tuning.system = (int)v; break;
         case kParamEdoN: tuning.customN = (int)v; break;
+        case kParamAnchorKey: tuning.anchor = (int)v; break;
         case kParamARef: tuning.aRef = v; break;
         case kParamRoom: room.room = (int)v; room.configure(); break;
         case kParamDistance: room.distance = v; room.configure(); break;
