@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Stoplist.hpp"
+#include "Wind.hpp"
 #include <cstring>
 #include <cstdio>
 
@@ -54,6 +55,7 @@ enum ParamId {
     kParamOutputGain, kParamMicType, kParamQuality, kParamLimiter, kParamIrTrim, kParamIrOrder,
     kParamZoneLoDiv, kParamZoneHiDiv, kParamPedalSplit,
     kParamAnchorKey,                 // sequential map: the key that plays C4 (added last so older parameter numbers stay put)
+    kParamResLoad, kParamResSize, kParamSpinDown, kParamWindLeak,   // reservoir load and size, blower coast-down, leakage
     // ---- outputs (DSP -> UI meters) ----
     kOutFirst,
     kOutReservoir = kOutFirst, kOutChestPd, kOutChestGt, kOutChestSw, kOutDemand, kOutPipes, kOutCpu,
@@ -67,7 +69,8 @@ enum ParamId {
     kOutViaLo, kOutViaHi, kOutClip, kOutLimitDb, kOutLiveChannel,
     kOutNote0,                       // 5 x (key, source, foot pressure mm, cents)
     kOutNoteLast = kOutNote0 + 5 * 4 - 1,
-    kOutSilentKey,                   // a key that was played but cannot sound: key + 1000 (outside the compass) or + 2000 (no stop drawn); 0 = none
+    kOutSilentKey,
+    kOutLid, kOutFan, kOutWindLeft,  // reservoir lid height 0..1, blower speed 0..1, seconds of stored wind left (-1 = supplied)                   // a key that was played but cannot sound: key + 1000 (outside the compass) or + 2000 (no stop drawn); 0 = none
     kNumParams
 };
 constexpr int kNumShownNotes = 5;
@@ -100,6 +103,10 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamReservoir,   { "reservoir", "Reservoir Pressure", 60.f, 140.f, 96.f, kPFloat, "mm", 0, nullptr });
         set(kParamBlowerNoise, { "blower_noise", "Blower Noise", -90.f, -30.f, -62.f, kPFloat, "dB", 0, nullptr });
         set(kParamConcussion,  { "concussion", "Concussion Bellows", 0.f, 1.f, 0.4f, kPFloat, "", 0, nullptr });
+        set(kParamResLoad,     { "res_load", "Reservoir Load", 0.f, 1.f, 1.f, kPEnum, "", kNumReservoirLoads, kReservoirLoadLabels });
+        set(kParamResSize,     { "res_size", "Reservoir Size", 1.f, 60.f, 4.f, kPFloat, "s", 0, nullptr });
+        set(kParamSpinDown,    { "spin_down", "Blower Coast-Down", 1.f, 30.f, 8.f, kPFloat, "s", 0, nullptr });
+        set(kParamWindLeak,    { "wind_leak", "Wind Leakage", 0.f, 3.f, 0.4f, kPFloat, "%", 0, nullptr });
         set(kParamBlowerOn,    { "blower", "Blower", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamStrict,      { "strict", "Strict Physical Limits", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamPressMax,    { "boost_max", "Wind Boost Max Pressure", 80.f, 160.f, 110.f, kPFloat, "mm", 0, nullptr });
@@ -160,6 +167,9 @@ inline const ParamInfo& paramInfo(int id) {
         set(kOutClip,          { "out_clip", "Peak Before Limiter", 0.f, 16.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutLimitDb,       { "out_limit_db", "Limiter Gain Reduction", 0.f, 60.f, 0.f, kPOutput, "dB", 0, nullptr });
         set(kOutLiveChannel,   { "out_live_channel", "Last Note Channel", 0.f, 15.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutLid,           { "out_lid", "Reservoir Lid", 0.f, 1.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutFan,           { "out_fan", "Blower Speed", 0.f, 1.f, 0.f, kPOutput, "", 0, nullptr });
+        set(kOutWindLeft,      { "out_wind_left", "Wind Left", -1.f, 100000.f, -1.f, kPOutput, "s", 0, nullptr });
         set(kOutSilentKey,     { "out_silent_key", "Key Without Pipes", 0.f, 4000.f, 0.f, kPOutput, "", 0, nullptr });
         static char noteSyms[kNumShownNotes * 4][24];
         static char noteNames[kNumShownNotes * 4][32];

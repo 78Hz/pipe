@@ -77,6 +77,10 @@ struct Voice {
     float voicedRatio = 1.f;    // toe pressure / division nominal
     float gain = 0.f, gL = 0.f, gR = 0.f;
     float lpCoef = 1.f, lp = 0.f;
+    float lpDark = 1.f, blkLp = 1.f, blkEmph = 0.f;   // tone on failing wind: upper partials go first
+    float speakMin = 0.2f;      // foot pressure (re voiced) below which this pipe stops speaking
+    float flutter = 0.f, flutterB = 0.f;   // slow random wavering near the speaking threshold
+    uint32_t rng = 1;
     float emph = 0.f, emphCoef = 0.f, emphLp = 0.f;   // radiation shelf: narrow mouths and reed bells radiate highs
     float baseNoise = 0.01f, chiffAmt = 0.f, languid = 0.f;
     float bendLimit = 50.f;
@@ -96,7 +100,7 @@ struct Voice {
     float prevPh = 0.f, prevMag = 0.f;
     bool prevOk = false, cacheable = false, tunable = false;
     bool twice = false;         // model run at twice the sample rate (pipes only a few samples long)
-    float rawEnv = 0.f;         // level inside the resonator
+    float rawEnv = 0.f;         // level inside the resonator (mean of |x| over about two periods)
 };
 
 class Engine {
@@ -132,6 +136,7 @@ public:
         room.prepare(sampleRate);
         applyAllParams();
         wind.reset();
+        windLive = false;
         for (auto& v : voices) v.active = false;
         for (int d = 0; d < kNumDivisions; ++d) for (int k = 0; k < kNumKeys; ++k) pallets[d][k] = Pallet();
         std::memset(trimValid, 0, sizeof(trimValid));
@@ -244,6 +249,7 @@ public:
     }
 
     // ------------------------------------------------------------ for tests
+    const Voice* debugVoice(int rank, int key) const { for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return &v; return nullptr; }
     float debugTrim(int rank, int key) const { for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return v.trim; return trimValid[rank][key] ? trimCache[rank][key] : 0.f; }
     float debugAperture(int d, int k) const { return pallets[d][k].aperture; }
     float debugFootMm(int d, int k) const { return pallets[d][k].footRatio * kChestNominal[d]; }
@@ -460,6 +466,7 @@ private:
         v.active = true; v.reed = isReed; v.slot = slotIndex(freeIdx);
         v.rank = rank; v.division = d; v.key = key; v.freq = (float)f;
         v.age = ++ageCounter;
+        v.rng = hash32((uint32_t)(rank * 7919 + key * 104729 + (int)v.age)) | 1u;
 
         // voicing belongs to a place in the compass, i.e. to the pitch the key plays, not to the key number
         const int k = std::max(0, std::min(kNumKeys - 1, (int)std::lround(p.pitch.keyFloat)));
@@ -493,6 +500,11 @@ private:
             float fcOut = (float)(3.0 * kSpeedOfSound / (M_PI * g.diameterMM * 0.001));
             if (rd.kind == kKindStopped) fcOut *= 0.7f;
             v.lpCoef = onePoleCoef(std::max(1200.f, fcOut), fs);
+            v.lpDark = onePoleCoef(std::max(250.f, 2.5f * (float)f), fs);
+            // Where a pipe stops speaking as its wind fails depends on its mouth: a high
+            // cut-up (large jet ratio) needs more wind. No two pipes stop at the same pressure.
+            v.speakMin = 0.13f + 0.35f * std::max(0.f, (float)v.jr - (float)kJetModelMin)
+                       + 0.03f * ((seed >> 8 & 0xFF) / 127.5f - 1.f);
             v.emph = rd.kind == kKindString ? 3.0f : rd.kind == kKindStopped ? 0.0f : 1.0f;
             v.emphCoef = onePoleCoef((rd.kind == kKindString ? 2.5f : 4.0f) * (float)f, fs);
             v.gain = 0.12f * reg * std::pow((float)g.flowWeight, 0.25f);
@@ -512,14 +524,17 @@ private:
             tuneVoice(v);
             core.delayA = v.baseA; core.delayB = v.baseB;
             v.baseNoise = 0.005f;
-            v.chiffAmt = 0.06f;     // the tongue's first flutter: gets the reed going promptly
+            v.chiffAmt = 0.06f;     // the tongue's first flutter
             v.lpCoef = onePoleCoef(std::min(0.45f * fs, (float)f * 14.f + 2500.f), fs);
+            v.lpDark = onePoleCoef(std::max(300.f, 3.f * (float)f), fs);
+            v.speakMin = 0.32f + 0.04f * ((seed >> 8 & 0xFF) / 127.5f - 1.f);   // a reed tongue needs more wind to start beating
             v.emph = v.family == kReedOboe ? 2.5f : 2.0f;
             v.emphCoef = onePoleCoef(3.0f * (float)f, fs);
             v.gain = 0.16f * reg;
             v.bendLimit = params[kParamBendReed];
             v.curA = v.baseA; v.curB = v.baseB;
         }
+        v.blkLp = v.lpCoef; v.blkEmph = v.emph;
         // where the pipe stands in the case: C side left, C# side right;
         // big pipes outside, pedal towers at the flanks, swell box in the middle
         const float side = (key % 2 == 0) ? -1.f : 1.f;
@@ -605,6 +620,7 @@ private:
             if (!v.stopClosed) flow += v.flowWeight * p.aperture * std::sqrt(std::max(0.f, p.footRatio));
         }
         wind.update(dt, flow);
+        windLive = true;
 
         // pallets: the expression matrix decides how each key's mechanisms move
         const float fastT = params[kParamPalletFast] * 0.001f, slowT = params[kParamPalletSlow] * 0.001f;
@@ -690,35 +706,61 @@ private:
             const float ratio = v.stopClosed ? 0.f : std::max(0.f, p.footRatio);
             float bend = p.bendCents;
             if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
-            // Pitch follows the wind a little: a flue goes slightly sharp on more wind and flat on less.
+            // How a pipe answers its wind. More wind than it was voiced for: louder and, for a
+            // flue, a few cents sharp. Less: quieter, flatter, duller and breathier, and near
+            // its own threshold it wavers, then stops. A flue falls towards a semitone flat
+            // just before it stops (measured on real pipes as their wind decays); a reed
+            // keeps closer to pitch, held by its tongue, and its tone follows its blowing
+            // pressure in the model itself.
+            const float rT = v.speakMin;
+            const float fail = std::max(0.f, std::min(1.f, (1.f - ratio) / std::max(0.05f, 1.f - rT)));
             const float windCents = v.reed ? 0.f
-                : std::max(-12.f, std::min(6.f, 12.f * std::log2(std::max(0.05f, ratio))));
-            const float cents = bend + windCents;
+                : ratio >= 1.f ? std::min(6.f, 12.f * std::log2(ratio))
+                : 12.f * std::log2(std::max(rT, ratio)) - 85.f * fail * fail * fail;
+            const float bright = std::pow(std::max(0.f, std::min(1.f, (ratio - rT) / std::max(0.05f, 0.75f - rT))), 0.7f);
+            // wavering near the threshold: slow random movement of the jet / tongue
+            const float waver = std::max(0.f, std::min(1.f, (1.7f * rT - ratio) / (0.7f * rT)));
+            {
+                v.rng ^= v.rng << 13; v.rng ^= v.rng >> 17; v.rng ^= v.rng << 5;
+                const float r01 = (v.rng & 0xFFFF) / 32767.5f - 1.f;
+                const float a = 1.f - std::exp(-dt * 2.f * (float)M_PI * 7.f);
+                v.flutter += a * (r01 - v.flutter); v.flutterB += a * (v.flutter - v.flutterB);
+            }
+            const float wobble = waver * 3.f * v.flutterB;          // about +-1 at full wavering
+            const float cents = bend + windCents + (v.reed ? 4.f : 12.f) * wobble;
             const float pitchMul = std::pow(2.f, -(cents + v.trim) / 1200.f);
             v.tgtW = 2.f * (float)M_PI * v.freq * std::pow(2.f, cents / 1200.f) / fs;
             v.rotC = std::cos(v.tgtW); v.rotS = std::sin(v.tgtW);
             v.cacheable = std::fabs(bend) < 0.5f && ratio > 0.9f && ratio < 1.1f;
-            const bool tunable = ratio > 0.5f;          // not while the wind is coming or going
+            // The tuner holds a flue on the pressure law above; a reed's own pitch movement
+            // is part of its sound, so it is only trimmed on steady wind.
+            // (and not during a reed's attack, while its pitch is still rising: ~40 periods)
+            const bool tunable = v.reed ? (ratio > 0.9f && ratio < 1.1f && p.sinceOn * v.freq > 50.f) : ratio > 0.5f;
             if (tunable != v.tunable) { v.tunable = tunable; v.prevOk = false; v.winLen = v.winMin; }
-            // The wind at the foot sets how loud the pipe is; the exciter stays on its
-            // operating point while there is enough wind to speak at all and falls out
-            // of speech below that.
             const float over = 1.f + 0.1f * std::max(0.f, std::min(1.f, ratio - 1.f));
+            // exciter drive: on its operating point down to near the threshold, then below
+            // the point where the model can oscillate (flue ~0.84, reed ~0.55 of voiced)
+            const float onset = std::max(0.f, std::min(1.f, (ratio - 0.8f * rT) / (0.5f * rT)));
+            const float on = onset * onset * (3.f - 2.f * onset);
             float targetBreath, tBore = 0, tJet = 0, tA = 0, tB = 0;
             if (!v.reed) {
-                targetBreath = kFlueVoicedBreath * std::sqrt(std::min(1.f, ratio / kFlueSpeakRatio)) * over;
+                targetBreath = kFlueVoicedBreath * (0.80f + 0.20f * on) * over * (1.f + 0.04f * wobble);
                 tBore = v.baseBore * pitchMul;
                 tJet = std::min((float)(kJetSize - 8), v.baseJet * pitchMul);
                 v.curBias = v.languid * 0.04f + p.jet * 0.07f;
             } else {
-                targetBreath = kReedVoicedBreath * std::sqrt(std::min(1.f, ratio / kReedSpeakRatio));
+                // the reed's blowing pressure follows the foot pressure through its speaking window
+                const float span = std::max(0.f, std::min(1.f, (ratio - 0.8f * rT) / (1.f - 0.8f * rT)));
+                targetBreath = (0.30f + (kReedVoicedBreath - 0.30f) * std::pow(span, 0.6f)) * (1.f + 0.03f * wobble);
                 tA = v.baseA * pitchMul; tB = v.baseB * pitchMul;
             }
             // targets stored for per-sample ramps
             v.tBreath = targetBreath;
             v.tBore = tBore; v.tJet = tJet; v.tA = tA; v.tB = tB;
-            v.tNoise = v.baseNoise + v.chiffAmt * p.chiff * p.chiffScale;
-            v.tLevel += v.levelLag * (std::pow(ratio, 0.8f) - v.tLevel);
+            v.tNoise = v.baseNoise * (1.f + 3.f * (1.f - bright)) + v.chiffAmt * p.chiff * p.chiffScale;
+            v.blkLp = v.lpDark + (v.lpCoef - v.lpDark) * bright;
+            v.blkEmph = v.emph * bright;
+            v.tLevel += v.levelLag * (std::pow(ratio, 0.8f) * (1.f + 0.35f * wobble) - v.tLevel);
 
             // End of a pipe's life: its pallet has been let go and has shut (or its stop is
             // in) and the sound has died away. A pallet that is held but not yet open - a
@@ -760,6 +802,9 @@ private:
         outputs[kOutChestGt - kOutFirst] = wind.chest[kGreat];
         outputs[kOutChestSw - kOutFirst] = wind.chest[kSwell];
         outputs[kOutDemand - kOutFirst] = wind.demand;
+        outputs[kOutLid - kOutFirst] = wind.lid;
+        outputs[kOutFan - kOutFirst] = wind.fan;
+        outputs[kOutWindLeft - kOutFirst] = wind.secondsLeft;
         outputs[kOutPipes - kOutFirst] = (float)speaking;
         outputs[kOutSeenLo - kOutFirst] = (float)mpe.inputBits(0);
         outputs[kOutSeenHi - kOutFirst] = (float)mpe.inputBits(1);
@@ -782,7 +827,7 @@ private:
         const float sw = std::max(0.f, std::min(1.f, swellEff));
         swellGainT = 0.12f + 0.88f * std::pow(sw, 1.5f);
         swellCoefT = onePoleCoef(900.f + 17000.f * sw * sw, fs);
-        blowerNoiseT = (params[kParamBlowerOn] >= 0.5f) ? std::pow(10.f, params[kParamBlowerNoise] / 20.f) : 0.f;
+        blowerNoiseT = std::pow(10.f, params[kParamBlowerNoise] / 20.f) * wind.fan * wind.fan;   // the blower's hum follows its speed
     }
 
     // The value a matrix source has for this key's note, or false if that source does not exist
@@ -841,7 +886,7 @@ private:
             const float dLevel = (v.tLevel - v.level) * inv;
             float env = v.env;
             float pc = v.phC, ps = v.phS, aRe = 0.f, aIm = 0.f, aE = 0.f;
-            float rawEnv = v.rawEnv; const float rawDecay = 1.f - 0.35f * v.freq / fs;   // falls over about three periods
+            float rawEnv = v.rawEnv; const float rawCoef = std::min(1.f, 0.5f * v.freq / fs);   // averages over about two periods
             if (!v.reed) {
                 FlueCore& c = *flues[(size_t)v.slot];
                 const float dBore = (v.tBore - v.curBore) * inv, dJet = (v.tJet - v.curJet) * inv;
@@ -853,9 +898,9 @@ private:
                     if (v.twice) x = 0.5f * (x + c.tick());
                     aRe += x * pc; aIm -= x * ps; aE += x * x;
                     { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
-                    v.lp += v.lpCoef * (x - v.lp);
+                    v.lp += v.blkLp * (x - v.lp);
                     v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain * v.level;
+                    x = (v.lp + v.blkEmph * (v.lp - v.emphLp)) * v.gain * v.level;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
@@ -867,12 +912,12 @@ private:
                     v.curBreath += dBreath; v.curA += dA; v.curB += dB; v.curNoise += dNoise; v.level += dLevel;
                     c.breath = v.curBreath; c.delayA = v.curA; c.delayB = v.curB; c.noiseAmt = v.curNoise;
                     float x = c.tick();
-                    { const float ax = std::fabs(x); rawEnv = ax > rawEnv ? ax : rawEnv * rawDecay; }
+                    rawEnv += rawCoef * (std::fabs(x) - rawEnv);
                     aRe += x * pc; aIm -= x * ps; aE += x * x;
                     { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
-                    v.lp += v.lpCoef * (x - v.lp);
+                    v.lp += v.blkLp * (x - v.lp);
                     v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.emph * (v.lp - v.emphLp)) * v.gain * v.level;
+                    x = (v.lp + v.blkEmph * (v.lp - v.emphLp)) * v.gain * v.level;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
@@ -914,7 +959,14 @@ private:
         case kParamStability: wind.flexibility = v; break;
         case kParamReservoir: wind.reservoirTarget = v; break;
         case kParamConcussion: wind.concussion = v; break;
-        case kParamBlowerOn: wind.blowerOn = v >= 0.5f; break;
+        case kParamBlowerOn:
+            wind.blowerOn = v >= 0.5f;
+            if (!windLive) wind.reset();      // restored with a project: start in that state, no run-up or run-down
+            break;
+        case kParamResLoad: wind.load = std::max(0, std::min(kNumReservoirLoads - 1, (int)v)); break;
+        case kParamResSize: wind.sizeSeconds = v; break;
+        case kParamSpinDown: wind.spinDown = v; break;
+        case kParamWindLeak: wind.leak = v * 0.01f; break;
         case kParamTuning: tuning.system = (int)v; break;
         case kParamEdoN: tuning.customN = (int)v; break;
         case kParamAnchorKey: tuning.anchor = (int)v; break;
@@ -956,6 +1008,7 @@ private:
     ScalaScale pendingScl; ScalaKbm pendingKbm;
     std::mutex stateMutex;
     int silentKey = 0; float silentTimer = 0.f;
+    bool windLive = false;      // the wind has run since the last reset
     float trimCache[kNumRanks][kNumKeys] = {};
     bool trimValid[kNumRanks][kNumKeys] = {};
     std::atomic<bool> voicingDirty{false}, tuningDirty{false}, scalaDirty{false};

@@ -79,6 +79,7 @@ public:
         if (sf != 1.0) setSize((uint)(kW * sf), (uint)(kH * sf));
         setGeometryConstraints((uint)(kW * 0.5 * sf), (uint)(kH * 0.5 * sf), true, false);
         for (float& v : windHist) v = 0.f;
+        for (float& v : windHistLong) v = 0.f;
         for (int g = 0; g < kNumGroups; ++g) include[g] = g != kGroupRouting;
         saveName = "MY ORGAN";
         matrix.setDefaults();
@@ -123,12 +124,20 @@ protected:
     void uiIdle() override
     {
         learnPoll();
-        // 4 s of wind history for the sag graph
-        if (++idleCount % 2 == 0)
+        // wind history for the pressure graph: 4 s for sag and bounce, 2 min for the wind running out
+        const auto now = std::chrono::steady_clock::now();
+        if (now - histShortT >= std::chrono::milliseconds(33))
         {
+            histShortT = now;
             windHist[windPos] = pv[kOutChestGt];
             windPos = (windPos + 1) % kHist;
             if (screen == kScrWind) repaint();
+        }
+        if (now - histLongT >= std::chrono::milliseconds(1000))
+        {
+            histLongT = now;
+            windHistLong[windPosLong] = pv[kOutChestGt];
+            windPosLong = (windPosLong + 1) % kHist;
         }
     }
 
@@ -827,15 +836,40 @@ private:
         auto line = [&](float x1, float y1, float x2, float y2) { beginPath(); moveTo(x1, y1); lineTo(x2, y2); strokeColor(ink); strokeWidth(3); stroke(); };
         box(ox, oy + 120, 120, 80);
         beginPath(); circle(ox + 60, oy + 155, 22); stroke();
-        text(ox + 60, oy + 215, on(kParamBlowerOn) ? "BLOWER" : "BLOWER OFF", 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        // the fan: spokes turn with its speed
+        {
+            const float sp = pv[kOutFan];
+            for (int i = 0; i < 4; ++i)
+            {
+                const float a = (float)i * (float)M_PI / 2.f + (float)fanAngle;
+                beginPath(); moveTo(ox + 60, oy + 155); lineTo(ox + 60 + std::cos(a) * 18, oy + 155 + std::sin(a) * 18); strokeColor(ink); strokeWidth(3); stroke();
+            }
+            fanAngle += 0.35 * sp;
+            text(ox + 60, oy + 215, on(kParamBlowerOn) ? (sp > 0.99f ? std::string("BLOWER") : fmt("RUN-UP %.0f%%", sp * 100))
+                                                       : (sp > 0.01f ? fmt("COASTING %.0f%%", sp * 100) : std::string("BLOWER OFF")), 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        }
         line(ox + 120, oy + 160, ox + 170, oy + 160);
         box(ox + 170, oy + 115, 190, 90);
         beginPath(); moveTo(ox + 170, oy + 115);
         for (int i = 1; i <= 12; ++i) lineTo(ox + 170 + i * 190.f / 12, oy + (i % 2 ? 100.f : 115.f));
         stroke();
-        fill(ox + 215, oy + 75, 40, 22, ink); fill(ox + 275, oy + 75, 40, 22, ink);
-        text(ox + 265, oy + 140, "MAIN RESERVOIR", 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
-        text(ox + 265, oy + 175, fmt("%.0f MM", pv[kOutReservoir]), 30, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        if ((int)pv[kParamResLoad] == kLoadWeights) { fill(ox + 215, oy + 75, 40, 22, ink); fill(ox + 275, oy + 75, 40, 22, ink); }
+        else for (int sx : { 225, 295 })      // springs pulling the lid down
+        {
+            beginPath(); moveTo(ox + sx, oy + 60);
+            for (int i = 1; i <= 8; ++i) lineTo(ox + sx + (i % 2 ? 8.f : -8.f), oy + 60 + i * 5.f);
+            strokeColor(ink); strokeWidth(2); stroke();
+        }
+        text(ox + 265, oy + 132, "MAIN RESERVOIR", 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        text(ox + 265, oy + 162, fmt("%.0f MM", pv[kOutReservoir]), 30, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        // lid height: how much wind is stored
+        segBar(ox + 182, oy + 186, 166, 12, 12, pv[kOutLid] / WindSystem::kWorkHeight);
+        {
+            const float left = pv[kOutWindLeft];
+            std::string s = "WIND STORED";
+            if (left >= 0.f) s = left >= 120.f ? fmt("LASTS ABOUT %.0f MIN", left / 60.f) : fmt("LASTS ABOUT %.0f S", left);
+            text(ox + 265, oy + 228, s, 20, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        }
         line(ox + 360, oy + 160, ox + 400, oy + 160);
         line(ox + 400, oy + 55, ox + 400, oy + 265);
         static const int divs[3] = { kGreat, kSwell, kPedal };
@@ -854,22 +888,39 @@ private:
             segBar(ox + 592, cy + 32, 246, 14, 16, pv[chestOut[i]] / (kChestNominal[divs[i]] * 1.1f));
         }
         // sag graph
-        const float gy = oy + 340, gh = 150, gx = 30, gw = 870;
+        const float gy = oy + 330, gh = 100, gx = 30, gw = 870;
         hline(20, gy - 14, 890, true);
-        text(gx, gy + 4, "GREAT CHEST PRESSURE · LAST 4 S", 21);
+        text(gx, gy + 4, "GREAT CHEST PRESSURE", 21);
+        button(gx + 250, gy - 8, 80, 26, "4 S", !histLong, [this] { histLong = false; }, 19);
+        button(gx + 336, gy - 8, 80, 26, "2 MIN", histLong, [this] { histLong = true; }, 19);
+        const float* hist = histLong ? windHistLong : windHist;
+        const int pos = histLong ? windPosLong : windPos;
         float mn = 1e9f, mx = -1e9f;
-        for (float v : windHist) { mn = std::min(mn, v); mx = std::max(mx, v); }
+        for (int i = 0; i < kHist; ++i) { mn = std::min(mn, hist[i]); mx = std::max(mx, hist[i]); }
         text(gx + gw, gy + 4, fmt("NOMINAL 78 · MIN %.0f", mn) + fmt(" · MAX %.0f", mx), 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
         const float base = gy + 24 + gh;
         vline(gx, gy + 24, gh); hline(gx, base, gw);
         const float bw = gw / kHist;
+        // short view: the top of the range, where sag and bounce show; long view: all the way to empty
+        const float lo = histLong ? 0.f : 50.f, span = histLong ? 90.f : 40.f;
         for (int i = 0; i < kHist; ++i)
         {
-            const float v = windHist[(windPos + i) % kHist];
-            const float h = std::max(0.f, std::min(gh, (v - 50.f) / 40.f * gh));
+            const float v = hist[(pos + i) % kHist];
+            const float h = std::max(0.f, std::min(gh, (v - lo) / span * gh));
             fill(gx + 3 + i * bw, base - h, std::max(1.f, bw - 2), h, ink);
         }
-        text(gx, base + 18, "-4.0 S", 20, ink2); text(gx + gw, base + 18, "NOW", 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(gx, base + 18, histLong ? "-2 MIN" : "-4.0 S", 20, ink2); text(gx + gw, base + 18, "NOW", 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+
+        // reservoir and blower settings
+        const float ry = base + 40;
+        titleBar(20, ry, 890, "RESERVOIR AND BLOWER", "WHAT HAPPENS WHEN THE BLOWER STOPS");
+        text(30, ry + 44, "LID LOADED BY", 20, ink2);
+        button(30, ry + 58, 150, 40, "WEIGHTS", (int)pv[kParamResLoad] == kLoadWeights, [this] { setParam(kParamResLoad, (float)kLoadWeights); }, 20);
+        button(190, ry + 58, 150, 40, "SPRINGS", (int)pv[kParamResLoad] == kLoadSprings, [this] { setParam(kParamResLoad, (float)kLoadSprings); }, 20);
+        text(30, ry + 116, (int)pv[kParamResLoad] == kLoadWeights ? "STEADY, THEN FAILS SUDDENLY" : "SINKS AS THE LID COMES DOWN", 19, ink2);
+        knob(450, ry + 70, kParamResSize, "SIZE (FULL ORGAN)", fmt("%.0f S", pv[kParamResSize]));
+        knob(620, ry + 70, kParamSpinDown, "BLOWER COAST-DOWN", fmt("%.0f S", pv[kParamSpinDown]));
+        knob(790, ry + 70, kParamWindLeak, "LEAKAGE", fmt("%.1f%%", pv[kParamWindLeak]));
         vline(924, 76, kH - 90);
 
         // controls
@@ -1701,6 +1752,8 @@ private:
     int selRank = 7, selKey = 60, applyScope = 0;
     int dragHit = -1; float dragStartY = 0, dragStartV = 0;
     float windHist[kHist]; int windPos = 0; unsigned idleCount = 0;
+    float windHistLong[kHist]; int windPosLong = 0; bool histLong = false; double fanAngle = 0;
+    std::chrono::steady_clock::time_point histShortT{}, histLongT{};
     std::string presetLabel = "P01 PLEIN JEU GT+PED";
     bool dirty = false, loading = false;
     std::string toast;

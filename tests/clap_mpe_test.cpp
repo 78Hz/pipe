@@ -61,6 +61,14 @@ struct Instance {
         }
         printf("  FAIL parameter '%s' not found\n", name); exit(1);
     }
+    double value(const char* name) {
+        auto* pp = (const clap_plugin_params_t*)p->get_extension(p, CLAP_EXT_PARAMS);
+        for (uint32_t i = 0; pp && i < pp->count(p); ++i) {
+            clap_param_info_t info{}; double v = 0;
+            if (pp->get_info(p, i, &info) && strcmp(info.name, name) == 0 && pp->get_value(p, info.id, &v)) return v;
+        }
+        printf("  FAIL parameter '%s' not found\n", name); exit(1);
+    }
     std::vector<float> cap;     // everything played so far (left channel)
     // strongest partial between lo and hi Hz in the last `seconds` of audio
     double peakHz(double seconds, double lo, double hi) const {
@@ -199,6 +207,23 @@ int main(int argc, char** argv) {
         check(std::fabs(f91 - 2 * c31) < 0.5, "31-EDO as shipped: the octave is 31 keys wide (Hz)", f91);
         s.param("Key For Middle C", 48); s.play(0.05);
         f = pitch(48, 240, 285); check(std::fabs(f - c31) < 0.3, "31-EDO, C4 moved to key 48: key 48 sounds C4 (Hz)", f);
+    }
+    {   // the blower stops with a chord held, then starts again: through the plugin as a host drives it
+        Instance s(fac, id); s.param("Room Mix", 0.0);
+        s.param("Reservoir Size", 1.0); s.param("Blower Coast-Down", 1.0); s.play(0.2);
+        for (int k : { 48, 55, 60, 64 }) s.note(CLAP_EVENT_NOTE_ON, 1, 0, k);
+        const double on = s.play(1.5);
+        const double c3 = 130.813, f0 = s.peakHz(0.5, 110, 140);
+        s.param("Blower", 0.0);
+        double flattest = 0; double t = 0; double lvl = on;
+        while (t < 60 && lvl > on - 50) { lvl = s.play(1.0); t += 1.0; const double f = s.peakHz(0.5, 110, 140); if (lvl > on - 30) flattest = std::min(flattest, 1200 * std::log2(f / c3)); }
+        check(std::fabs(1200 * std::log2(f0 / c3)) < 2 && flattest < -30, "blower stopped: the chord sinks flat before it dies (start, flattest cents)", 1200 * std::log2(f0 / c3), flattest);
+        check(lvl < on - 50 && s.value("Reservoir Lid") < 0.03, "and the wind runs out: the reservoir lid output reads empty (seconds, lid)", t, s.value("Reservoir Lid"));
+        s.param("Blower", 1.0);
+        s.play(10.0);
+        const double back = s.play(1.0), f = s.peakHz(0.5, 110, 140);
+        check(std::fabs(back - on) < 1.5 && std::fabs(1200 * std::log2(f / c3)) < 2, "blower started again: the held chord returns in tune (dB, cents)", back - on, 1200 * std::log2(f / c3));
+        check(s.value("Blower Speed") > 0.95 && s.value("Wind Left") < 0, "the blower speed output reads full and no wind deficit is reported (speed, seconds left)", s.value("Blower Speed"), s.value("Wind Left"));
     }
     printf("%s\n", failures ? "CLAP MPE FAILURES" : "CLAP MPE CHECKS PASSED");
     return failures ? 1 : 0;

@@ -27,7 +27,8 @@ inline int paramGroup(int id) {
     if (id < kNumStops) return kGroupStops;
     switch (id) {
     case kParamSwell: case kParamTremSpeed: case kParamTremDepth: case kParamTremTarget: case kParamStability:
-    case kParamReservoir: case kParamBlowerNoise: case kParamConcussion: case kParamBlowerOn: return kGroupWind;
+    case kParamReservoir: case kParamBlowerNoise: case kParamConcussion: case kParamBlowerOn:
+    case kParamResLoad: case kParamResSize: case kParamSpinDown: case kParamWindLeak: return kGroupWind;
     case kParamStrict: case kParamPressMax: case kParamPalletFast: case kParamPalletSlow:
     case kParamReleaseMs: case kParamBendStopped: case kParamBendOpen: case kParamBendString:
     case kParamBendReed: return kGroupExpression;

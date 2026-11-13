@@ -69,13 +69,10 @@ constexpr ReedFamilyConst kReedFamily[kNumReedFamilies] = {
 };
 // Operating points of the two exciters. Both models only oscillate inside a
 // window of "breath" (flue: above about 0.84, more for wide cut-ups; reed:
-// about 0.55 to 0.86, blown shut above that), so the voiced point sits well inside that window and the
-// engine maps foot pressure onto it (Engine::controlUpdate) instead of letting
-// a few percent of wind sag push a pipe out of speech.
+// about 0.55 to 0.86, blown shut above that), so the voiced point sits well inside that window; Engine::controlUpdate
+// maps each pipe's foot pressure onto it, down to that pipe's own threshold.
 constexpr float kFlueVoicedBreath = 1.0f;   // jet drive at the voiced foot pressure
 constexpr float kReedVoicedBreath = 0.74f;  // reed blowing pressure at the voiced foot pressure
-constexpr float kFlueSpeakRatio = 0.25f;    // foot pressure (re voiced) above which a flue is fully on its operating point
-constexpr float kReedSpeakRatio = 0.30f;
 constexpr float kDcFc = 0.25f;              // DC blocker cutoff, multiple of f0
 
 // ---------------------------------------------------------------------------

@@ -309,11 +309,11 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <div class="kicker">Chapter 6</div>
   <h1><span class="num">06</span>The Wind screen</h1>
   <p class="lede">Every organ is a giant wind instrument. This screen shows the air's journey from the blower to the pipes, and lets you decide how steady, or how alive, it is.</p>
-  <figure><img src="img/wind.png"><figcaption>The wind system: blower, main reservoir, a regulator for each chest, and a graph of the Great's pressure over the last four seconds.</figcaption></figure>
+  <figure><img src="img/wind.png"><figcaption>The wind system: blower, main reservoir, a regulator for each chest, a graph of the Great's pressure (the last four seconds or two minutes), and the reservoir and blower settings.</figcaption></figure>
   <p>Wind pressure is measured as organ builders measure it, in <b>millimetres of water</b> (mm). Play a big chord with lots of stops and watch the Great's pressure dip in the graph: the blower can't keep up for a moment. That slight sag and recovery is part of what makes a real organ sound alive.</p>
   <table>
     <tr><th>Control</th><th>What it does</th></tr>
-    <tr><td>BLOWER ON</td><td>Switch the blower off and the organ slowly runs out of wind, just like a church organ when the power is cut.</td></tr>
+    <tr><td>BLOWER ON</td><td>Switches the blower on or off. See <b>When the blower stops</b> below.</td></tr>
     <tr><td>FLEXIBLE</td><td>How much the wind gives under heavy chords. Low is rock-steady and modern; high is lively and historic.</td></tr>
     <tr><td>RESERVOIR</td><td>The pressure stored in the main reservoir.</td></tr>
     <tr><td>NOISE</td><td>The faint hum and rush of the blower. Turn it right down for a clean studio sound.</td></tr>
@@ -321,6 +321,17 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <tr><td>CONCUSSION</td><td>Small bellows that smooth out sudden changes in the wind.</td></tr>
     <tr><td>TREMULANT ON</td><td>Which division the tremulant affects: <span class="ui">GREAT</span>, <span class="ui">SWELL</span> or <span class="ui">PEDAL</span>.</td></tr>
   </table>
+  <table>
+    <tr><th>Reservoir and blower</th><th>What it does</th></tr>
+    <tr><td>WEIGHTS / SPRINGS</td><td>What holds the reservoir lid down. <span class="ui">WEIGHTS</span> press equally hard wherever the lid is, so the pressure stays steady until the reservoir is empty, then fails quickly. <span class="ui">SPRINGS</span> (the default) press less as the lid comes down, so the pressure, and the pitch, sink gradually.</td></tr>
+    <tr><td>SIZE</td><td>How much air the reservoir holds, given as the number of seconds it could supply the whole organ. One stop uses a small part of that, so it lasts many times longer.</td></tr>
+    <tr><td>BLOWER COAST-DOWN</td><td>How long the blower takes to slow down after it is switched off. While it coasts it still pushes some wind.</td></tr>
+    <tr><td>LEAKAGE</td><td>Every organ leaks a little. This sets how quickly the stored wind escapes when nothing is played.</td></tr>
+  </table>
+  <h3>When the blower stops</h3>
+  <p>Switch the blower off while you hold a chord and the organ does what a church organ does when the power is cut. The reservoir keeps the pipes speaking for a while, then, as the lid comes down, the pressure falls. The pipes grow quieter, duller and breathier and sink flat, towards a semitone below the note just before they stop. Near the end they waver, and each pipe stops at its own moment, so a chord falls apart rather than ending all at once. With one stop this can take minutes; with full organ, seconds. The reservoir drawing shows how full it is and roughly how long the wind will last.</p>
+  <p>Switch the blower on again while holding keys and the reverse happens: silence, then the pipes come in one by one, flat and soft, and swell up into tune as the wind rises. György Ligeti's <i>Volumina</i> begins and ends this way.</p>
+  <p>Pressing a key only part of the way on a pressure keyboard works by the same physics, because a barely open valve gives its pipe less wind. In the first tenth of the key's travel a pipe is soft and flat (about 30 cents at a tenth of the pressure); from about a quarter of the travel down it is in tune.</p>
   <p>The box at the bottom right shows how hard the blower is working. If it reads anything other than <span class="ui">SUPPLY OK</span>, you are asking for more wind than the blower can give, as when every stop and coupler is drawn. That's normal and part of the character.</p>
 </section>
 

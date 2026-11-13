@@ -37,7 +37,7 @@ Three divisions, 27 ranks:
 
 Couplers: Swell to Great, Great to Pedal, Swell to Pedal. Drawing a stop while keys are held makes those pipes speak, as on a slider chest.
 
-**Wind:** a blower feeds a reservoir and a regulator for each chest. Big chords draw wind, so the pressure sags and bounces. Flexibility, concussion bellows and the tremulant shape this.
+**Wind:** a blower feeds a reservoir and a regulator for each chest. Big chords draw wind, so the pressure sags and bounces. Flexibility, concussion bellows and the tremulant shape this. The reservoir holds a volume of air under a lid loaded by weights (steady pressure until empty) or springs (pressure sinks as the lid falls; default). Speaking pipes and leakage empty it and the blower refills it; switched off, the blower coasts down and the stored wind lasts as long as the playing allows. Each regulator holds its chest until the reservoir falls below its set pressure. As their wind fails, pipes grow quieter, duller and breathier and, for flues, sink towards a semitone flat (the behaviour Colin Pykett measured on real pipes); near their own threshold they waver, then stop one by one. Starting the blower brings a held chord in flat and swells it into tune.
 
 ## Playing with MPE and polyphonic aftertouch
 
