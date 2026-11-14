@@ -21,6 +21,9 @@ static const opus14::Stop* stopFor(const std::string& fam) {
     return nullptr;
 }
 
+static int famIndex(const std::string& f) { return f == "principal" ? 0 : f == "string" ? 1 : f == "harmflute" ? 2 : 3; }
+static bool perFamily = false;
+static double famY0[4];
 struct Result { bool speaks; double f, H[4], attack, err; };
 
 static Result measure(const Case& c, const JetParams& jp, std::vector<double>* wav = nullptr) {
@@ -67,7 +70,7 @@ static Result measure(const Case& c, const JetParams& jp, std::vector<double>* w
 static double total(const std::vector<Case>& cs, const JetParams& jp, bool holdout, std::vector<Result>* out = nullptr) {
     std::vector<Result> res(cs.size());
     std::vector<std::thread> th;
-    for (size_t i = 0; i < cs.size(); ++i) th.emplace_back([&, i] { if (cs[i].t.ok && cs[i].t.hold == holdout) res[i] = measure(cs[i], jp); });
+    for (size_t i = 0; i < cs.size(); ++i) th.emplace_back([&, i] { if (cs[i].t.ok && cs[i].t.hold == holdout) { JetParams j = jp; j.y0b = famY0[famIndex(cs[i].t.fam)]; res[i] = measure(cs[i], j); } });
     for (auto& x : th) x.join();
     double s = 0; int n = 0;
     for (size_t i = 0; i < cs.size(); ++i) if (cs[i].t.ok && cs[i].t.hold == holdout) { s += res[i].err; ++n; }
@@ -78,10 +81,13 @@ static double total(const std::vector<Case>& cs, const JetParams& jp, bool holdo
 static JetParams fromX(const double* x, double sign) {
     JetParams p; p.fitted = true; p.sign = sign;
     p.beta = std::exp(x[0]); p.gamma = 1.0 / (1.0 + std::exp(-x[1])); p.kd = std::exp(x[2]); p.y0b = x[3];
+    for (int i = 0; i < 4; ++i) famY0[i] = perFamily ? x[3 + i] : x[3];
     return p;
 }
 
 int main(int argc, char** argv) {
+    perFamily = std::getenv("FIT_FAMILY_Y0") != nullptr;
+    for (double& y : famY0) y = 0.25;
     std::ifstream in(argv[1]);
     std::vector<Case> cs;
     std::string line;
@@ -114,27 +120,30 @@ int main(int argc, char** argv) {
     };
     if (argc > 2 && std::string(argv[2]) == "evaluate") {
         JetParams jp; jp.fitted = true; jp.beta = atof(argv[3]); jp.gamma = atof(argv[4]); jp.kd = atof(argv[5]); jp.y0b = atof(argv[6]); jp.sign = atof(argv[7]);
+        for (int i = 0; i < 4; ++i) famY0[i] = argc > 8 + i ? atof(argv[8 + i]) : jp.y0b;
         report(jp); return 0;
     }
     // coarse search over both signs, then Nelder-Mead from the best point
     std::mt19937 rng(7);
-    double bestE = 1e18, bestX[4] = { 0 }, bestSign = 1;
+    const int D = perFamily ? 7 : 4;
+    double bestE = 1e18, bestX[7] = { 0 }, bestSign = 1;
     for (double sign : { 1.0, -1.0 })
         for (int i = 0; i < 40; ++i) {
-            double x[4] = { std::log(0.03 + 0.37 * std::uniform_real_distribution<>(0, 1)(rng)), std::uniform_real_distribution<>(-1.5, 1.5)(rng),
-                            std::uniform_real_distribution<>(-1.4, 1.4)(rng), std::uniform_real_distribution<>(0.0, 1.5)(rng) };
+            double x[7] = { std::log(0.03 + 0.37 * std::uniform_real_distribution<>(0, 1)(rng)), std::uniform_real_distribution<>(-1.5, 1.5)(rng),
+                            std::uniform_real_distribution<>(-1.4, 1.4)(rng), 0, 0, 0, 0 };
+            for (int k = 3; k < D; ++k) x[k] = std::uniform_real_distribution<>(0.0, 1.5)(rng);
             const double e = total(cs, fromX(x, sign), false);
-            if (e < bestE) { bestE = e; std::copy(x, x + 4, bestX); bestSign = sign; std::fprintf(stderr, "  search %d sign %+.0f err %.0f\n", i, sign, e); }
+            if (e < bestE) { bestE = e; std::copy(x, x + D, bestX); bestSign = sign; std::fprintf(stderr, "  search %d sign %+.0f err %.0f\n", i, sign, e); }
         }
     // Nelder-Mead
-    const int D = 4; double P[D + 1][D], F[D + 1];
+    double P[8][7], F[8];
     for (int i = 0; i <= D; ++i) { for (int j = 0; j < D; ++j) P[i][j] = bestX[j] + (i == j + 1 ? 0.3 : 0.0); F[i] = total(cs, fromX(P[i], bestSign), false); }
-    for (int it = 0; it < 90; ++it) {
-        int o[D + 1]; for (int i = 0; i <= D; ++i) o[i] = i;
+    for (int it = 0; it < (perFamily ? 160 : 90); ++it) {
+        int o[8]; for (int i = 0; i <= D; ++i) o[i] = i;
         std::sort(o, o + D + 1, [&](int a, int b) { return F[a] < F[b]; });
-        double c[D] = { 0 }; for (int i = 0; i < D; ++i) for (int j = 0; j < D; ++j) c[j] += P[o[i]][j] / D;
+        double c[7] = { 0 }; for (int i = 0; i < D; ++i) for (int j = 0; j < D; ++j) c[j] += P[o[i]][j] / D;
         const int w = o[D];
-        double xr[D], xe[D], xc[D];
+        double xr[7], xe[7], xc[7];
         for (int j = 0; j < D; ++j) xr[j] = c[j] + (c[j] - P[w][j]);
         const double fr = total(cs, fromX(xr, bestSign), false);
         if (fr < F[o[0]]) { for (int j = 0; j < D; ++j) xe[j] = c[j] + 2 * (c[j] - P[w][j]); const double fe = total(cs, fromX(xe, bestSign), false);
@@ -147,6 +156,6 @@ int main(int argc, char** argv) {
     }
     const int b = (int)(std::min_element(F, F + D + 1) - F);
     const JetParams jp = fromX(P[b], bestSign);
-    std::printf("FITTED beta %.4f gamma %.4f kd %.4f y0/b %.3f sign %+.0f\n", jp.beta, jp.gamma, jp.kd, jp.y0b, jp.sign);
+    std::printf("FITTED beta %.4f gamma %.4f kd %.4f sign %+.0f  y0/b principal %.3f string %.3f harmflute %.3f stopped %.3f\n", jp.beta, jp.gamma, jp.kd, jp.sign, famY0[0], famY0[1], famY0[2], famY0[3]);
     report(jp);
 }

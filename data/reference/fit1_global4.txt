@@ -1,0 +1,30 @@
+FITTED beta 0.1888 gamma 0.6342 kd 1.2782 y0/b 0.636 sign -1
+FIT  mean error 750
+  principal  43     model H2..5  -38   -9  -53  -20 attack  11.3 | ref   -3  -22  -17  -25 attack   8.3
+  principal  55     model H2..5  -31  -11  -41  -21 attack  24.6 | ref  -11  -18  -35  -36 attack  41.5
+  principal  67     model H2..5  -29  -16  -36  -22 attack  19.7 | ref  -11  -14  -18  -31 attack  14.0
+  principal  79     model H2..5  -21  -22  -26  -27 attack  23.6 | ref  -10  -30  -17  -35 attack  16.6
+  string     43     model H2..5  -19   +2  -24  -11 attack  12.8 | ref  -18   -4   -8  -21 attack   9.3
+  string     67     model H2..5   -5  -12  -15  -36 attack  15.7 | ref   -2   -1   -3  -12 attack  12.9
+  string     79     model H2..5  -13  -20  -23  -35 attack  23.6 | ref  -15  -32  -21  -37 attack  54.1
+  harmflute  43     model H2..5   -2   -6  -12  -25 attack  15.7 | ref  -36   +1  -42  -32 attack  14.2
+  harmflute  55     model H2..5  -50  -13  -59  -22 attack  27.5 | ref   -0  -16  -15  -28 attack  17.4
+  harmflute  67     model H2..5  -22  -20  -28  -24 attack  21.6 | ref  -23  -18  -27  -25 attack  17.6
+  harmflute  79     model H2..5  -20  -45  -35  -45 attack 157.4 | ref  -32  -30  -32  -43 attack  90.0
+  stopped    43     model H2..5  -90   -1  -74  -18 attack   7.4 | ref  -44  -18  -42  -46 attack  11.0
+  stopped    55     model H2..5  -56  -10  -42  -39 attack   8.9 | ref  -61  -19  -53  -31 attack  13.0
+  stopped    67     model H2..5  -40  -21  -28  -27 attack  11.8 | ref  -52  -32  -54  -44 attack  45.9
+  stopped    79     model H2..5  -34  -39  -24  -26 attack  11.8 | ref  -52  -22  -56  -46 attack  31.1
+HOLD-OUT  mean error 888
+  principal  42     model H2..5  -36   -9  -50  -20 attack  12.5 | ref   -4  -12  -23  -36 attack  16.5
+  principal  54     model H2..5  -33  -11  -43  -21 attack  22.2 | ref  -11  -10  -18  -14 attack  20.7
+  principal  66     model H2..5  -30  -16  -37  -22 attack  22.2 | ref   -3   -8   -8  -31 attack  17.9
+  principal  78     model H2..5  -21  -22  -27  -26 attack  22.2 | ref  -12  -18  -24  -35 attack  22.6
+  string     66     model H2..5   -4  -11  -14  -43 attack  16.7 | ref   +3   +3   -6   -9 attack  45.6
+  string     78     model H2..5  -12  -19  -22  -34 attack  22.2 | ref   -8  -13  -27  -28 attack  44.2
+  harmflute  42     model H2..5   -2   -6  -11  -26 attack  11.6 | ref  -34   -4  -36  -17 attack   5.9
+  harmflute  66     model H2..5  -24  -19  -30  -23 attack  20.4 | ref  -40  -28  -30  -35 attack  42.5
+  stopped    42     model H2..5  -89   +0  -75  -17 attack   1.9 | ref  -48  -17  -39  -41 attack  25.7
+  stopped    54     model H2..5  -59   -9  -45  -36 attack  15.8 | ref  -73  -13  -56  -29 attack  77.2
+  stopped    66     model H2..5  -40  -20  -29  -28 attack  11.1 | ref  -44  -31  -39  -53 attack  19.1
+  stopped    78     model H2..5  -35  -43  -25  -26 attack  11.1 | ref  -52  -14  -54  -42 attack  27.5
