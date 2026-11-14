@@ -34,8 +34,7 @@
 // wave grows by about e per wavelength - Fletcher & Rossing 1998 sec. 16.3);
 // evaluated at the sounding frequency. Jet offset y0 is a voicing ASSUMPTION.
 // Radiation: monopoles at mouth and top, p(1 m) = rho/(4 pi) d/dt(Qtop - Qmouth),
-// listener broadside and far; at the mouth the room also receives the part of the jet that
-// does not enter the pipe (mass conservation in the mouth: outflow = Qj - Qin - q).
+// listener broadside and far.
 #pragma once
 
 #include "Opus14Data.hpp"
@@ -338,7 +337,6 @@ struct FlueSim {
     double foot = 0;
 
     struct LP { double b0, b1, b2, a1, a2, z1, z2; } lp{}, lpj{};
-    double jetFlowRadiates = 1.0;
     double growthMax = 50.0;
     double etaLP = 0;
     double windR = 0;   // 12 mu l / h^2
@@ -538,9 +536,10 @@ struct FlueSim {
         }
         vPrev = q / Sm;
         histPos = (histPos + 1) % (int)xiHist.size();
-        // the part of the jet that does not enter the pipe flows out into the room: the room
-        // sees (Qj - Qin) - q leaving the mouth (Qj = whole jet at the lip = 2 b V_lip Wm)
-        s += (qjet - qin) * jetFlowRadiates;
+        // (The jet flow is not radiated as a source of its own: the jet's volume is conserved -
+        // what does not enter the pipe was never added to the room - and its effect on the pipe
+        // is the jet-drive pressure above. Radiating (Qj - Qin) as a monopole was a bookkeeping
+        // error: it put the same jet waveform into every pipe and clicked when the jet collapsed.)
         const double out = rho / (4 * M_PI) * (s - sPrev) * fs;
         sPrev = s;
         return out;
@@ -591,7 +590,7 @@ inline double settleSeconds(const Design& d) {
 struct Steady { std::vector<double> x; size_t from = 0, len = 0; };
 inline Steady blow(const Design& d, const Voicing& v, double fs, double pScale = 1.0, double ramp = 0.020, bool resonatorOnly = false) {
     FlueSim sim; sim.init(d, v, fs);
-    if (resonatorOnly) sim.jetFlowRadiates = 0.0;
+    (void)resonatorOnly;
     const double T = settleSeconds(d);
     const double win = std::max(0.12, 40.0 / d.target);
     Steady s; s.x.resize((size_t)((T + win) * fs));
@@ -653,6 +652,24 @@ inline double efficiency(const Design& d, const Steady& s) {
 //     pipe is then voiced at I_opt x (I_target / 2) - Ising's scale anchored at the model's own
 //     efficiency maximum - or at the nearest width at which it still speaks on its note;
 // (3) the body is cut until the sounding frequency is within 0.5 cent.
+// Cut the body until the sounding frequency is within 0.5 cent (Pasi: pipes cut to length).
+// The voicing (flue width, foot pressure) is left as set. Returns the error before cutting,
+// in cents, or NaN if the pipe does not speak on its note.
+inline double cutToPitch(Design& d, const Voicing& v, double fs = 48000.0) {
+    double first = NAN;
+    for (int it = 0; it < 8; ++it) {
+        const Steady s = blow(d, v, fs);
+        const Hearing h = listen(d, s, fs);
+        if (!h.speaks) return NAN;
+        const double cents = 1200 * std::log2(h.f / d.target);
+        if (it == 0) first = cents;
+        if (std::fabs(cents) < 0.5) break;
+        if (d.speakMode == 2 && !d.g.holes.empty()) d.g.holes[0].fromBottom *= h.f / d.target;
+        recut(d, h.f / d.target);
+    }
+    return first;
+}
+
 inline VoicingReport voice(Design& d, Voicing& v, double fs = 48000.0) {
     VoicingReport r;
     const double rho = Air{ 20.0 }.rho();
