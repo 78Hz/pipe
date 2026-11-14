@@ -41,6 +41,7 @@
 #include "Resonator.hpp"
 #include <cstring>
 #include <string>
+#include <cstdlib>
 
 namespace pipe {
 namespace flue {
@@ -340,6 +341,7 @@ struct FlueSim {
     double growthMax = 50.0;
     double etaLP = 0;
     double windR = 0;   // 12 mu l / h^2
+    double lc = 0.002, Uslot = 0, front = 0, qjPrev = 0, deltaOut = 0, volSign = 1.0;
     int os = 1;   // internal oversampling, so that the jet delay and the loop stay well resolved
     void init(const Design& d, const Voicing& v, double sampleRate, double tempC = 20.0) {
         Air air; air.tempC = tempC;
@@ -348,12 +350,14 @@ struct FlueSim {
         c2rho = rho * air.c() * air.c(); mu = air.eta();
         toeArea = d.toe > 0 ? M_PI * 0.25 * d.toe * d.toe : 0.0;
         windR = 12.0 * mu * d.languid / (d.flue * d.flue);
+        lc = d.languid; Uslot = 0; front = 0; qjPrev = 0;
         {
             const double D = 2.0 * d.radius, Lf = std::max(0.150, 2.5 * D);
             pallet.volume = 0.3e-3 + M_PI / 12.0 * D * D * Lf;
         }
         footP = 0; palletPhase = 0; palletPos = 0; keyDown = false; chest = kChestPa; etaLP = 0;
         h = d.flue; W = d.cutup; Wm = d.mouthWidth; Sm = W * Wm;
+        deltaOut = 0.82 * std::sqrt(Sm / M_PI);   // outer end correction of the mouth (as in mouthImpedance)
         dd = 4.0 / M_PI * std::sqrt(2.0 * h * W);
         // Turbulent plane jet (organ-pipe jets are turbulent: Thwaites & Fletcher 1980). Centre-line
         // speed V(x) = V0 for x < x0 = 6.1 h (potential core), V0 * 2.47 sqrt(h/x) beyond
@@ -466,13 +470,30 @@ struct FlueSim {
     double palletPhase = 0;
     double sub(double footPa) {
         foot = footPa;
-        const double Uj = jetSpeed(footPa);
+        // Jet speed with the inertia of the air in the flue slot (Verge 1995, eq. 6.1):
+        // rho l_c dU/dt + rho U^2 / 2 + R U = P_foot, l_c = windway length; solved implicitly.
+        {
+            const double B = rho * lc * fs + windR, Cq = footPa + rho * lc * fs * Uslot;
+            Uslot = std::max(0.0, (-B + std::sqrt(B * B + 2.0 * rho * std::max(0.0, Cq))) / rho);
+        }
+        const double Uj = Uslot;
+        // The jet front advances at the jet speed (Verge 1995, eq. 3.44); nothing reaches the
+        // lip until it has crossed the mouth. When the jet dies, the front goes with it.
+        if (Uj < 0.05) front = 0.0; else front = std::min(W * 2.0, front + Uj / fs);
+        const bool reached = front >= W;
+        // Volume injection: the flue exit is a volume source in the mouth; its flow
+        // Qj = h Wm U pushes air out through the outer part of the mouth and into the pipe.
+        // Towards the pipe it acts as a pressure rho delta_out/Sm dQj/dt (the outer mouth
+        // inertance), which is what starts the pipe speaking (Verge et al. 1994; Verge 1995 ch. 3, 6).
+        const double qj = h * Wm * Uj;
+        const double dpVol = rho * deltaOut / Sm * (qj - qjPrev) * fs;
+        qjPrev = qj;
         double qin = 0, eta = 0, qjet = 0;
         // acoustic displacement of the air in the mouth (leaky integral of v; the leak only
         // removes drift, 0.25 s time constant)
         xi += (vPrev - xi * 4.0) / fs;
         xiHist[(size_t)histPos] = xi;
-        if (Uj > 1e-3) {
+        if (Uj > 1e-3 && reached) {
             // travel time of jet waves to the lip: u = V(x)/2 on the turbulent jet
             const double tauS = transit * (1.0 / Uj);
             // the stored displacement lags one sample (it is built from the previous v): read one less
@@ -523,7 +544,7 @@ struct FlueSim {
         const double dQin = (qin - qinPrev) * fs;
         qinPrev = qin;
         const double v = vPrev;
-        const double dp = -(rho * dd / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1);
+        const double dp = -(rho * dd / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) + volSign * dpVol;
         double q = 0, s = 0;
         for (auto& m : modes) {
             const double y = m.b0 * dp + m.z1;
