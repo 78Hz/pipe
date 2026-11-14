@@ -1,0 +1,53 @@
+# Pasi Opus 14 - facts about the instrument as a whole, each with its source.
+# V1 = Kevin Vogt, DMA document (University of Nebraska, 2010), Appendix One "Specification and
+#      stop layout" pp. 253-254.   V2 = Appendix Two "Technical drawings" pp. 255-260.
+# V3 = Chapter Three (text).      V4 = Appendix Four "Temperaments" pp. 276-279.
+# CF = "Wegscheider well tempered 20 note" circle of fifths (crcleoffifthsII.pdf).
+# P  = Pasi Organ Builders, Opus 14 stop list, pasiorgans.com/conference/constcco2.html (read 2026-11-14).
+
+## Wind
+wind_pressure_mm = 79                          # V3: "The organ was voiced on 79 mm of wind pressure"
+bellows = 4 wedge-shaped single-fold, 4' x 8', weighted with lead shot, foot-pumpable, electric blower   # V3
+bellows_bloom = as the wedge bellows close, air velocity and pressure rise slightly ("crescendo or bloom")  # V3 footnote
+offset_32 = the 12 lowest notes of Subbass 32' and Trombone 32' stand on electric offset chests fed directly from the blower   # V3
+
+## Compass
+manual_compass = C-a3, 58 notes               # P: "Manual I/II/III, 58 notes (C-a3)"
+pedal_compass  = C-f1, 30 notes, flat/parallel   # P
+meantone_manual_compass = 48 notes: C, D, E-c3, d3   # P (no C#, D#, c#3; nothing above d3)
+meantone_pedal_compass  = 28 notes: C, D, E-f1       # P
+
+## Meantone side (P; V1 console p.254 agrees; V1 stop list p.253 omits "mt" on OW Mixture IV and
+## Dulzian, but its own console drawing lists both among the Oberwerk meantone levers, so P is used).
+meantone_HW  = Praestant 16, Octave 8, Rohrflote 8, Octave 4, Quinte 2 2/3, Superoctave 2, Mixture V 1 1/3, Trumpet 16, Trumpet 8, Vox Humana 8
+meantone_OW  = Praestant 8, Suavial 8, Gedeckt 8, Octave 4, Rohrflote 4, Sesquialtera II, Octave 2, Waldflote 2, Quinte 1 1/3, Mixture IV 1, Dulzian 16, Trichterregal 8
+meantone_Ped = Praestant 16, Octave 8 (transmission), Octave 4, Mixture V 2 2/3, Posaune 16, Trumpet 8, Cornet 2
+not_meantone = HW Salicional 8, Spitzflote 4, Cornet V, Mixture IV 1, Trompette 8; all of UW; Ped Subbass 32, Subbass 16, Gedeckt/Bourdon 8, Trombone 32, Trompette 8, Clairon 4
+
+## Divisions (I, II, III, Pedal). Couplers: III/P, II/P, I/P, III/II, III/I, II/I.   # V1
+## Accessories: Tremulant, Zimbelstern, Rossignol, 12 generals, sequencer.            # V1
+## III Unterwerk is enclosed (swell box).                                              # V1
+
+## Temperaments (cents above C).  V4 gives quarter-comma meantone directly.
+meantone   = 0.00 76.05 193.16 310.26 386.31 503.42 579.47 696.58 772.63 889.74 1006.84 1082.89   # V4 p.277
+# Wegscheider: from CF - fifths C-G, G-D, D-A narrowed 1/4 syntonic comma (5.377 c), A-E, E-B, B-F#,
+# F#-C#, C#-G#, Eb-Bb, Bb-F, F-C narrowed 1.0 cent, G#-Eb widened 0.67 cent (sum = -Pythagorean comma).
+# Computed; every major third agrees with V4 p.279's Wegscheider column except E (printed 17.15, the
+# cents give 17.51, which is the figure printed for A: the E entry appears to be a transposition slip).
+wegscheider = 0.00 93.55 193.16 297.13 390.69 499.04 592.60 696.58 794.51 889.74 998.09 1091.65
+# C, D, G and A are the same in both (V4 p.276-277). Those pipes are shared: the "Kleinpedal" chest
+# drawing (V2 p.260) shows common pipes winded from two slider holes, and separate meantone pipes for
+# the other notes. 12 + 8 = 20 pitch classes (CF title "20 note").
+
+## Names. The scale sheets and the stop list name three stops differently:
+##   OW "Praestant 8'" (sheets) = "Principal 8'" (stop list)
+##   Ped "Praestant 16'" (sheets) = "Principal 16'" (stop list)
+##   Ped "Gedeckt 8'" (sheets) = "Bourdon 8'" (stop list)
+## Transmissions. V1 marks Ped Subbass 16', Octave 8' and Posaune 16' "octave transmission"; which
+## rank each is drawn from is not stated. What the scales show:
+##   Subbass 32' c0 (194x228, cut-up 84) = Subbass 16' C (194x228): the 32' probably has 12 pipes of
+##     its own (the offset-chest basses, V3) and continues on the 16' rank.
+##   HW Praestant 16' C-C# are the wood Haskell pipes of the Pedal Praestant 16' (flue sheet note).
+##   Trombone 32' c0 (poplar 194x194, 4480) and Posaune 16' C (metal 220, 4480) differ in material:
+##     these are separate pipes.
+##   Pedal Octave 8' C (155) is not HW Praestant 16' c0 (150): separate pipes, sheet C-c2.

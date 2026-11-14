@@ -1,0 +1,33 @@
+# Pasi Opus 14 - mixture compositions, from Pasi Organ Builders "Mixture Compositions"
+# (pasiorgans.com/pdfs/mixture.pdf) and Vogt, Appendix Three p. 262 (identical).
+# Each line: the key from which a composition applies, then its ranks (pitch in feet).
+# Ranks not listed above a break are not sounding. Where fewer ranks are listed than the
+# stop's number (e.g. V at c3), the sheet lists only those pitches (ranks are presumably doubled).
+[HAUPTWERK] Mixture 1 1/3' V
+C   | 1 1/3, 1, 2/3, 1/2
+c0  | 2, 1 1/3, 1, 2/3, 1/2
+f#0 | 2 2/3, 2, 1 1/3, 1, 2/3
+c1  | 4, 2 2/3, 2, 1 1/3
+c2  | 4, 2 2/3, 2, 1 1/3
+c3  | 4, 2 2/3, 2
+[HAUPTWERK] Mixture 1' IV
+C   | 1, 2/3, 1/2, 1/3
+c0  | 1 1/3, 1, 2/3, 1/2
+c1  | 2, 1 1/3, 1, 2/3
+c2  | 2 2/3, 2, 1 1/3, 1
+c3  | 4, 2 2/3, 2
+[OBERWERK] Mixture 1' IV
+C   | 1, 2/3, 1/2, 1/3
+c0  | 1 1/3, 1, 2/3, 1/2
+f#0 | 2, 1 1/3, 1, 2/3
+c1  | 2 2/3, 2, 1 1/3, 1
+c2  | 4, 2 2/3, 2, 1 1/3
+c3  | 4, 2 2/3, 2
+[UNTERWERK] Mixture 2' V
+C   | 2, 1 1/3, 1, 2/3, 1/2
+c0  | 2 2/3, 2, 1 1/3, 1, 2/3
+c1  | 4, 2 2/3, 2, 1 1/3, 1
+c2  | 4, 2 2/3, 2, 1 1/3, 1
+c3  | 5 1/3, 4, 2 2/3, 2
+[PEDAL] Mixture 2 2/3' V
+C   | 2 2/3, 2, 1 1/3, 1, 2/3

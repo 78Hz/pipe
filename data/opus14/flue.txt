@@ -1,0 +1,283 @@
+# Pasi Opus 14 (Saint Cecilia Cathedral, Omaha, 2003) - flue pipe scales.
+# Transcribed by hand from Pasi Organ Builders, "Flue Pipes" (pasiorgans.com/pdfs/flue.pdf),
+# Checked value by value against Vogt, DMA document (2010), Appendix Three "Pasi Opus 14 Pipe
+# Scales", pp. 263-271 (attached as scales.pdf): identical.
+# Millimetres. "-" = not given. Mouth width as written: "1/4" = a quarter of the circumference.
+# Format:  [Division] / stop: Name | notes  / row: Label | values (one per note column).
+[HAUPTWERK]
+stop: Praestant 16' | C c0 c1 c2 c3 c4 | note: C-C# Wood Haskell (see Pedal 16')
+Diameter | 254 150 84 49 31 17
+Cut-up | 51 31 21.7 11.3 6.9 4.5
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 8.5 5.7 3.5 2.3 1.7 1.1
+Material | 97% Lead
+stop: Octave 8' | C c0 c1 c2 c3 c4
+Diameter | 155 90 50 31 20 9
+Cut-up | 30 21.3 11.5 6.8 4.6 2.3
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 5.9 3.7 2.3 1.7 1.2 0.7
+Material | 97% Lead
+stop: Rohrflote 8' | C c0 c1 c2 c3 c4
+Diameter | 122 76 51 33 22 16
+Cut-up | 40.2 24.3 16.3 9.2 4.7 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Rohr Diameter | - 16 12 9 7 5
+Rohr Length | - 110 58 31 16 9
+Languid Thickness | 4.7 3.2 2.3 1.75 1.3 1
+Material | 97% Lead
+stop: Salicional 8' | C c0 c1 c2 c3 c4
+Diameter | 120 69 43 26 15 9
+Cut-up | 25.8 14.9 9 5.8 3.2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 4.6 3 2.1 1.5 1 0.7
+Toe Hole | - 6 4.5 3.2 2.2 -
+Material | 97% Lead
+stop: Octave 4' | C c0 c1 c2 c3 c4
+Diameter | 83 48 28 18 10.5 5.5
+Cut-up | 20.1 11 6.8 4.2 2.7 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 3.5 2.2 1.6 1.1 0.75 0.55
+Material | 97% Lead
+stop: Spitzflote 4' | C c0 c1 c2 c3 c4
+Lower Diameter | 85 58 40 27 18 12
+Upper Diameter | 50 32 21 13 8 7
+Cut-up | 19.8 12.8 8.1 4.9 3.3 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 3.5 2.4 2 1.5 1.1 0.8
+Material | 97% Lead
+stop: Quinte 2 2/3' | C c0 c1 c2 c3 c4
+Diameter | 58 34 20 10.5 6.5 4.5
+Cut-up | 14 7.9 6.4 3.1 1.8 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.4 1.8 1.2 0.7 0.6 0.5
+Material | 97% Lead
+stop: Superoctave 2' | C c0 c1 c2 c3 c4
+Diameter | 47 27 17 10 6 3.7
+Cut-up | 10.6 6.2 4 2.5 1.4 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.2 1.55 1.1 0.7 0.55 0.45
+Material | 97% Lead
+stop: Mixture 1 1/3' V | C c0 c1 c2 c3 c4 | note: Scales based on 2'
+Diameter | 46.3 25.3 14.8 9.7 6.2 4
+Cut-up | 10.6 6.2 4 2.5 1.4 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.2 1.45 1 0.7 0.55 0.5
+Material | 97% Lead
+stop: Mixture 1' IV | C c0 c1 c2 c3 c4 | note: Scales based on 2'
+Diameter | 43 23.5 13.5 9 5.7 3.8
+Cut-up | 10.6 6.2 4 2.5 1.4 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.1 1.35 1.1 0.7 0.55 0.45
+Material | 97% Lead
+stop: Cornet V 8' rank | c1 c2 c3 c4
+Diameter | 51 33 22 16
+Cut-up | 16 8.8 5.5 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Rohr Diameter | 12 9 7 5
+Rohr Length | 58 31 16 9
+Languid Thickness | 2.3 1.75 1.3 1
+Material | 97% Lead
+stop: Cornet V 4' rank | c1 c2 c3 c4
+Diameter | 35 23.2 15.8 9
+Cut-up | 7.8 4.9 3.2 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 1.8 1.35 1 0.7
+Material | 97% Lead
+stop: Cornet V 2 2/3' rank | c1 c2 c3 c4
+Diameter | 28.7 19.6 11.5 7.1
+Cut-up | 6 4.3 2.7 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 1.6 1.2 0.75 0.6
+Material | 97% Lead
+stop: Cornet V 2' rank | c1 c2 c3 c4
+Diameter | 24.6 17.6 10.8 7
+Cut-up | 4.9 3.3 2 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 1.4 1.1 0.7 0.6
+Material | 97% Lead
+stop: Cornet V 1 3/5' rank | c1 c2 c3 c4
+Diameter | 20.3 14 8.4 5.3
+Cut-up | 3.8 2.8 1.7 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 1.2 0.9 0.65 0.5
+Material | 97% Lead
+[OBERWERK]
+stop: Praestant 8' | C c0 c1 c2 c3 c4
+Diameter | 147 85 47 29 17 8
+Cut-up | 30.5 21 11.6 7 4.5 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 5.7 3.5 2.15 1.65 1.1 0.6
+Material | 97% Lead
+stop: Suavial 8' | C c0 c1 c2 c3 c4
+Diameter | - - 47 29 17 8
+Cut-up | - - 11.6 7 4.5 -
+Mouth Width | - - 1/4 1/4 1/4 1/4
+Languid Thickness | - - 2.2 1.65 1.1 0.6
+Material | 97% Lead
+stop: Gedeckt 8' | C c0 c1 c2 c3 c4
+Diameter | 115 76 50 32 20 15
+Cut-up | 37.2 22 15.1 8.5 4.3 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 4.4 3.2 2.3 1.7 1.2 1
+Material | 97% Lead
+stop: Octave 4' | C c0 c1 c2 c3 c4
+Diameter | 79 45 27 16.5 10.5 5.5
+Cut-up | 20.5 11.8 7.0 4 2.8 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 3.4 2.15 1.55 1.1 0.7 0.5
+Material | 97% Lead
+stop: Rohrflote 4' | C c0 c1 c2 c3 c4 | note: c4 column: "Tapered open from c#3 as in HW 4'"
+Diameter | 84 56 33 21 14 -
+Cut-up | 26 16 9.8 5.4 3.1 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 -
+Rohr Diameter | 14 10.5 8.7 6.3 4.7 -
+Rohr Length | 95 60 35 20 14 -
+Languid Thickness | 3.5 2.4 1.75 1.2 1 -
+Material | 97% Lead
+stop: Octave 2' | C c0 c1 c2 c3 c4
+Diameter | 44 25.5 16 10 6 3.7
+Cut-up | 11.6 7 4.5 2.9 1.8 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.15 1.45 1 0.7 0.55 0.45
+Material | 97% Lead
+stop: Waldflote 2' | C c0 c1 c2 c3 c4
+Diameter | 54 35 22 15 10 7
+Cut-up | 11.2 8 4.8 2.8 1.9 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.4 1.8 1.3 1 0.7 0.6
+Material | 97% Lead
+stop: Sesquialtera II 2 2/3' rank | C c0 c1 c2 c3 c4
+Diameter | 59 33 19 12 7.4 4.2
+Cut-up | 14.7 8.9 5.6 3.3 2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.6 1.7 1.2 0.8 0.6 0.5
+Material | 97% Lead
+stop: Sesquialtera II 1 3/5' rank | C c0 c1 c2 c3 c4
+Diameter | 38 21 13 8 4.9 3
+Cut-up | 9.9 5.8 3.8 2.7 1.5 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 1.9 1.2 0.85 0.6 0.5 0.45
+Material | 97% Lead
+stop: Quinte 1 1/3' | C c0 c1 c2 c3 c4
+Diameter | 32 18 11.5 7.3 5.2 3.5
+Cut-up | 8 4.9 3 2.1 1.2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 1.7 1.1 0.75 0.6 0.5 0.4
+Material | 97% Lead
+stop: Mixture 1' IV | C c0 c1 c2 c3 c4 | note: Scales based on 2'
+Diameter | 44 25.5 16 10 6 3.7
+Cut-up | 11.5 6.5 4 2.8 1.6 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.15 1.45 1 0.7 0.55 0.45
+Material | 97% Lead
+[UNTERWERK]
+stop: Bourdon 16' | C c0 c1 c2 c3 c4 | note: C is rectangular (wood?) 145 x 175, mouth width 145
+Diameter | 145x175 105 70 42 26 17
+Cut-up | 58 34 23 13.8 7.3 -
+Mouth Width | 145 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | - 4.1 3 2.1 1.5 1.1
+Material | 97% Lead
+stop: Principal 8' | C c0 c1 c2 c3 c4
+Diameter | 158 92 51 32 20 9
+Cut-up | 31 19.3 11 6.5 4.2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 6 3.8 2.3 1.7 1.2 0.7
+Material | 97% Lead
+stop: Gamba 8' | C c0 c1 c2 c3 c4
+Diameter | 95 58 36 23 14 8
+Cut-up | 17.2 11.3 8.3 4.5 2.5 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 3.8 2.5 1.8 1.3 1 0.6
+Material | 97% Lead
+Toe Hole | 10.5 7.5 4.7 3 2 -
+Roller Beards | 16.2 9.5 6.4 - - -
+stop: Celeste 8' | C c0 c1 c2 c3 c4
+Diameter | - 49 31 19 12 7
+Cut-up | - 11 8.5 5 3.1 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | - 2.3 1.65 1.2 0.8 0.6
+Material | - 97% Lead
+Toe Hole | - 5.5 3.5 2.7 2 -
+Roller Beards | - 9 6.4 6.4 - -
+stop: Harmonic Flute 8' | C c0 c1 c2 c3 c4 | note: Overblowing from c2
+Diameter | 130 73 55 40 27 15
+Cut-up | 31 16.2 11.1 9.5 6.8 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 5 3.2 2.4 2 1.5 1
+Material | 97% Lead
+stop: Principal 4' | C c0 c1 c2 c3 c4
+Diameter | 84 49 29 18 10.5 6
+Cut-up | 19 11 7 4 2.9 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 3.5 2.3 1.65 1.1 0.7 0.55
+Material | 97% Lead
+stop: Harmonic Flute 4' | C c0 c1 c2 c3 c4 | note: Overblowing from c1
+Diameter | 67 52 39 27 18 13
+Cut-up | 15.5 11 9.0 6 4 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.8 2.4 2 1.5 1.1 0.8
+Material | 97% Lead
+stop: Nazard 2 2/3' | C c0 c1 c2 c3 c4
+Diameter | 59 44 29 20 11.5 8
+Cut-up | 13.8 9.5 6.8 3.9 2.8 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.6 2.15 1.6 1.2 0.75 0.6
+Material | 97% Lead
+stop: Octavin 2' | C c0 c1 c2 c3 c4 | note: Overblowing from c0
+Diameter | 49 35 22 14 9 6
+Cut-up | 11.8 9 4.8 3 2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.3 1.8 1.3 1 0.7 0.55
+Material | 97% Lead
+stop: Tierce 1 3/5' | C c0 c1 c2 c3 c4
+Diameter | 46 29 20 14 8.5 4.8
+Cut-up | 9.8 6.1 4 3.1 2.2 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.15 1.65 1.2 1 0.6 0.5
+Material | 97% Lead
+stop: Mixture V 2' | C c0 c1 c2 c3 c4 | note: Scales based on 2'
+Diameter | 48 28 18 10 6 3.7
+Cut-up | 11 6.7 4.5 2.3 1.5 -
+Mouth Width | 1/4 1/4 1/4 1/4 1/4 1/4
+Languid Thickness | 2.2 1.55 1.1 0.7 0.55 0.45
+Material | 97% Lead
+[PEDAL]
+stop: Subbass 32' | C c0 | note: wood, rectangular inside dimensions
+Diameter | 322x383 194x228
+Cut-up | 150 84
+Wall Thickness | 33 29
+Material | Sugar Pine / Douglas Fir
+stop: Praestant 16' (wood Haskell) | C c0 | note: Wood Haskell
+Diameter | 200x251 126x158
+Cut-up | 60 35
+Wall Thickness | 20 16
+Material | Poplar
+stop: Subbass 16' | C c0 c1 c2
+Diameter | 194x228 120x153 70x97 40x53
+Cut-up | 78 48 28 16
+Wall Thickness | 20 16 10 9
+Material | Poplar
+stop: Octave 8' | C c0 c1 c2
+Diameter | 155 93 53 32
+Cut-up | 30.5 21.2 11.3 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 5.8 3.8 2.4 1.7
+Material | 97% Lead
+stop: Gedeckt 8' | C c0 c1 c2
+Diameter | 117 78 50 33
+Cut-up | 39.2 24.8 15.5 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 4.5 3.3 2.3 1.7
+Material | 97% Lead
+stop: Octave 4' | C c0 c1 c2
+Diameter | 80 47 26 18
+Cut-up | 19 11.2 6.9 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 3.4 2.2 1.5 1.1
+Material | 97% Lead
+stop: Mixture V 2 2/3' | C c0 c1 c2 | note: Scales based on 2 2/3'
+Diameter | 60 35 22 12
+Cut-up | 14.5 8.3 5.2 -
+Mouth Width | 1/4 1/4 1/4 1/4
+Languid Thickness | 2.6 1.8 1.3 1.8
+Material | 97% Lead

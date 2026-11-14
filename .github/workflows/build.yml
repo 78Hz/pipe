@@ -112,6 +112,15 @@ jobs:
       - name: Engine checks (tuning, stability, MPE)
         run: ./build/pipe_render_test build/chord.wav
 
+      - name: Resonators and Opus 14 tables (generated header up to date)
+        run: |
+          ./build/pipe_resonator_test
+          ./build/pipe_opus14_data_test
+
+      - name: Opus 14 header matches its data files
+        if: runner.os == 'Linux'
+        run: python3 tools/opus14_gen.py && git diff --exit-code src/engine/Opus14Data.hpp
+
       - name: Every pipe speaks and is in tune (measured on the sound, 48 and 44.1 kHz)
         run: |
           ./build/pipe_pipes_test
