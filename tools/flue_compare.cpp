@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
         const double cents = cutToPitch(d, v, fs);
         FlueSim sim; sim.init(d, v, fs);
         sim.jp = fittedJet(d.family, d.shape);
+        if (const char* e = std::getenv("NOISE")) sim.jp.noise = std::atof(e);   // for fitting the noise level
         const double hold = 2.5, tail = 2.0;
         std::vector<double> x((size_t)((0.1 + hold + tail) * fs), 0.0), xm(x.size(), 0.0), xt(x.size(), 0.0);
         for (size_t n = (size_t)(0.1 * fs); n < x.size(); ++n) {

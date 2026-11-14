@@ -8,6 +8,7 @@
 #include <sstream>
 #include <thread>
 #include <random>
+#include <map>
 using namespace pipe;
 using namespace pipe::flue;
 

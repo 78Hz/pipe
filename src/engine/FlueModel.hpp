@@ -353,6 +353,12 @@ struct JetParams { bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0
 inline JetParams fittedJet(Family fam, Shape shape) {
     JetParams p; p.fitted = true; p.beta = 0.1847; p.gamma = 0.7362; p.kd = 0.9781; p.sign = -1.0;
     p.y0b = fam == kPrincipal ? 1.134 : fam == kString ? 0.481 : (shape == kStopped || shape == kChimney) ? 1.233 : 0.324;
+    // Turbulence noise level: one value for all flues, set so that the noise floor between the
+    // harmonics (1-8 kHz, relative to the fundamental) sits within the range of the references
+    // (-35 to -52 dB, which include room and recording noise): about -36 dB for the flutes and
+    // -57 dB for the principal at G4. Pipes with Re < 600 (e.g. the toe-limited Gamba) are laminar
+    // and get none, as Verge's criterion says.
+    p.noise = 0.004;
     return p;
 }
 
@@ -689,6 +695,7 @@ struct Steady { std::vector<double> x; size_t from = 0, len = 0; };
 inline Steady blow(const Design& d, const Voicing& v, double fs, double pScale = 1.0, double ramp = 0.020, bool resonatorOnly = false) {
     FlueSim sim; sim.init(d, v, fs);
     (void)resonatorOnly;
+    sim.jp = fittedJet(d.family, d.shape);
     const double T = settleSeconds(d);
     const double win = std::max(0.12, 40.0 / d.target);
     Steady s; s.x.resize((size_t)((T + win) * fs));
@@ -766,6 +773,37 @@ inline double cutToPitch(Design& d, const Voicing& v, double fs = 48000.0) {
         recut(d, h.f / d.target);
     }
     return first;
+}
+
+// Voice in the middle of the speaking range. A flue pipe speaks on its note between a lower
+// threshold (too little jet for the loop to sustain) and an upper one (it jumps to, or is
+// dominated by, an upper resonance). The voicer keeps clear of both; here the flue is set at the
+// geometric middle of the two, in Ising number (diagnostic; not used for voicing: with the
+// fitted jet the ranges have gaps where the pipe changes regime). A partial stronger than the note itself counts as the upper limit (a stopped
+// pipe's quint taking over). Returns the chosen I, or NaN if the pipe never speaks.
+struct Range { double lo = NAN, hi = NAN, mid = NAN; };
+inline Range speakingRange(Design& d, const Voicing& v, double fs = 48000.0, double step = 0.1) {
+    const double rho = Air{ 20.0 }.rho();
+    const double Imax = std::min(4.0, maxIsing(d, rho));
+    Range r;
+    // the longest unbroken run of I at which the pipe speaks on its note
+    double runLo = NAN, runHi = NAN;
+    auto close = [&] { if (!std::isnan(runLo) && (std::isnan(r.lo) || runHi - runLo > r.hi - r.lo)) { r.lo = runLo; r.hi = runHi; } runLo = runHi = NAN; };
+    for (double I = 0.8; I <= Imax + 1e-9; I += step) {
+        if (!applyIsing(d, I, rho)) break;
+        const Steady st = blow(d, v, fs);
+        const Hearing h = listen(d, st, fs);
+        bool ok = onNote(d, h);
+        if (ok) {
+            const double h1 = toneAt(st.x, st.from, st.len, h.f, fs);
+            for (int k = 2; k <= 5 && k * h.f < 0.45 * fs; ++k) if (toneAt(st.x, st.from, st.len, k * h.f, fs) > h1) ok = false;
+        }
+        if (ok) { if (std::isnan(runLo)) runLo = I; runHi = I; }
+        else close();
+    }
+    close();
+    if (!std::isnan(r.lo)) r.mid = std::sqrt(r.lo * r.hi);
+    return r;
 }
 
 inline VoicingReport voice(Design& d, Voicing& v, double fs = 48000.0) {
