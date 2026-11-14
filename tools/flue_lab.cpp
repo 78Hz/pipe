@@ -36,15 +36,16 @@ static void peak(const Spectrum& s, double f1, double f2, double& f, double& m) 
     f = ((double)k + p) * s.df; m = std::exp(b - 0.25 * (a - c) * p);
 }
 
-static std::vector<double> play(const Design& d, const Voicing& v, double fs, double seconds, double pScale = 1.0, double ramp = 0.020) {
+// Key held for `hold` seconds, then released; the render runs on until the pipe has died away.
+static std::vector<double> play(const Design& d, const Voicing& v, double fs, double hold) {
     FlueSim sim; sim.init(d, v, fs);
-    std::vector<double> out((size_t)(seconds * fs));
-    const size_t off = (size_t)((seconds - 0.35) * fs);
+    const double f1 = d.modes.empty() ? d.target : d.modes[0].f, Q = d.modes.empty() ? 50 : d.modes[0].Q;
+    const double tail = std::max(0.5, 7.0 * Q / (M_PI * f1));      // 7 decay time constants: -60 dB
+    std::vector<double> out((size_t)((hold + tail) * fs));
+    sim.key(true, kChestPa);
     for (size_t n = 0; n < out.size(); ++n) {
-        const double t = (double)n / fs;
-        double g = t < ramp ? 0.5 - 0.5 * std::cos(M_PI * t / ramp) : 1.0;
-        if (n >= off) { const double tr = (double)(n - off) / fs; g = tr < ramp ? 0.5 + 0.5 * std::cos(M_PI * tr / ramp) : 0.0; }
-        out[n] = sim.tick(d.footPa * pScale * g);
+        if (n == (size_t)(hold * fs)) sim.key(false, kChestPa);
+        out[n] = sim.tickKey();
     }
     return out;
 }
@@ -86,7 +87,7 @@ int main(int argc, char** argv) {
         Voicing v; v.ising = familyOf(*st) == kString ? 2.8 : 2.0;
         Design d = design(*st, c.key, v);
         const VoicingReport vr = voice(d, v, fs);
-        std::vector<double> x = play(d, v, fs, std::max(1.6, settleSeconds(d) + 0.9));
+        std::vector<double> x = play(d, v, fs, std::max(1.25, settleSeconds(d) + 0.6));
         const size_t a0 = (size_t)(settleSeconds(d) * fs), aLen = (size_t)(0.5 * fs);
         double f = peakFreq(x, a0, aLen, d.target, 0.04, fs);
         const Spectrum sp = spectrum(x, a0, aLen, fs);

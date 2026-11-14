@@ -67,6 +67,7 @@ struct Design {
     int speakMode = 1;          // 2 for harmonic (overblowing) pipes
     double radius = 0;          // body (lower) radius
     double mouthWidth = 0, cutup = 0, flue = 0, toe = 0;   // toe = toe-hole diameter (0 = open)
+    double languid = 0.002;     // languid thickness = length of the windway (m)
     double footPa = kChestPa;
     double target = 0;          // Hz
     double ising = 0;
@@ -264,6 +265,15 @@ inline Design design(const opus14::Stop& s, int key, const Voicing& v, const dou
     if (mouthW == 0) { mouthW = 0.25 * 2.0 * M_PI * b.r1; d.note += "mouth width 1/4 circumference; "; }
     d.mouthWidth = mouthW;
     d.cutup = 1e-3 * interp(s, findRow(s, "Cut-up"), key);
+    {
+        const double lt = interp(s, findRow(s, "Languid Thickness"), key);
+        if (!std::isnan(lt)) d.languid = 1e-3 * lt;
+        else {
+            const double wt = interp(s, findRow(s, "Wall Thickness"), key);
+            d.languid = std::isnan(wt) ? 0.002 : 1e-3 * wt;
+            d.note += "wood: windway length taken as the wall thickness; ";
+        }
+    }
     d.g.mouthWidth = mouthW; d.g.cutup = d.cutup;
     d.g.wall = d.wood ? 0.003 : 0.0005;   // ASSUMPTION: lip thickness (bevelled wood lip, metal sheet)
 
@@ -330,11 +340,21 @@ struct FlueSim {
     struct LP { double b0, b1, b2, a1, a2, z1, z2; } lp{}, lpj{};
     double jetFlowRadiates = 1.0;
     double growthMax = 50.0;
+    double etaLP = 0;
+    double windR = 0;   // 12 mu l / h^2
     int os = 1;   // internal oversampling, so that the jet delay and the loop stay well resolved
     void init(const Design& d, const Voicing& v, double sampleRate, double tempC = 20.0) {
         Air air; air.tempC = tempC;
         os = std::max(1, (int)std::ceil(d.target * 24.0 / sampleRate));
         fs = sampleRate * os; rho = air.rho();
+        c2rho = rho * air.c() * air.c(); mu = air.eta();
+        toeArea = d.toe > 0 ? M_PI * 0.25 * d.toe * d.toe : 0.0;
+        windR = 12.0 * mu * d.languid / (d.flue * d.flue);
+        {
+            const double D = 2.0 * d.radius, Lf = std::max(0.150, 2.5 * D);
+            pallet.volume = 0.3e-3 + M_PI / 12.0 * D * D * Lf;
+        }
+        footP = 0; palletPhase = 0; palletPos = 0; keyDown = false; chest = kChestPa; etaLP = 0;
         h = d.flue; W = d.cutup; Wm = d.mouthWidth; Sm = W * Wm;
         dd = 4.0 / M_PI * std::sqrt(2.0 * h * W);
         // Turbulent plane jet (organ-pipe jets are turbulent: Thwaites & Fletcher 1980). Centre-line
@@ -353,7 +373,7 @@ struct FlueSim {
             }
         }
         y0 = v.y0OverB * b;
-        growthMax = omega * transit / std::sqrt(2.0 * std::max(1.0, d.footPa) / rho);
+        growthMax = omega * transit / std::max(1e-3, jetSpeed(d.footPa));
         omega = 2 * M_PI * d.target;
         modes.clear();
         const double T = 1.0 / fs;
@@ -387,9 +407,68 @@ struct FlueSim {
         for (int k = 0; k < os; ++k) acc += sub(footPa);
         return acc / os;
     }
+
+    // -- the wind on its way to the flue ----------------------------------------
+    // Chest -> pallet -> groove and pipe foot (one volume) -> flue. The pallet opens and
+    // closes with a smooth motion (finite acceleration of the action). Flow through the
+    // pallet gap and the toe hole: inertial orifices (Cd = 0.61) in series with viscous slot
+    // flow through the pallet gap (Poiseuille between parallel plates, 12 mu l Q / (w g^3)),
+    // which takes over as the gap closes, so the flow ends smoothly. Out through the flue at
+    // the jet speed. The volume stores air by compressibility: dP/dt = rho c^2 / V (Qin - Qout),
+    // solved implicitly each step.
+    // ASSUMPTIONS (not on the Pasi drawings): pallet 150 mm long, opening 8 mm, seal 10 mm;
+    // pallet travel 12 ms each way; volume = a 0.3 litre share of the groove plus the foot, a
+    // cone as wide as the pipe and 2.5 diameters long (at least 150 mm). The volume matters:
+    // it is what keeps a large pipe's wind from vanishing in a millisecond when the pallet shuts.
+    struct Pallet { double w = 0.150, gMax = 0.008, seal = 0.010, tOpen = 0.012, tClose = 0.012, volume = 1.0e-4; } pallet;
+    double footP = 0, chest = kChestPa, palletPos = 0, mu = 1.81e-5, c2rho = 1.4e5, toeArea = 0;
+    bool keyDown = false;
+    void key(bool down, double chestPa) { keyDown = down; chest = chestPa; }
+    // Jet speed from the foot pressure: acceleration (Bernoulli) in series with laminar friction
+    // in the windway (plane Poiseuille flow over the languid's thickness l):
+    // P = rho U^2 / 2 + (12 mu l / h^2) U. At speaking pressure the friction takes some 10 %
+    // off U; as the wind dies it takes over, and the jet slows exponentially instead of
+    // stopping dead at a finite moment (which would click).
+    double jetSpeed(double P) const {
+        if (P <= 0) return 0.0;
+        return (std::sqrt(windR * windR + 2.0 * rho * P) - windR) / rho;
+    }
+    double flueFlow(double P) const { return h * Wm * jetSpeed(P); }
+    double inflow(double dP) const {
+        if (dP <= 0) return 0.0;   // the foot never rises above the chest
+        const double g = pallet.gMax * palletPos;
+        if (g <= 1e-9) return 0.0;
+        const double Ap = kCd * pallet.w * g;
+        double a = rho / (2 * Ap * Ap);
+        if (toeArea > 0) a += rho / (2 * (kCd * toeArea) * (kCd * toeArea));
+        const double b = 12.0 * mu * pallet.seal / (pallet.w * g * g * g);
+        return (-b + std::sqrt(b * b + 4 * a * dP)) / (2 * a);
+    }
+    double tickKey() {
+        double acc = 0;
+        const double dt = 1.0 / fs;
+        for (int k = 0; k < os; ++k) {
+            // pallet motion: raised-cosine travel
+            const double rate = keyDown ? dt / pallet.tOpen : -dt / pallet.tClose;
+            palletPhase = std::max(0.0, std::min(1.0, palletPhase + rate));
+            palletPos = 0.5 - 0.5 * std::cos(M_PI * palletPhase);
+            // implicit step for the foot pressure: P - P0 = dt c2rho/V (Qin(Pc - P) - Qout(P))
+            const double k1 = dt * c2rho / pallet.volume, P0 = footP;
+            double lo = 0, hi = std::max(chest, P0);
+            for (int it = 0; it < 40; ++it) {
+                const double P = 0.5 * (lo + hi);
+                const double r = P - P0 - k1 * (inflow(chest - P) - flueFlow(P));
+                if (r > 0) hi = P; else lo = P;
+            }
+            footP = 0.5 * (lo + hi);
+            acc += sub(footP);
+        }
+        return acc / os;
+    }
+    double palletPhase = 0;
     double sub(double footPa) {
         foot = footPa;
-        const double Uj = std::sqrt(2.0 * std::max(0.0, footPa) / rho);
+        const double Uj = jetSpeed(footPa);
         double qin = 0, eta = 0, qjet = 0;
         // acoustic displacement of the air in the mouth (leaky integral of v; the leak only
         // removes drift, 0.25 s time constant)
@@ -415,6 +494,15 @@ struct FlueSim {
             // the disturbance launched at the flue grows to cosh(mu W) on its way and arrives tau later,
             // less the motion of the air at the lip (Fletcher 1976: (v/jw)[cosh(mu W) e^{-jwW/u} - 1])
             eta = C * xd - xi;
+            // Short waves do not grow on a jet: for k b > 2 the growth rate is negative (Fletcher
+            // 1979, eq. 15, mu b = 0.74 (1 - e^{-3 k b}) - 0.37 k b). With k = omega/u, u = V/2,
+            // the jet stops following disturbances above omega ~ 2u/b = V/b at the lip. A one-pole
+            // low-pass at that frequency, which falls with the jet speed as the wind dies away.
+            {
+                const double wc = Vl / b;
+                etaLP += (1.0 - std::exp(-wc / fs)) * (eta - etaLP);
+                eta = etaLP;
+            }
             // the jet cannot be carried further than the mouth is high (the exponential growth law
             // fails long before; this only matters as the wind dies away at the end of a note)
             eta = std::max(-W, std::min(W, eta));
@@ -507,11 +595,9 @@ inline Steady blow(const Design& d, const Voicing& v, double fs, double pScale =
     const double T = settleSeconds(d);
     const double win = std::max(0.12, 40.0 / d.target);
     Steady s; s.x.resize((size_t)((T + win) * fs));
-    for (size_t n = 0; n < s.x.size(); ++n) {
-        const double t = (double)n / fs;
-        const double g = t < ramp ? 0.5 - 0.5 * std::cos(M_PI * t / ramp) : 1.0;
-        s.x[n] = sim.tick(d.footPa * pScale * g);
-    }
+    (void)ramp;
+    sim.key(true, kChestPa * pScale);
+    for (size_t n = 0; n < s.x.size(); ++n) s.x[n] = sim.tickKey();
     s.from = (size_t)(T * fs); s.len = s.x.size() - s.from;
     return s;
 }
