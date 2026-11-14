@@ -345,6 +345,17 @@ struct JetParams { bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0
 // recorder geometry; for organ-pipe proportions it is far higher (Hirschberg et al. 1995), so the
 // level is fitted to the noise floor of reference recordings.
 
+// Jet constants fitted once for the organ (tools/flue_fit.cpp, FIT_FAMILY_Y0=1, against the
+// reference recordings in data/reference; result data/reference/fit2_perfamily_lip.txt):
+// growth, convection and dipole spacing shared by all flues; lip offset per pipe type, the
+// voicing adjustment that sets the even harmonics (Fletcher & Douglas 1980). Open flutes take
+// the harmonic-flute value, stopped and chimney flutes the stopped value.
+inline JetParams fittedJet(Family fam, Shape shape) {
+    JetParams p; p.fitted = true; p.beta = 0.1847; p.gamma = 0.7362; p.kd = 0.9781; p.sign = -1.0;
+    p.y0b = fam == kPrincipal ? 1.134 : fam == kString ? 0.481 : (shape == kStopped || shape == kChimney) ? 1.233 : 0.324;
+    return p;
+}
+
 // -- the sounding pipe --------------------------------------------------------
 struct FlueSim {
     struct M { double b0, b1, b2, a1, a2, z1, z2, reR, imR, w, qPrev; };
