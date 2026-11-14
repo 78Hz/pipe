@@ -340,6 +340,7 @@ struct FlueSim {
     struct LP { double b0, b1, b2, a1, a2, z1, z2; } lp{}, lpj{};
     double growthMax = 50.0;
     double etaLP = 0;
+    double mouthOut = 0, topOut = 0, qMouthPrev = 0, sTopPrev = 0;
     double windR = 0;   // 12 mu l / h^2
     double lc = 0.002, Uslot = 0, front = 0, qjPrev = 0, deltaOut = 0, volSign = 1.0;
     int os = 1;   // internal oversampling, so that the jet delay and the loop stay well resolved
@@ -545,7 +546,7 @@ struct FlueSim {
         qinPrev = qin;
         const double v = vPrev;
         const double dp = -(rho * dd / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) + volSign * dpVol;
-        double q = 0, s = 0;
+        double q = 0, s = 0, sTop = 0;
         for (auto& m : modes) {
             const double y = m.b0 * dp + m.z1;
             m.z1 = m.b1 * dp - m.a1 * y + m.z2;
@@ -554,6 +555,7 @@ struct FlueSim {
             const double dq = (y - m.qPrev) * fs;
             m.qPrev = y;
             s += (m.reR - 1.0) * y + m.imR * dq / m.w;
+            sTop += m.reR * y + m.imR * dq / m.w;
         }
         vPrev = q / Sm;
         histPos = (histPos + 1) % (int)xiHist.size();
@@ -562,6 +564,10 @@ struct FlueSim {
         // is the jet-drive pressure above. Radiating (Qj - Qin) as a monopole was a bookkeeping
         // error: it put the same jet waveform into every pipe and clicked when the jet collapsed.)
         const double out = rho / (4 * M_PI) * (s - sPrev) * fs;
+        // the two sources separately (pressure at 1 m from each): mouth (outflow = -q) and top
+        mouthOut = rho / (4 * M_PI) * (-(q - qMouthPrev)) * fs;
+        topOut = rho / (4 * M_PI) * (sTop - sTopPrev) * fs;
+        qMouthPrev = q; sTopPrev = sTop;
         sPrev = s;
         return out;
     }

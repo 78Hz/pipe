@@ -42,16 +42,19 @@ int main(int argc, char** argv) {
         const double cents = cutToPitch(d, v, fs);
         FlueSim sim; sim.init(d, v, fs);
         const double hold = 2.5, tail = 2.0;
-        std::vector<double> x((size_t)((0.1 + hold + tail) * fs), 0.0);
+        std::vector<double> x((size_t)((0.1 + hold + tail) * fs), 0.0), xm(x.size(), 0.0), xt(x.size(), 0.0);
         for (size_t n = (size_t)(0.1 * fs); n < x.size(); ++n) {
             if (n == (size_t)(0.1 * fs)) sim.key(true, kChestPa);
             if (n == (size_t)((0.1 + hold) * fs)) sim.key(false, kChestPa);
             x[n] = sim.tickKey();
+            xm[n] = sim.mouthOut; xt[n] = sim.topOut;   // (os > 1: last sub-step; fine for analysis below fs/2)
         }
         double rms = 0; for (size_t i = (size_t)(1.5 * fs); i < (size_t)(2.5 * fs); ++i) rms += x[i] * x[i];
         rms = std::sqrt(rms / fs);
         std::string fn = dv + "_" + name + "_" + std::to_string(key); for (auto& ch : fn) if (!isalnum((unsigned char)ch)) ch = '_';
         writeWav(dir + "/" + fn + ".wav", x, 0.1 / std::max(1e-9, rms), (int)fs);   // each file at -20 dBFS rms; level printed
+        writeWav(dir + "/" + fn + "_mouth.wav", xm, 0.1 / std::max(1e-9, rms), (int)fs);
+        writeWav(dir + "/" + fn + "_top.wav", xt, 0.1 / std::max(1e-9, rms), (int)fs);
         std::printf("%-26s key %3d  %7.2f Hz  I %.2f flue %.3f mm foot %.0f Pa  cut %+.0f c  level %.1f dB SPL @1m  -> %s.wav\n",
             spec.c_str(), key, d.target, d.ising, d.flue * 1e3, d.footPa, cents, 20 * std::log10(rms / 2e-5), fn.c_str());
     }
