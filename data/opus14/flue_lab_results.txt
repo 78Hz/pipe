@@ -1,0 +1,94 @@
+
+HW Octave 8' C   target 65.80 Hz   voiced: yes I 2.20 (model max efficiency at I 2.20)  (pitch before cutting +15 c, 27 tries)
+  body L 2296.6 mm  radius 77.50 mm  shape 0  mode 1  mouth 121.7 x 30.00 mm  flue 0.440 mm  I 2.20  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.022 3.071 4.143 5.232 6.334   Q1 124
+  sounds 65.80 Hz (+0.2 c)  strongest 65.8 Hz  level 73.1 dB SPL @1 m  attack(90%) 2086 ms
+  harmonics dB re H1: -1 -13 -27 -25 -36 -45 -52 -59 -64
+  pressure sweep (x chest):  0.4:0.99(77dB) 0.7:1.00(76dB) 1.0:1.00(74dB) 1.5:2.01(82dB) 2.0:2.01(83dB) 3.0:2.02(84dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Octave 8' c1   target 263.18 Hz   voiced: yes I 2.10 (model max efficiency at I 2.10)  (pitch before cutting +21 c, 27 tries)
+  body L 559.6 mm  radius 25.00 mm  shape 0  mode 1  mouth 39.3 x 11.50 mm  flue 0.361 mm  I 2.10  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.035 3.108 4.210 5.334 6.473   Q1 79
+  sounds 263.24 Hz (+0.4 c)  strongest 263.2 Hz  level 78.0 dB SPL @1 m  attack(90%) 386 ms
+  harmonics dB re H1: -14 -13 -22 -33 -35 -38 -58 -50 -60
+  pressure sweep (x chest):  0.4:0.99(79dB) 0.7:1.00(79dB) 1.0:1.00(78dB) 1.5:2.01(80dB) 2.0:2.02(82dB) 3.0:2.02(84dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Octave 8' c3   target 1052.72 Hz   voiced: yes I 2.90 (model max efficiency at I 2.90)  (pitch before cutting +40 c, 27 tries)
+  body L 128.4 mm  radius 10.00 mm  shape 0  mode 1  mouth 15.7 x 4.60 mm  flue 0.705 mm  I 2.90  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.100 3.282 4.511 5.768 7.038   Q1 49
+  sounds 1052.98 Hz (+0.4 c)  strongest 1053.0 Hz  level 87.5 dB SPL @1 m  attack(90%) 28 ms
+  harmonics dB re H1: -29 -9 -30 -19 -30 -26 -33 -37 -37
+  pressure sweep (x chest):  0.4:0.98(87dB) 0.7:0.99(87dB) 1.0:1.00(88dB) 1.5:1.01(88dB) 2.0:1.02(87dB) 3.0:2.06(91dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Salicional 8' c1   target 263.18 Hz   voiced: yes I 1.90 (model max efficiency at I 1.90)  (pitch before cutting +16 c, 14 tries)
+  body L 566.5 mm  radius 21.50 mm  shape 0  mode 1  mouth 33.8 x 9.00 mm  flue 0.244 mm  I 1.90  foot 450 Pa (45.9 mm)  (toe hole)
+  resonances/f1: 1.000 2.028 3.089 4.175 5.281 6.400   Q1 77
+  sounds 263.14 Hz (-0.3 c)  strongest 263.1 Hz  level 70.6 dB SPL @1 m  attack(90%) -1000 ms
+  harmonics dB re H1: -15 -15 -24 -41 -39 -45 -72 -58 -66
+  pressure sweep (x chest):  0.4:0.99(66dB) 0.7:1.00(70dB) 1.0:1.00(69dB) 1.5:2.01(67dB) 2.0:2.01(74dB) 3.0:2.02(77dB)
+
+UW Gamba 8' c1   target 263.18 Hz   voiced: yes I 2.20 (model max efficiency at I 2.30)  (pitch before cutting +21 c, 19 tries)
+  body L 583.0 mm  radius 18.00 mm  shape 0  mode 1  mouth 28.3 x 8.30 mm  flue 0.186 mm  I 2.20  foot 622 Pa (63.4 mm)  (toe hole)
+  resonances/f1: 1.000 2.017 3.056 4.114 5.188 6.274   Q1 72
+  sounds 263.28 Hz (+0.6 c)  strongest 524.8 Hz  level 56.2 dB SPL @1 m  attack(90%) -1000 ms
+  harmonics dB re H1: +4 -14 -27 -32 -38 -52 -63 -68 -87
+  pressure sweep (x chest):  0.4:0.99(45dB) 0.7:1.00(44dB) 1.0:1.00(41dB) 1.5:2.00(61dB) 2.0:2.00(66dB) 3.0:2.01(66dB)
+
+OW Gedeckt 8' c1   target 263.18 Hz   voiced: yes I 2.30 (model max efficiency at I 2.40)  (pitch before cutting +54 c, 27 tries)
+  body L 261.5 mm  radius 25.00 mm  shape 1  mode 1  mouth 39.3 x 15.10 mm  flue 0.981 mm  I 2.30  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 3.155 5.511 7.970 10.474 13.002   Q1 78
+  sounds 263.24 Hz (+0.4 c)  strongest 789.7 Hz  level 85.1 dB SPL @1 m  attack(90%) 90 ms
+  harmonics dB re H1: -18 +2 -19 -11 -24 -20 -32 -30 -31
+  pressure sweep (x chest):  0.4:0.98(83dB) 0.7:0.99(84dB) 1.0:3.00(85dB) 1.5:3.04(89dB) 2.0:3.05(100dB) 3.0:3.07(101dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Rohrflote 8' c1   target 263.18 Hz   voiced: yes I 3.20 (model max efficiency at I 3.20)  (pitch before cutting +63 c, 27 tries)
+  body L 303.8 mm  radius 25.50 mm  shape 2  mode 1  mouth 40.1 x 16.30 mm  flue 2.388 mm  I 3.20  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.819 4.832 6.933 9.052 10.810   Q1 67
+  sounds 263.24 Hz (+0.4 c)  strongest 263.2 Hz  level 86.6 dB SPL @1 m  attack(90%) 56 ms
+  harmonics dB re H1: -19 -15 -19 -24 -24 -29 -29 -47 -38
+  pressure sweep (x chest):  0.4:0.98(87dB) 0.7:0.99(87dB) 1.0:1.00(87dB) 1.5:1.01(86dB) 2.0:2.72(104dB) 3.0:2.74(104dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Spitzflote 4' c1   target 526.36 Hz   voiced: yes I 3.20 (model max efficiency at I 3.20)  (pitch before cutting +60 c, 27 tries)
+  body L 257.2 mm  radius 20.00 mm  shape 3  mode 1  mouth 31.4 x 8.10 mm  flue 1.172 mm  I 3.20  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.133 3.348 4.600 5.873 7.158   Q1 62
+  sounds 526.43 Hz (+0.2 c)  strongest 526.4 Hz  level 87.8 dB SPL @1 m  attack(90%) 40 ms
+  harmonics dB re H1: -20 -7 -23 -16 -30 -22 -25 -39 -35
+  pressure sweep (x chest):  0.4:0.98(88dB) 0.7:0.99(88dB) 1.0:1.00(88dB) 1.5:1.01(87dB) 2.0:2.07(91dB) 3.0:2.08(92dB)
+  assumed: open toe (foot at chest pressure); 
+
+UW Harmonic Flute 8' c1   target 263.18 Hz   voiced: yes I 2.30 (model max efficiency at I 2.30)  (pitch before cutting +26 c, 27 tries)
+  body L 547.5 mm  radius 27.50 mm  shape 0  mode 1  mouth 43.2 x 11.10 mm  flue 0.390 mm  I 2.30  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.049 3.147 4.280 5.435 6.607   Q1 78
+  sounds 263.21 Hz (+0.2 c)  strongest 263.2 Hz  level 78.6 dB SPL @1 m  attack(90%) 358 ms
+  harmonics dB re H1: -18 -12 -25 -31 -37 -44 -54 -54 -59
+  pressure sweep (x chest):  0.4:0.99(80dB) 0.7:1.00(80dB) 1.0:1.00(78dB) 1.5:2.02(82dB) 2.0:2.03(84dB) 3.0:2.03(86dB)
+  assumed: open toe (foot at chest pressure); 
+
+UW Harmonic Flute 8' c2 (harmonic)   target 526.36 Hz   voiced: yes I 2.90 (model max efficiency at I 2.90)  hole 4.00 mm  (pitch before cutting +25 c, 27 tries)
+  body L 586.1 mm  radius 20.00 mm  shape 0  mode 2  mouth 31.4 x 9.50 mm  flue 1.553 mm  I 2.90  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 1.760 2.711 3.595 4.559 5.488   Q1 46
+  sounds 526.45 Hz (+0.3 c)  strongest 526.4 Hz  level 85.3 dB SPL @1 m  attack(90%) 56 ms
+  harmonics dB re H1: -19 -15 -21 -23 -28 -21 -19 -31 -30
+  pressure sweep (x chest):  0.4:0.99(81dB) 0.7:1.00(84dB) 1.0:1.00(85dB) 1.5:1.53(100dB) 2.0:1.53(101dB) 3.0:1.54(101dB)
+  assumed: open toe (foot at chest pressure); 
+
+Ped Subbass 16' C   target 32.90 Hz   voiced: yes I 2.00 (model max efficiency at I 2.00)  (pitch before cutting +18 c, 27 tries)
+  body L 2293.3 mm  radius 118.66 mm  shape 1  mode 1  mouth 194.0 x 78.00 mm  flue 1.597 mm  I 2.00  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 3.038 5.149 7.321 9.535 11.774   Q1 154
+  sounds 32.90 Hz (+0.3 c)  strongest 98.7 Hz  level 87.4 dB SPL @1 m  attack(90%) 1548 ms
+  harmonics dB re H1: -15 +2 -19 -15 -27 -29 -37 -43 -48
+  pressure sweep (x chest):  0.4:0.99(85dB) 0.7:1.00(86dB) 1.0:3.00(87dB) 1.5:3.01(87dB) 2.0:3.00(103dB) 3.0:3.01(104dB)
+  assumed: open toe (foot at chest pressure); 
+
+HW Superoctave 2' c3   target 4210.89 Hz   voiced: yes I 2.40 (model max efficiency at I 2.40)  (pitch before cutting +3 c, 27 tries)
+  body L 28.9 mm  radius 3.00 mm  shape 0  mode 1  mouth 4.7 x 1.40 mm  flue 0.218 mm  I 2.40  foot 775 Pa (79.0 mm)
+  resonances/f1: 1.000 2.182   Q1 32
+  sounds 4211.32 Hz (+0.2 c)  strongest 4211.3 Hz  level 80.9 dB SPL @1 m  attack(90%) 17 ms
+  harmonics dB re H1: -38 -21 -38
+  pressure sweep (x chest):  0.4:0.98(77dB) 0.7:0.99(80dB) 1.0:1.00(81dB) 1.5:1.01(82dB) 2.0:1.01(82dB) 3.0:1.02(83dB)
+  assumed: open toe (foot at chest pressure); 

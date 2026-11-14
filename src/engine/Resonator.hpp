@@ -198,8 +198,7 @@ inline cd reedImpedance(double w, const ReedGeometry& g, const Air& air) {
 struct Mode { double f, Q; cd peak; double magnitude; };
 
 template <class Fn>
-std::vector<Mode> findModes(Fn response, double fLo, double fHi, int maxModes) {
-    const int N = 24000;
+std::vector<Mode> findModes(Fn response, double fLo, double fHi, int maxModes, int N = 24000) {
     std::vector<double> fs((size_t)N), mag((size_t)N);
     for (int i = 0; i < N; ++i) {
         fs[(size_t)i] = fLo * std::pow(fHi / fLo, (double)i / (N - 1));
