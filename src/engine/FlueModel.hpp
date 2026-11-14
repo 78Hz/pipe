@@ -41,6 +41,7 @@
 #include "Resonator.hpp"
 #include <cstring>
 #include <string>
+#include <cstdint>
 #include <cstdlib>
 
 namespace pipe {
@@ -325,6 +326,25 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
     for (auto& m : d.modes) d.topRatio.push_back(flueTopFlowRatio(2 * M_PI * m.f, d.g, air));
 }
 
+// -- jet-drive source formulation fitted to measurements ---------------------------
+// Auvray, Ernoult, Fabre & Lagree (2014), eqs. (2)-(5), after de la Cuadra (2005):
+//   eta(t)  = (h/u0) exp(beta W/h) v_ac(t - W/(gamma u0))      jet displacement at the lip
+//   dp_jd   = (rho kd delta_d u0 b / W) d/dt tanh((eta - y0)/b),  b = 2h/5, delta_d = (4/pi) sqrt(2 h W)
+//   dp_los  = -rho v|v| / (2 * 0.6^2)                           vortex shedding at the lip
+// As in Ernoult (2016, ch. 7) the jet constants are not derived from geometry but fitted to
+// measurements once for the instrument and then held fixed: beta (growth), gamma (convection
+// speed / jet speed), kd (scale of the dipole spacing) and the lip offset y0/b. Literature
+// values for a recorder: beta ~ 0.3, gamma ~ 0.4, kd = 1.
+struct JetParams { bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
+                   double noise = 0.0; };   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
+// Turbulence noise (Verge 1995 ch. 5-6; Verge et al. ISMA 1995): a dipole, i.e. a pressure jump
+// across the mouth, scaling with rho U^2 / 2, band-limited around Strouhal St_h = f h / U ~ 0.05
+// (2nd-order band-pass), present above Re = U h / nu ~ 700; below Re ~ 3000 the jet is turbulent
+// only after the lip, so the noise is pulsed by the jet's passage across the lip (here sech^2 of
+// the jet position, ASSUMPTION for the shape of that modulation). Its level was measured on a
+// recorder geometry; for organ-pipe proportions it is far higher (Hirschberg et al. 1995), so the
+// level is fitted to the noise floor of reference recordings.
+
 // -- the sounding pipe --------------------------------------------------------
 struct FlueSim {
     struct M { double b0, b1, b2, a1, a2, z1, z2, reR, imR, w, qPrev; };
@@ -394,7 +414,7 @@ struct FlueSim {
             x.reR = d.topRatio[i].real(); x.imR = d.topRatio[i].imag(); x.w = wn;
             modes.push_back(x);
         }
-        xiHist.assign(8192 * (size_t)os, 0.0); histPos = 0; xi = 0;
+        xiHist.assign(8192 * (size_t)os, 0.0); vHist.assign(xiHist.size(), 0.0); histPos = 0; xi = 0;
         {
             const double fc = std::min(12000.0, 0.4 * fs), K = std::tan(M_PI * fc / fs), q = 1.0 / std::sqrt(2.0);
             const double nrm = 1.0 / (1.0 + K / q + K * K);
@@ -447,6 +467,21 @@ struct FlueSim {
         const double b = 12.0 * mu * pallet.seal / (pallet.w * g * g * g);
         return (-b + std::sqrt(b * b + 4 * a * dP)) / (2 * a);
     }
+    JetParams jp;
+    std::vector<double> vHist;
+    struct BP { double b0 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0, norm = 0; bool on = false; } nbp;
+    uint64_t rng = 0x9E3779B97F4A7C15ull;
+    double white() {   // xorshift, uniform with unit variance
+        rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
+        return ((double)(rng >> 11) * (1.0 / 9007199254740992.0) - 0.5) * 3.4641016151377544;
+    }
+    void setupNoise(double U) {
+        const double fc = std::min(0.4 * fs, 0.05 * U / h), Q = 0.7, w0 = 2 * M_PI * fc / fs, al = std::sin(w0) / (2 * Q), a0 = 1 + al;
+        nbp.b0 = al / a0; nbp.b2 = -al / a0; nbp.a1 = -2 * std::cos(w0) / a0; nbp.a2 = (1 - al) / a0;
+        const double enbw = M_PI / 2.0 * fc / Q;
+        nbp.norm = 1.0 / std::sqrt(2.0 * enbw / fs);
+        nbp.on = true;
+    }
     double tickKey() {
         double acc = 0;
         const double dt = 1.0 / fs;
@@ -494,7 +529,20 @@ struct FlueSim {
         // removes drift, 0.25 s time constant)
         xi += (vPrev - xi * 4.0) / fs;
         xiHist[(size_t)histPos] = xi;
-        if (Uj > 1e-3 && reached) {
+        if (jp.fitted) vHist[(size_t)histPos] = vPrev;
+        if (jp.fitted && Uj > 1e-3 && reached) {
+            const double bj = 0.4 * h;
+            const double tauS = W / (jp.gamma * Uj);
+            const double tau = std::min((double)vHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));
+            const double pos = histPos - tau;
+            const int i0 = (int)std::floor(pos);
+            const double fr = pos - i0;
+            const int n = (int)vHist.size();
+            const double va = vHist[(size_t)(((i0 % n) + n) % n)], vb = vHist[(size_t)((((i0 + 1) % n) + n) % n)];
+            eta = jp.sign * (h / Uj) * std::exp(jp.beta * W / h) * (va + (vb - va) * fr);
+            eta = std::max(-W, std::min(W, eta));
+            qin = Wm * bj * Uj * (1.0 + std::tanh((eta - jp.y0b * bj) / bj));
+        } else if (!jp.fitted && Uj > 1e-3 && reached) {
             // travel time of jet waves to the lip: u = V(x)/2 on the turbulent jet
             const double tauS = transit * (1.0 / Uj);
             // the stored displacement lags one sample (it is built from the previous v): read one less
@@ -545,7 +593,19 @@ struct FlueSim {
         const double dQin = (qin - qinPrev) * fs;
         qinPrev = qin;
         const double v = vPrev;
-        const double dp = -(rho * dd / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) + volSign * dpVol;
+        double dpNoise = 0;
+        if (jp.noise > 0 && Uj > 0.5) {
+            if (!nbp.on) setupNoise(jetSpeed(chest));
+            const double Re = Uj * h / 1.5e-5;
+            double gate = std::min(1.0, std::max(0.0, (Re - 600.0) / 200.0));
+            if (Re < 3000.0) { const double c = std::cosh((eta - jp.y0b * 0.4 * h) / (0.4 * h)); gate *= 1.0 / (c * c); }
+            const double xw = white() * nbp.norm;
+            const double y = nbp.b0 * xw + nbp.z1;
+            nbp.z1 = -nbp.a1 * y + nbp.z2;
+            nbp.z2 = nbp.b2 * xw - nbp.a2 * y;
+            dpNoise = jp.noise * 0.5 * rho * Uj * Uj * gate * y;
+        }
+        const double dp = dpNoise - (rho * dd * (jp.fitted ? jp.kd : 1.0) / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) + volSign * dpVol;
         double q = 0, s = 0, sTop = 0;
         for (auto& m : modes) {
             const double y = m.b0 * dp + m.z1;
