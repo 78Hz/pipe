@@ -1,10 +1,13 @@
 # Jet constants per family, matched to reference recordings on the real-time model with stability required
 # (every key, struck with a 2 ms and a 40 ms pallet, holds one pitch on its fundamental): tools/ref/match.py,
-# results in data/reference/fit5_stable.txt. ASSUMPTIONS: chimney (no reference), string and openflute use
-# the stopped constants - the string and open-flute matches were unstable in the bass (fit5_stable.txt).
+# results in data/reference/fit5_stable.txt. ASSUMPTIONS: chimney (no reference) and openflute use the stopped
+# constants - the open-flute match was unstable in the bass (fit5_stable.txt). The strings use their own match
+# (fit5_stable.txt, string): it was set aside as unstable in the bass, but every pipe is now voiced and checked
+# one by one (stronger jet, wind and languid sweep), and the stopped constants gave the strings a stopped
+# pipe's spectrum (even harmonics 60 dB down) where a Gamba has strong even and odd harmonics.
 # family    y0/b     lpk     gscale  kd      noise    vortex
 principal   0.5812   2.682   0.9452  1.026   0.05908  0.9533
-string      -0.0777  10.0    0.9587  0.30    0.02315  0.2748
+string      1.189    1.898   1.392   1.38    0.02454  0.3906
 openflute   -0.0777  10.0    0.9587  0.30    0.02315  0.2748
 stopped     -0.0777  10.0    0.9587  0.30    0.02315  0.2748
 chimney     -0.0777  10.0    0.9587  0.30    0.02315  0.2748

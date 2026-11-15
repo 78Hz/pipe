@@ -175,7 +175,21 @@ static Heard analyse(const std::vector<double>& x, double target, double T) {
         const double r60 = rmsOf((int)(0.6 * N), (int)(0.7 * N)), rEnd = rmsOf((int)(0.9 * N), N);
         h.growth = 20 * std::log10((rEnd + 1e-12) / (r60 + 1e-12));
     }
-    h.speaks = toneAt(x, N - L, L, f, 48000) > toneAt(x, N - L, L, f / 2, 48000) && h.rms >= 0.02 && std::fabs(h.growth) <= 1.0;
+    // a sound that has collapsed onto one overtone (harmonic k more than 6 dB above the fundamental and
+    // the other harmonics that make the note's period - those not multiples of k - 20 dB below it) is
+    // heard at k f: the pipe is not speaking its note
+    bool onOvertone = false;
+    {
+        const double a1 = toneAt(x, N - L, L, f, 48000);
+        for (int k = 2; k <= 8 && k * f < 20000 && !onOvertone; ++k) {
+            const double ak = toneAt(x, N - L, L, k * f, 48000);
+            if (!(ak > 2.0 * a1)) continue;
+            double others = 0;   // the other harmonics (a weak fundamental under one overtone is not the note)
+            for (int j = 2; j <= 16 && j * f < 20000; ++j) if (j % k) others = std::max(others, toneAt(x, N - L, L, j * f, 48000));
+            if (others < 0.1 * ak) onOvertone = true;
+        }
+    }
+    h.speaks = !onOvertone && toneAt(x, N - L, L, f, 48000) > toneAt(x, N - L, L, f / 2, 48000) && h.rms >= 0.02 && std::fabs(h.growth) <= 1.0;
     const int fr = 480; const double fin = e / L; h.tSpeech = T;
     for (int i = 0; i + fr < N; i += fr) { double ef = 0; for (int k = 0; k < fr; ++k) ef += x[i + k] * x[i + k]; if (ef / fr > 0.5 * fin) { h.tSpeech = (double)i / 48000; break; } }
     const int Lf = L / 8; double mn = 1e9, mx = -1e9;
