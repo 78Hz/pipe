@@ -335,7 +335,7 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 // measurements once for the instrument and then held fixed: beta (growth), gamma (convection
 // speed / jet speed), kd (scale of the dipole spacing) and the lip offset y0/b. Literature
 // values for a recorder: beta ~ 0.3, gamma ~ 0.4, kd = 1.
-struct JetParams { int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
+struct JetParams { double lpk = 1.0; int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
                    double noise = 0.0;
                    double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
 // Turbulence noise (Verge 1995 ch. 5-6; Verge et al. ISMA 1995): a dipole, i.e. a pressure jump
@@ -588,7 +588,7 @@ struct FlueSim {
             // cannot follow deflections faster than about U/b. Without this, as the wind dies at the
             // end of a note (eta ~ h/U) the jet flips across the lip in microseconds and clicks.
             {
-                const double wc = Vj / bj;
+                const double wc = jp.lpk * Vj / bj;
                 etaLP += (1.0 - std::exp(-wc / fs)) * (eta - etaLP);
                 eta = etaLP;
             }
