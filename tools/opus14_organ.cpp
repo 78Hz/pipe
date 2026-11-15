@@ -119,12 +119,18 @@ struct Job { int rank; int key; const opus14::Stop* s; double scaleKey; double h
 struct Result { FluePipeSpec spec; bool ok = false; double cents0 = 0, centsEnd = 0; int fam = 0; std::string why; };
 
 // sounding frequency of the RT pipe: peak of mouth + top near the target
+static thread_local double tSpeech = 0;
 static double soundFreq(const FluePipeSpec& sp, double& h1, double& hHalf, double& h2) {
     FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa); p.key(true);
     const double T = std::max(1.2, 0.25 + 120.0 / sp.target);
     const int N = (int)(T * 48000), L = std::min(N / 2, 48000);
     std::vector<double> x(N); std::vector<float> m(1), t(1);
     for (int i = 0; i < N; ++i) { p.render(m.data(), t.data(), 1); x[i] = m[0] + t[0]; }
+    {   // speech time on 10 ms rms frames against the last 0.2 s
+        const int fr = 480; double fin = 0; for (int i = N - 9600; i < N; ++i) fin += x[i] * x[i]; fin /= 9600;
+        tSpeech = T;
+        for (int i = 0; i + fr < N; i += fr) { double e = 0; for (int j = 0; j < fr; ++j) e += x[i + j] * x[i + j]; if (e / fr > 0.5 * fin) { tSpeech = (double)i / 48000; break; } }
+    }
     const double f = peakFreq(x, N - L, L, sp.target, 0.06, 48000);
     h1 = toneAt(x, N - L, L, f, 48000); hHalf = toneAt(x, N - L, L, f / 2, 48000); h2 = toneAt(x, N - L, L, 2 * f, 48000);
     return f;
@@ -225,9 +231,10 @@ int main(int argc, char** argv) {
                 if (it == 0) out.cents0 = c;
                 out.centsEnd = c;
                 out.ok = h1 > 0 && h1 > hh && std::fabs(c) < 50;
-                if (!(h1 > 1e-6) && boosts < 4) {
+                const double speechLimit = std::max(0.3, 30.0 / jb.hz);
+                if ((!(h1 > 1e-6) || tSpeech > speechLimit) && boosts < 5) {
                     // silent: voiced up as a voicer would make it speak (a stronger jet), and recorded
-                    jpp.gain *= 1.25; ++boosts; out.why = "voiced up x" + std::to_string(std::pow(1.25, boosts)).substr(0, 4) + " to speak; "; --it; continue;
+                    jpp.gain *= 1.2; ++boosts; out.why = "voiced up x" + std::to_string(std::pow(1.2, boosts)).substr(0, 4) + (h1 > 1e-6 ? " (slow speech); " : " to speak; "); --it; continue;
                 }
                 if (!out.ok) { out.why += "f " + std::to_string(f) + " target " + std::to_string(jb.hz); if (std::fabs(c) > 300) break; }
                 if (std::fabs(c) < 0.5) break;
@@ -261,8 +268,13 @@ int main(int argc, char** argv) {
         for (int i = 0; i < N; ++i) { p.render(&o, 1); x[i] = o; }
         double e = 0; for (int i = N - L; i < N; ++i) e += x[i] * x[i];
         if (!(e / L > 1e-8)) return 0.0;
-        const double f = peakFreq(x, N - L, L, sp.target, 0.15, 48000);
-        return toneAt(x, N - L, L, f, 48000) > toneAt(x, N - L, L, f / 2, 48000) ? f : 0.0;
+        // the pitch it actually speaks, searched widely (0.55 - 1.8 x the target), and its fundamental
+        double best = 0, bf = 0;
+        for (double c = -1000; c <= 1000; c += 10) { const double ft = sp.target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - L, L, ft, 48000); if (a > best) { best = a; bf = ft; } }
+        if (bf <= 0) return 0.0;
+        double f = peakFreq(x, N - L, L, bf, 0.02, 48000);
+        while (f / 2 > sp.target * 0.5 && toneAt(x, N - L, L, f / 2, 48000) > 0.3 * toneAt(x, N - L, L, f, 48000)) f = peakFreq(x, N - L, L, f / 2, 0.02, 48000);
+        return f;
     };
     auto reedWorker = [&] {
         for (;;) {
@@ -272,10 +284,19 @@ int main(int argc, char** argv) {
             const bool oboe = detailOboe(ranks[(size_t)jb.rank].name);
             ReedResult& out = reedRes[j];
             out.spec = reed::design(*jb.s, jb.scaleKey, jb.hz, reedK[oboe ? 1 : 0]);
-            out.cents = reed::tune(out.spec, reedHz);
-            for (int t = 0; t < 4; ++t) {   // final tuning: tongue and resonator scaled together
+            // the tongue is set a little above the resonator's first resonance (as a voicer sets it);
+            // then the whole pipe is scaled to pitch
+            // (a fractional-length resonator - regals, Dulzian, Bassoon, Vox Humana - leaves the pitch to the tongue)
+            if (out.spec.nModes > 0 && out.spec.f[0] > 0.7f * jb.hz && out.spec.f[0] < 1.3f * jb.hz) out.spec.fr = 1.08f * out.spec.f[0];
+            else out.spec.fr = (float)(1.02 * jb.hz);
+            out.cents = 1e9;
+            int opens = 0;
+            for (int t = 0; t < 6; ++t) {   // final tuning: tongue and resonator scaled together
                 const double f = reedHz(out.spec);
-                if (f <= 0) break;
+                if (f <= 0) {   // does not speak: the voicer opens the tongue (more curve)
+                    if (opens++ >= 5) break;
+                    out.spec.x0 *= 1.3f; out.spec.xs *= 1.3f; --t; continue;
+                }
                 out.cents = 1200 * std::log2(f / jb.hz);
                 if (std::fabs(out.cents) < 0.5) break;
                 out.spec.trim *= (float)(jb.hz / f);

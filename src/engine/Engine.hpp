@@ -418,14 +418,16 @@ private:
     // Resonator lengths for the voice's frequency.
     void tuneVoice(Voice& v) {
         const double f = v.freq;
-        return;   // physical pipes are cut / tuned to pitch (and scaled to the tuning): no tuner
+        // Physical pipes are cut and tuned offline; this tuner finishes the job once, as a tuner on a
+        // ladder would: it listens only while the pipe stands in its voiced state (pallet open, chest at
+        // its pressure, no bend) and remembers the correction for that pipe (trimCache).
         // short windows catch a large error, long ones settle to a fraction of a cent
         v.winMin = std::max(64, (int)(6.0 * fs / f));
         v.winMax = std::max((int)(0.020f * fs), (int)(24.0 * fs / f));
         v.winLen = v.winMin;
         v.levelLag = 1.f - std::exp(-(kControlBlock / fs) / std::max(0.003f, 3.f / (float)f));
         // until a pipe has been heard once, the usual residual of its model stands in
-        v.trim = trimValid[v.rank][v.key] ? trimCache[v.rank][v.key] : v.reed ? -4.f : 14.f;
+        v.trim = trimValid[v.rank][v.key] ? trimCache[v.rank][v.key] : 0.f;
         v.prevOk = false; v.accRe = v.accIm = v.accE = 0; v.accN = 0;
     }
 
@@ -479,8 +481,9 @@ private:
             core.setPallet(0.002, 0.002);   // the engine moves the pallet (Pallet::aperture); this is how fast the valve follows
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
-            v.curPitch = 0.f;
-            core.setPitch(v.pitchRatio);
+            tuneVoice(v);
+            v.curPitch = 1e9f;   // pitch set at the first control block (with the tuner's trim)
+            core.setPitch(v.pitchRatio * std::pow(2.f, v.trim / 1200.f));
             v.gain = kFlueGain * reg;
             // wind used, relative to the Octave 8' c1 (flue area x jet speed at the voiced pressure)
             v.flowWeight = (float)(sp->h * sp->Wm * std::sqrt(2.0 * sp->footPa / 1.2) / kRefFlow);
@@ -499,8 +502,9 @@ private:
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
-            v.curPitch = 0.f;
-            core.setPitch(v.pitchRatio);
+            tuneVoice(v);
+            v.curPitch = 1e9f;
+            core.setPitch(v.pitchRatio * std::pow(2.f, v.trim / 1200.f));
             v.gain = kReedGain * reg;
             v.flowWeight = (float)(0.5 * sp->w * sp->x0 * std::sqrt(2.0 * sp->footPa / 1.2) / kRefFlow);
             v.voicedRatio = 1.f;
@@ -531,7 +535,7 @@ private:
         const double re = v.accRe, im = v.accIm, e = v.accE; const int n = v.accN;
         v.accRe = v.accIm = v.accE = 0; v.accN = 0;
         const double mag2 = re * re + im * im;
-        const bool ok = e / n > 1e-5 && 2.0 * mag2 > 0.1 * (double)n * e && v.tgtW > 0.f;
+        const bool ok = e / n > 1e-12 && 2.0 * mag2 > 0.1 * (double)n * e && v.tgtW > 0.f;
         const float ph = (float)std::atan2(im, re), mag = (float)(std::sqrt(mag2) / n);
         // only a settled pipe is measured: while it is still building up, its pitch is on the move
         if (ok && v.prevOk && v.tunable && mag > 0.95f * v.prevMag && mag < 1.05f * v.prevMag) {
@@ -685,9 +689,17 @@ private:
                 const float pal = v.stopClosed ? 0.f : p.aperture;
                 float bend = p.bendCents;
                 if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
-                const bool newPitch = bend != v.curPitch;
-                v.curPitch = bend;
-                const double ratio = v.pitchRatio * std::pow(2.f, bend / 1200.f);
+                // the tuner listens only in the voiced state, and only to a pipe that has settled
+                const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f
+                                    && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
+                if (voiced != v.tunable) { v.tunable = voiced; v.prevOk = false; v.winLen = v.winMin; }
+                v.cacheable = voiced;
+                v.tgtW = 2.f * (float)M_PI * v.freq * std::pow(2.f, bend / 1200.f) / fs;
+                v.rotC = std::cos(v.tgtW); v.rotS = std::sin(v.tgtW);
+                const float cents = bend + v.trim;
+                const bool newPitch = cents != v.curPitch;
+                v.curPitch = cents;
+                const double ratio = v.pitchRatio * std::pow(2.f, cents / 1200.f);
                 if (!v.reed) {
                     FluePipeRT& c = *flues[(size_t)v.slot];
                     c.setChestPa(chestMm * kMmToPa); c.setPalletTarget(pal);
@@ -898,9 +910,15 @@ private:
                     bl[i] += xl; br[i] += xr;
                     const float a = std::max(std::fabs(xl), std::fabs(xr));
                     env = a > env ? a : env * 0.9995f;
+                    const float x = m[i] + t[i];
+                    aRe += x * pc; aIm -= x * ps; aE += x * x;
+                    { const float tt = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = tt; }
                 }
                 if (!std::isfinite(env)) { v.active = false; env = 0.f; }
                 v.env = env;
+                { const float gg = 1.5f - 0.5f * (pc * pc + ps * ps); v.phC = pc * gg; v.phS = ps * gg; }
+                v.accRe += aRe; v.accIm += aIm; v.accE += aE; v.accN += n;
+                if (v.accN >= v.winLen) tunerUpdate(v);
                 continue;
             } else {
                 ReedPipeRT& c = *reeds[(size_t)v.slot];
@@ -912,6 +930,8 @@ private:
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
+                    aRe += o[i] * pc; aIm -= o[i] * ps; aE += o[i] * o[i];
+                    { const float tt = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = tt; }
                 }
             }
             if (!std::isfinite(env)) { v.active = false; env = 0.f; }
