@@ -339,27 +339,91 @@ int main(int argc, char** argv) {
             if (j >= jobs.size()) return;
             const Job& jb = jobs[j]; Result& out = res[j];
             if (skip(jb.rank) || getenv("REEDS_ONLY")) { out.ok = true; continue; }
+            if (const char* ks = getenv("KEYS")) { int a = 0, b = 127; sscanf(ks, "%d-%d", &a, &b); if (jb.key < a || jb.key > b) { out.ok = true; continue; } }
             if (doneF[j]) continue;
             if (reused && out.ok) { ckWrite(ckF, ckm, (uint32_t)j, out.ok, out.cents0, out.centsEnd, out.fam, out.spec, out.why); continue; }
             out.why.clear();
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
-            const Design d0 = designAt(*jb.s, jb.scaleKey, jb.hz, v);
+            // a harmonic pipe has its hole at half the speaking length (Flynt); its size is not published:
+            // opened from 10 % of the diameter, as at the voicing machine, until the pipe settles on its
+            // second mode
+            double holeFrac = getenv("HOLE") ? 0.10 : 0.0;   // off: in this model the hole made the pipes worse (open point)
+            auto withHole = [&](Design dd) {
+                if (dd.speakMode == 2 && holeFrac > 0) { const double L = dd.g.body[0].L, dia = 2 * dd.radius;
+                    dd.g.holes = { { 0.5 * L, M_PI * 0.25 * (holeFrac * dia) * (holeFrac * dia), dd.g.wall } }; recut(dd, 1.0); }
+                return dd;
+            };
+            Design d0 = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, v));
             const JetFam jf = jetFamily(*jb.s, d0); out.fam = jf;
             JetParams jpp = fam[jf];
             out.ok = false;
-            for (int attempt = 0; attempt < 8 && !out.ok; ++attempt) {
+            double isLo = 0, isHi = 1e9;   // Ising numbers found to give a lower / a higher mode
+            bool swept = false;
+            for (int attempt = 0; attempt < 14 && !out.ok; ++attempt) {
                 Design d = d0;
                 out.spec = specOf(d, jpp);
+                if (const char* dump = getenv("DUMPWAV")) if (attempt == 0) {
+                    FluePipeRT p; p.init(out.spec, 48000, 7); p.setChestPa(kChestPa); p.setPallet(0.012, 0.012); p.key(true);
+                    const int N = (int)(renderTime(out.spec.target) * 48000); std::vector<float> x(N); float m, t;
+                    for (int i = 0; i < N; ++i) { p.render(&m, &t, 1); x[i] = m + t; }
+                    char fn[512]; snprintf(fn, sizeof fn, "%s/flue_%d_%d.f32", dump, jb.rank, jb.key);
+                    if (FILE* f = fopen(fn, "wb")) { fwrite(x.data(), 4, N, f); fclose(f); }
+                }
                 // cut the body to pitch
+                bool wrongMode = false;
                 for (int it = 0; it < 4; ++it) {
                     const Heard h = hearFlue(out.spec, 0.012);
                     if (!h.speaks) break;
                     const double c = 1200 * std::log2(h.f / jb.hz);
                     if (attempt == 0 && it == 0) out.cents0 = c;
+                    // on another mode: the voicer changes the wind against the cut-up (the Ising number,
+                    // Fletcher & Rossing: it sets the mode a flue pipe speaks): more for a pipe that speaks
+                    // below its mode (a harmonic pipe that will not overblow), less for one that overblows
+                    // after two tries on the wrong mode: the voicer sweeps the wind against the cut-up over
+                    // its range and voices in the middle of the widest band where a slow and a fast attack
+                    // both land on the pipe's mode
+                    if (it == 0 && std::fabs(c) > 600 && attempt >= 2 && !swept) {
+                        swept = true;
+                        int runA = -1, runB = -1, bestA = -1, bestB = -1;
+                        std::vector<double> Is; for (double I = 1.3; I <= 4.2; I *= 1.04) Is.push_back(I);
+                        for (size_t q = 0; q <= Is.size(); ++q) {
+                            bool onMode = false;
+                            if (q < Is.size()) {
+                                Voicing vq = v; vq.ising = Is[q];
+                                Design dq = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, vq));
+                                const FluePipeSpec sq = specOf(dq, jpp);
+                                const Heard ha = hearFlue(sq, 0.012), hb = hearFlue(sq, 0.002);
+                                onMode = ha.speaks && hb.speaks && std::fabs(1200 * std::log2(ha.f / jb.hz)) < 300 && std::fabs(1200 * std::log2(hb.f / jb.hz)) < 300;
+                            }
+                            if (onMode) { if (runA < 0) runA = (int)q; runB = (int)q; }
+                            else if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; } runA = runB = -1; }
+                        }
+                        char buf[140];
+                        if (bestA >= 0) {
+                            v.ising = std::sqrt(Is[(size_t)bestA] * Is[(size_t)bestB]);
+                            snprintf(buf, sizeof buf, "[%d: swept: on its mode for Ising %.2f - %.2f, voiced at %.2f] ", attempt, Is[(size_t)bestA], Is[(size_t)bestB], v.ising);
+                        } else snprintf(buf, sizeof buf, "[%d: swept Ising 1.3 - 4.2: never on its mode with both attacks] ", attempt);
+                        out.why += buf;
+                        d0 = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, v));
+                        wrongMode = true; break;
+                    }
+                    if (it == 0 && std::fabs(c) > 600) {
+                        // a harmonic pipe below its mode: first the hole is opened further (to half the diameter)
+                        if (c < 0 && d.speakMode == 2 && holeFrac > 0 && holeFrac < 0.499) holeFrac = std::min(0.5, holeFrac + 0.1);
+                        else {
+                            // bisected once there is a value that is too low and one too high
+                            if (c < 0) isLo = std::max(isLo, v.ising); else isHi = std::min(isHi, v.ising);
+                            v.ising = (isLo > 0 && isHi < 1e9) ? std::sqrt(isLo * isHi) : v.ising * (c < 0 ? 1.2 : 1.0 / 1.2);
+                        }
+                        char buf[120]; snprintf(buf, sizeof buf, "[%d: on another mode %+.0fc: hole %.0f%% Ising %.2f] ", attempt, c, 100 * (d.speakMode == 2 ? holeFrac : 0.0), v.ising); out.why += buf;
+                        d0 = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, v));
+                        wrongMode = true; break;
+                    }
                     if (std::fabs(c) < 0.5 || std::fabs(c) > 300) break;
                     recut(d, std::pow(h.f / jb.hz, 1.5));
                     out.spec = specOf(d, jpp);
                 }
+                if (wrongMode) continue;
                 out.spec.target = (float)jb.hz;
                 // final tuning: the whole pipe scaled to pitch
                 tuneTrim(out.spec, jb.hz, [](const FluePipeSpec& q) { return hearFlue(q, 0.012); });
@@ -370,8 +434,8 @@ int main(int argc, char** argv) {
                 const bool slow = !a.speaks || !b.speaks || a.tSpeech > speechLimit(jb.hz) || b.tSpeech > speechLimit(jb.hz);
                 const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / jb.hz)) > 2);
                 out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
-                char buf[160];
-                snprintf(buf, sizeof buf, "[%d: %s %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f] ", attempt, a.speaks ? "speaks" : "SILENT", out.centsEnd, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
+                char buf[220];
+                snprintf(buf, sizeof buf, "[%d: %s %+.1fc fast %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f] ", attempt, a.speaks ? "speaks" : "SILENT", out.centsEnd, b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
                 out.why += buf;
                 if (out.ok) break;
                 // the voicer gives it more jet, or less: an unstable pipe is tried both ways

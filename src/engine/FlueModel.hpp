@@ -332,6 +332,7 @@ inline Design designAt(const opus14::Stop& s, double key, double targetHz, const
 inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 48000.0) {
     Air air; air.tempC = tempC;
     d.g.body[0].L *= ratio;
+    for (auto& h : d.g.holes) h.fromBottom *= ratio;   // a harmonic pipe's hole stays at half its length
     const double fTop = std::min(14000.0, 0.45 * fs);
     d.modes = findModes([&](double w) { return flueAdmittance(w, d.g, air); }, d.target / d.speakMode * 0.5, fTop, 40, 8000);
     keepResonances(d.modes);
@@ -857,7 +858,6 @@ inline double cutToPitch(Design& d, const Voicing& v, double fs = 48000.0) {
         const double cents = 1200 * std::log2(h.f / d.target);
         if (it == 0) first = cents;
         if (std::fabs(cents) < 0.5) break;
-        if (d.speakMode == 2 && !d.g.holes.empty()) d.g.holes[0].fromBottom *= h.f / d.target;
         recut(d, h.f / d.target);
     }
     return first;
@@ -940,8 +940,7 @@ inline VoicingReport voice(Design& d, Voicing& v, double fs = 48000.0) {
             const double cents = 1200 * std::log2(h.f / d.target);
             if (round == 0 && it == 0) r.centsBeforeCut = cents;
             if (std::fabs(cents) < 0.5) break;
-            if (d.speakMode == 2 && !d.g.holes.empty()) d.g.holes[0].fromBottom *= h.f / d.target;
-            recut(d, h.f / d.target);
+                recut(d, h.f / d.target);
         }
         if (on) { r.ok = true; r.ising = use; return r; }
         use -= 0.1;
