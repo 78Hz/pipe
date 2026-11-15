@@ -229,7 +229,12 @@ inline Design designAt(const opus14::Stop& s, double key, double targetHz, const
             b.r1 = eqRadius(dmm * depth * 1e-6);
             mouthW = dmm * 1e-3;
         } else {
-            b.r1 = 0.5 * dmm * 1e-3;
+            // a round pipe whose scale runs from a rectangular point: that point enters as the round
+            // diameter of the same area (the Bourdon 16' C is 145 x 175, a 180 mm round pipe - not 145 mm)
+            opus14::Row eq = *dia;
+            for (int i = 0; i < s.nCols; ++i)
+                if (!std::isnan(dia->alt[i]) && !std::isnan(dia->v[i])) eq.v[i] = (float)std::sqrt(4.0 * dia->v[i] * dia->alt[i] / M_PI);
+            b.r1 = 0.5 * interp(s, &eq, key) * 1e-3;
         }
     } else if (lower && upper) {
         b.shape = kConical;
@@ -272,7 +277,11 @@ inline Design designAt(const opus14::Stop& s, double key, double targetHz, const
     if (mw) {
         // value at this key: fractions (<= 1) of the circumference, else mm
         int col = 0; for (int i = 0; i < s.nCols; ++i) if (s.key[i] <= key) col = i;
-        const double raw = mw->v[col];
+        double raw = mw->v[col];
+        // a width in mm printed for a rectangular pipe does not apply to the round pipes after it: they
+        // take the fraction of the circumference printed next
+        if (!d.wood && !std::isnan(raw) && raw > 1.0 && dia && !std::isnan(dia->alt[col]))
+            for (int i = col + 1; i < s.nCols; ++i) if (!std::isnan(mw->v[i]) && mw->v[i] <= 1.0) { raw = mw->v[i]; break; }
         if (!std::isnan(raw) && raw > 1.0) mouthW = raw * 1e-3;
         else if (mouthW == 0) mouthW = (std::isnan(raw) ? 0.25 : raw) * 2.0 * M_PI * b.r1;
     }

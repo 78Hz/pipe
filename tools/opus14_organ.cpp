@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < kNumJetFam; ++i) if (n == kJetFamNames[i]) { fam[i].y0b = a; fam[i].lpk = b; fam[i].gain = -c; fam[i].kd = d; fam[i].noise = e; fam[i].vortex = vx; } } }
 
     // ranks
-    struct RankOut { int stop; std::string name; int div; bool reed; int mixRow; float detune; int lowest; const opus14::Stop* s; const opus14::Mixture* mix; };
+    struct RankOut { int stop; std::string name; int div; bool reed; int mixRow; float detune; int lowest; const opus14::Stop* s; const opus14::Mixture* mix; int first = 0; };
     std::vector<RankOut> ranks;
     for (size_t si = 0; si < kList.size(); ++si) {
         const auto& os = kList[si];
@@ -282,7 +282,17 @@ int main(int argc, char** argv) {
             const opus14::Stop* s = findStop(os.div, rn);
             if (!s) { fprintf(stderr, "missing stop %s\n", rn.c_str()); return 1; }
             // a rank's first pipe: the stop's lowest key, or its first printed column if later (cornet)
-            ranks.push_back({ (int)si, rn, os.div, s->kind == opus14::kReed, -1, os.detuneCents, std::max(os.lowest, s->key[0]), s, nullptr });
+            // the first key with a printed diameter (or resonator length): the Suavial (discant) starts at c1
+            int first = s->key[0];
+            {
+                const opus14::Row* r0 = nullptr;
+                for (const char* lab : { "Diameter", "Lower Diameter", "Upper Diameter", "Resonator Length", "Stem Length", "Length" })
+                    for (int q = 0; q < s->nRows && !r0; ++q) if (std::string(s->rows[q].label) == lab) r0 = &s->rows[q];
+                if (r0) for (int i = 0; i < s->nCols; ++i) if (!std::isnan(r0->v[i])) { first = s->key[i]; break; }
+            }
+            // jobs are still laid out from the old lowest key (so saved progress keeps its places); pipes
+            // below the first printed key are absent from the instrument
+            ranks.push_back({ (int)si, rn, os.div, s->kind == opus14::kReed, -1, os.detuneCents, std::max(os.lowest, s->key[0]), s, nullptr, std::max(os.lowest, first) });
         }
     }
     const int kLo = 36;
@@ -293,6 +303,8 @@ int main(int argc, char** argv) {
     std::vector<std::vector<float>> ratio(ranks.size(), std::vector<float>(128, 0.f));
     std::vector<std::vector<int>> reedIdx(ranks.size(), std::vector<int>(128, -1));
     std::vector<Job> reedJobs;
+    std::vector<size_t> absentJob;
+    for (auto& R : ranks) if (R.first < R.lowest) R.first = R.lowest;
     for (size_t r = 0; r < ranks.size(); ++r) {
         const auto& R = ranks[r];
         for (int k = R.lowest; k <= compassHigh(R.div); ++k) {
@@ -308,11 +320,13 @@ int main(int argc, char** argv) {
             }
             ratio[r][k] = (float)(8.0 / feet);
             if (R.reed) { reedIdx[r][k] = (int)reedJobs.size(); reedJobs.push_back({ (int)r, k, R.s, scaleKey, etHz(k, 8.0 / feet) }); continue; }
-            pipeIdx[r][k] = (int)jobs.size();
+            pipeIdx[r][k] = k < R.first ? -1 : (int)jobs.size();
             jobs.push_back({ (int)r, k, R.s, scaleKey, etHz(k, 8.0 / feet) });
+            if (k < R.first) absentJob.push_back(jobs.size() - 1);
         }
     }
-    fprintf(stderr, "%zu ranks, %zu flue pipes\n", ranks.size(), jobs.size());
+    std::vector<char> absent(jobs.size(), 0); for (size_t a : absentJob) absent[a] = 1;
+    fprintf(stderr, "%zu ranks, %zu flue pipes (%zu not on the organ: below a stop's first printed key)\n", ranks.size(), jobs.size() - absentJob.size(), absentJob.size());
     // ONLY=<text>: a trial on the ranks whose name contains it (the others are skipped; nothing usable is written)
     const char* only = getenv("ONLY");
     auto skip = [&](int rank) { return only && ranks[(size_t)rank].name.find(only) == std::string::npos; };
@@ -360,7 +374,7 @@ int main(int argc, char** argv) {
             const size_t j = next++;
             if (j >= jobs.size()) return;
             const Job& jb = jobs[j]; Result& out = res[j];
-            if (skip(jb.rank) || getenv("REEDS_ONLY")) { out.ok = true; continue; }
+            if (skip(jb.rank) || getenv("REEDS_ONLY") || absent[j]) { out.ok = true; continue; }
             if (const char* ks = getenv("KEYS")) { int a = 0, b = 127; sscanf(ks, "%d-%d", &a, &b); if (jb.key < a || jb.key > b) { out.ok = true; continue; } }
             if (doneF[j]) continue;
             if (getenv("SURVEY")) {
@@ -698,7 +712,7 @@ int main(int argc, char** argv) {
       fprintf(f, "static const OrganRankDef kOrganRanks[kNumOrganRanks] = {\n");
       for (size_t r = 0; r < ranks.size(); ++r) {
           int jf = -1; for (int k = 0; k < 128; ++k) if (pipeIdx[r][k] >= 0) { jf = res[(size_t)pipeIdx[r][k]].fam; break; }
-          fprintf(f, "    { \"%s\", %d, %d, %s, %d, %.2ff, %d, \"%s\" },\n", ranks[r].name.c_str(), ranks[r].div, ranks[r].stop, ranks[r].reed ? "true" : "false", jf, ranks[r].detune, ranks[r].lowest, ranks[r].s->name);
+          fprintf(f, "    { \"%s\", %d, %d, %s, %d, %.2ff, %d, \"%s\" },\n", ranks[r].name.c_str(), ranks[r].div, ranks[r].stop, ranks[r].reed ? "true" : "false", jf, ranks[r].detune, ranks[r].first, ranks[r].s->name);
       }
       fprintf(f, "};\n// pipe index into the flue blob per rank and key (-1: no flue pipe), and the pipe's frequency ratio to 8' (0: no pipe)\n");
       fprintf(f, "static const short kOrganPipe[kNumOrganRanks][128] = {\n");
