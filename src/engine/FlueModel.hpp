@@ -522,6 +522,7 @@ struct FlueSim {
         return acc / os;
     }
     double palletPhase = 0;
+    double tauPrev = 1e9;   // jet delay of the previous sample (arrival order)
     double sub(double footPa) {
         foot = footPa;
         // Jet speed with the inertia of the air in the flue slot (Verge 1995, eq. 6.1):
@@ -534,7 +535,11 @@ struct FlueSim {
         // The jet front advances at the jet speed (Verge 1995, eq. 3.44); nothing reaches the
         // lip until it has crossed the mouth. When the jet dies, the front goes with it.
         if (Uj < 0.05) front = 0.0; else front = std::min(W * 2.0, front + Uj / fs);
-        const bool reached = front >= W;
+        // (The jet front is tracked, but the flow at the lip is not switched on when it arrives:
+        // a hard switch is a step in the source and clicks. Ernoult (2016, ch. 7) notes the same
+        // discontinuity in the jet-drive model at the start of a note. The flow builds with the
+        // jet speed instead.)
+        const bool reached = true;
         // Volume injection: the flue exit is a volume source in the mouth; its flow
         // Qj = h Wm U pushes air out through the outer part of the mouth and into the pipe.
         // Towards the pipe it acts as a pressure rho delta_out/Sm dQj/dt (the outer mouth
@@ -551,7 +556,14 @@ struct FlueSim {
         if (jp.fitted && Uj > 1e-3 && reached) {
             const double bj = 0.4 * h;
             const double tauS = W / (jp.gamma * Uj);
-            const double tau = std::min((double)vHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));
+            double tau = std::min((double)vHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));
+            // Arrival order is kept: what reaches the lip now left the flue no earlier than what
+            // reached it a sample ago. As the wind dies, W/(gamma U) grows faster than real time;
+            // reading at (now - tau) would then run backwards through the history and replay the
+            // last oscillation reversed and time-compressed (a burst at every release). The read
+            // point may stand still, never go back.
+            tau = std::min(tau, tauPrev + 1.0);
+            tauPrev = tau;
             const double pos = histPos - tau;
             const int i0 = (int)std::floor(pos);
             const double fr = pos - i0;
@@ -559,12 +571,22 @@ struct FlueSim {
             const double va = vHist[(size_t)(((i0 % n) + n) % n)], vb = vHist[(size_t)((((i0 + 1) % n) + n) % n)];
             eta = jp.sign * (h / Uj) * (jp.gain > 0 ? jp.gain : std::exp(jp.beta * W / h)) * (va + (vb - va) * fr);
             eta = std::max(-W, std::min(W, eta));
+            // Short waves do not grow on a jet (Fletcher 1979: growth negative for k b > 2): the jet
+            // cannot follow deflections faster than about U/b. Without this, as the wind dies at the
+            // end of a note (eta ~ h/U) the jet flips across the lip in microseconds and clicks.
+            {
+                const double wc = Uj / bj;
+                etaLP += (1.0 - std::exp(-wc / fs)) * (eta - etaLP);
+                eta = etaLP;
+            }
             qin = Wm * bj * Uj * (1.0 + std::tanh((eta - jp.y0b * bj) / bj));
         } else if (!jp.fitted && Uj > 1e-3 && reached) {
             // travel time of jet waves to the lip: u = V(x)/2 on the turbulent jet
             const double tauS = transit * (1.0 / Uj);
             // the stored displacement lags one sample (it is built from the previous v): read one less
-            const double tau = std::min((double)xiHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));   // samples
+            double tau = std::min((double)xiHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));   // samples
+            tau = std::min(tau, tauPrev + 1.0);   // arrival order kept (see the fitted branch)
+            tauPrev = tau;
             // growth: integral of mu = 2 omega / V. The law is applied up to its value at the voicing
             // pressure and held there below it: as the wind dies away the 1/V growth would otherwise
             // become unbounded and the jet would cross the lip in microseconds (ASSUMPTION)
