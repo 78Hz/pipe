@@ -336,7 +336,8 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 // speed / jet speed), kd (scale of the dipole spacing) and the lip offset y0/b. Literature
 // values for a recorder: beta ~ 0.3, gamma ~ 0.4, kd = 1.
 struct JetParams { bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
-                   double noise = 0.0; };   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
+                   double noise = 0.0;
+                   double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
 // Turbulence noise (Verge 1995 ch. 5-6; Verge et al. ISMA 1995): a dipole, i.e. a pressure jump
 // across the mouth, scaling with rho U^2 / 2, band-limited around Strouhal St_h = f h / U ~ 0.05
 // (2nd-order band-pass), present above Re = U h / nu ~ 700; below Re ~ 3000 the jet is turbulent
@@ -556,7 +557,7 @@ struct FlueSim {
             const double fr = pos - i0;
             const int n = (int)vHist.size();
             const double va = vHist[(size_t)(((i0 % n) + n) % n)], vb = vHist[(size_t)((((i0 + 1) % n) + n) % n)];
-            eta = jp.sign * (h / Uj) * std::exp(jp.beta * W / h) * (va + (vb - va) * fr);
+            eta = jp.sign * (h / Uj) * (jp.gain > 0 ? jp.gain : std::exp(jp.beta * W / h)) * (va + (vb - va) * fr);
             eta = std::max(-W, std::min(W, eta));
             qin = Wm * bj * Uj * (1.0 + std::tanh((eta - jp.y0b * bj) / bj));
         } else if (!jp.fitted && Uj > 1e-3 && reached) {
