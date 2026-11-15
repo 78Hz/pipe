@@ -200,21 +200,42 @@ static Heard analyse(const std::vector<double>& x, double target, double T) {
     return h;
 }
 static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
-static Heard hearFlue(const FluePipeSpec& sp, double pallet) {
-    FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa); p.setPallet(pallet, pallet); p.key(true);
+static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0) {
+    FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
     const double T = renderTime(sp.target); const int N = (int)(T * 48000);
     std::vector<double> x(N); float m, t;
     for (int i = 0; i < N; ++i) { p.render(&m, &t, 1); x[i] = m + t; }
     return analyse(x, sp.target, T);
 }
-static Heard hearReed(const ReedPipeSpec& sp, double pallet) {
-    ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa); p.setPallet(pallet, pallet); p.key(true);
+static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0) {
+    ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
     const double T = renderTime(sp.target); const int N = (int)(T * 48000);
     std::vector<double> x(N); float o;
     for (int i = 0; i < N; ++i) { p.render(&o, 1); x[i] = o; }
     return analyse(x, sp.target, T);
 }
 static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
+// keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of organ
+// strings"); other pipes 30
+static double limitFor(const opus14::Stop& s, double hz) { return familyOf(s) == kString ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
+// The wind in the instrument is not constant: full chords sag the chest by up to ~8 % (Wind.hpp, default
+// flexibility) and the tremulant swings it +-11 % (depth 0.22). A pipe has to stay on its note there: at
+// 0.89 and 1.11 x the chest it speaks, settles, holds one pitch, within 50 c (the pitch of a flue pipe
+// rises with the wind; it must not change mode or break up).
+template <class Spec, class Hear>
+static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) {
+    for (double x : { 0.89, 1.11 }) {
+        const Heard h = hear(sp, x);
+        const double c = h.speaks ? 1200 * std::log2(h.f / hz) : 1e9;
+        if (!h.speaks || std::fabs(c) > 50 || h.spread > 3) {
+            char buf[120]; snprintf(buf, sizeof buf, "wind x%.2f: %s %+.0fc spread %.1f", x, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? c : 0.0, h.spread);
+            note = buf; return false;
+        }
+    }
+    note = "wind 0.89 - 1.11: holds"; return true;
+}
+static auto flueAt = [](const FluePipeSpec& q, double x) { return hearFlue(q, 0.012, x); };
+static auto reedAt = [](const ReedPipeSpec& q, double x) { return hearReed(q, 0.012, x); };
 // Tunes by scaling the whole pipe (trim), by the secant method: the pitch does not move exactly in
 // proportion (the boot, the shallot and the jet speed are not scaled), so the step learns the slope.
 template <class Spec, class Hear>
@@ -348,10 +369,12 @@ int main(int argc, char** argv) {
                     if (skip(jobs[j].rank)) continue;
                     const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
                     out.centsEnd = a.speaks ? 1200 * std::log2(a.f / hz) : 1e9;
-                    const bool slow = !a.speaks || !b.speaks || a.tSpeech > speechLimit(hz) || b.tSpeech > speechLimit(hz);
+                    const double lim = limitFor(*jobs[j].s, hz);
+                    const bool slow = !a.speaks || !b.speaks || a.tSpeech > lim || b.tSpeech > lim;
                     const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / hz)) > 2);
-                    out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
-                    char buf[160]; snprintf(buf, sizeof buf, "[reused: %s %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f]", a.speaks ? "speaks" : "SILENT", out.centsEnd, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
+                    std::string wn; const bool robust = !slow && !unstable && windRobust(out.spec, hz, flueAt, wn);
+                    out.ok = !slow && !unstable && robust && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
+                    char buf[260]; snprintf(buf, sizeof buf, "[reused: %s rms %.3f %+.1fc fast %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f %s]", a.speaks ? "speaks" : "NOT SPEAKING", a.rms, out.centsEnd, b.speaks ? 1200 * std::log2(b.f / hz) : 1e9, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim, wn.c_str());
                     out.why = buf;
                 }
             };
@@ -435,6 +458,7 @@ int main(int argc, char** argv) {
                         const Heard ha = hearFlue(sq, 0.012), hb = hearFlue(sq, 0.002);
                         good = ha.speaks && hb.speaks && std::fabs(1200 * std::log2(ha.f / jb.hz)) < 300 && std::fabs(1200 * std::log2(hb.f / jb.hz)) < 300
                                && ha.tSpeech <= limitF && hb.tSpeech <= limitF && ha.spread <= 3 && hb.spread <= 3;
+                        if (good) { std::string wn; good = windRobust(sq, jb.hz, flueAt, wn); }
                     }
                     if (good) { if (runA < 0) runA = (int)q; runB = (int)q; }
                     else if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; bestY = y; } runA = runB = -1; }
@@ -524,10 +548,12 @@ int main(int argc, char** argv) {
                 const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
                 out.centsEnd = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
                 const bool slow = !a.speaks || !b.speaks || a.tSpeech > limitF || b.tSpeech > limitF;
-                const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / jb.hz)) > 2);
+                bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / jb.hz)) > 2);
+                std::string wn;
+                if (!slow && !unstable && !windRobust(out.spec, jb.hz, flueAt, wn)) unstable = true;   // fragile: treated as unstable
                 out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
-                char buf[220];
-                snprintf(buf, sizeof buf, "[%d: %s rms %.3f growth %+.1fdB %+.1fc fast %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f] ", attempt, a.speaks ? "speaks" : "NOT SPEAKING", a.rms, a.growth, out.centsEnd, b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
+                char buf[300];
+                snprintf(buf, sizeof buf, "[%d: %s rms %.3f growth %+.1fdB %+.1fc fast %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f %s] ", attempt, a.speaks ? "speaks" : "NOT SPEAKING", a.rms, a.growth, out.centsEnd, b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim, wn.c_str());
                 out.why += buf;
                 if (out.ok) break;
                 // a slow or unstable pipe: first the sweep (once), then the jet gain both ways
@@ -667,7 +693,10 @@ int main(int argc, char** argv) {
                 const double cb = b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9;
                 { char buf[260]; snprintf(buf, sizeof buf, "slot %.1f%% curve x%.2f | rms %.3f growth %+.1fdB | slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
                       100.0 * (1.0 - 1.0 / slot), gs, a.rms, a.growth, a.speaks ? "speaks" : "NOT SPEAKING", rr.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? cb : 0.0, b.spread, rr.spec.trim); rr.why = buf; }
-                rr.ok = a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(rr.cents) < 0.5
+                std::string wnr;
+                const bool robustR = a.speaks && b.speaks && windRobust(rr.spec, jb.hz, reedAt, wnr);
+                rr.why += " | " + wnr;
+                rr.ok = robustR && a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(rr.cents) < 0.5
                         && std::fabs(cb) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(rr.spec.trim - 1.f) < 0.06f;
                 const double err = rr.ok ? -1.0 : (a.speaks && b.speaks ? std::fabs(rr.cents) + std::fabs(cb) + 10.0 * (std::max(0.0, a.spread - 3) + std::max(0.0, b.spread - 3)) : 1e9);
                 if (err < bestErr) { bestErr = err; bestOut = rr; }
