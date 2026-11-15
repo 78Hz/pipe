@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
             const JetFam jf = jetFamily(*jb.s, d); out.fam = jf;
             JetParams jpp = fam[jf];
             int boosts = 0;
-            for (int it = 0; it < 10; ++it) {
+            for (int it = 0; it < 4; ++it) {   // cut the body to pitch (then the final tuning below)
                 out.spec = specOf(d, jpp);
                 double h1, hh, h2; const double f = soundFreq(out.spec, h1, hh, h2);
                 const double c = 1200 * std::log2(f / jb.hz);
@@ -234,6 +234,16 @@ int main(int argc, char** argv) {
                 recut(d, std::pow(f / jb.hz, 1.5));   // the jet pulls the pitch: a longer step converges faster
             }
             out.spec.target = (float)jb.hz;
+            // final tuning: scale the whole pipe (resonator and jet) to pitch
+            if (out.spec.trim <= 0) out.spec.trim = 1;
+            for (int t = 0; t < 4; ++t) {
+                double h1, hh, h2; const double f = soundFreq(out.spec, h1, hh, h2);
+                if (!(h1 > 1e-6) || f <= 0) break;
+                out.centsEnd = 1200 * std::log2(f / jb.hz);
+                out.ok = h1 > hh && std::fabs(out.centsEnd) < 1.0;
+                if (std::fabs(out.centsEnd) < 0.5) break;
+                out.spec.trim *= (float)(jb.hz / f);
+            }
             if ((j + 1) % 200 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu\n", j + 1, jobs.size()); }
         }
     };
@@ -263,7 +273,14 @@ int main(int argc, char** argv) {
             ReedResult& out = reedRes[j];
             out.spec = reed::design(*jb.s, jb.scaleKey, jb.hz, reedK[oboe ? 1 : 0]);
             out.cents = reed::tune(out.spec, reedHz);
-            out.ok = std::fabs(out.cents) < 5;
+            for (int t = 0; t < 4; ++t) {   // final tuning: tongue and resonator scaled together
+                const double f = reedHz(out.spec);
+                if (f <= 0) break;
+                out.cents = 1200 * std::log2(f / jb.hz);
+                if (std::fabs(out.cents) < 0.5) break;
+                out.spec.trim *= (float)(jb.hz / f);
+            }
+            out.ok = std::fabs(out.cents) < 1.0;
             if ((j + 1) % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  reeds %zu / %zu\n", j + 1, reedJobs.size()); }
         }
     };

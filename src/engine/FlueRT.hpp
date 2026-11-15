@@ -30,6 +30,7 @@ struct FluePipeSpec {
     float length = 0;          // body length (m), as cut
     float shape = 0;           // 0 open, 1 stopped, 2 chimney, 3 conical (display)
     float wood = 0;            // 1 = wood (display)
+    float trim = 1;            // final tuning: the whole pipe scaled by this frequency ratio (set when it is tuned)
     float b = 0, transit = 0, lipSpeed = 1;        // turbulent jet at the lip (see FlueSim::init)
     // matched constants of the family
     float y0b = 0.5f, lpk = 1.f, gscale = 1.f, kd = 1.f, noise = 0.f, sign = -1.f;
@@ -90,9 +91,10 @@ public:
         lp.z1 = lp.z2 = 0; std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         std::memset(hist, 0, sizeof hist); pos = 0; steadyCount = 0;
     }
-    void setPitch(double ratio) {
-        if (ratio == pitch) return;
-        pitch = ratio;
+    void setPitch(double ratioIn) {
+        if (ratioIn == pitch) return;
+        pitch = ratioIn;
+        const double ratio = ratioIn * (sp.trim > 0 ? sp.trim : 1.f);
         n = sp.nModes; nPad = std::min(kRtMaxModes, (n + 3) & ~3);
         for (int i = 0; i < kRtMaxModes; ++i) {
             if (i >= n) { b0[i] = b1[i] = b2[i] = a1[i] = a2[i] = cA[i] = cI[i] = 0; continue; }

@@ -35,6 +35,7 @@ struct ReedPipeSpec {
     float bootVolume = 0;          // m^3
     float lowerR = 0, upperR = 0, length = 0;   // resonator
     float fr = 0;                  // tongue frequency as tuned (Hz)
+    float trim = 1;                // final tuning: tongue and resonator scaled by this frequency ratio
     float hfFrom = 0;              // above the last mode the resonator is a horn: from this frequency (Hz)
     int nModes = 0;
     float f[kReedMaxModes], Q[kReedMaxModes], pkRe[kReedMaxModes], pkIm[kReedMaxModes], topRe[kReedMaxModes], topIm[kReedMaxModes];
@@ -68,9 +69,10 @@ public:
         hz1 = hz2 = 0; std::memset(horn, 0, sizeof horn); hpos = 0; uhPrev = 0;
     }
     // a frequency ratio scales the tongue and the resonator together (tuning, bends)
-    void setPitch(double ratio) {
-        if (ratio == pitch) return;
-        pitch = ratio;
+    void setPitch(double ratioIn) {
+        if (ratioIn == pitch) return;
+        pitch = ratioIn;
+        const double ratio = ratioIn * (sp.trim > 0 ? sp.trim : 1.f);
         wrNow = wr * ratio;
         hornDelayScaled = hornDelay;
         nPad = std::min(kReedMaxModes, (sp.nModes + 3) & ~3);
