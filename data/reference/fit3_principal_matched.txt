@@ -1,0 +1,14 @@
+start [ 0.5         0.          0.          0.         -3.21887582] -> [np.float64(0.5383600669269009), np.float64(2.1864641906577975), np.float64(1.0089393641547502), np.float64(0.9919893840220505), np.float64(0.05335733987589231)] cost 127.7
+start [ 0.         -0.69314718  0.          0.         -3.21887582] -> [np.float64(0.548687831336886), np.float64(0.5527447134426248), np.float64(1.2481469747163818), np.float64(0.8157827140728635), np.float64(0.04612746858773107)] cost 131.4
+start [ 1.          0.69314718 -0.35667494  0.         -3.21887582] -> [np.float64(0.43281310095629655), np.float64(1.9462837556882373), np.float64(0.9760031794487566), np.float64(1.0223232082808589), np.float64(0.06201878220748315)] cost 130.4
+BEST y0b 0.538 lpk 2.186 gscale 1.009 kd 0.992 noise 0.0534 cost 127.7
+train 043-G   score 74.0  harmonics rms 6.7 dB  noise rms 6.1 dB  attack 250 / ref 86 ms  pitch -17 c
+train 055-G   score 104.2  harmonics rms 6.9 dB  noise rms 10.2 dB  attack 103 / ref 215 ms  pitch -27 c
+train 067-G   score 205.0  harmonics rms 11.0 dB  noise rms 12.9 dB  attack 44 / ref 36 ms  pitch -32 c
+HOLD  042-F#  score 97.5  harmonics rms 9.3 dB  noise rms 4.4 dB  attack 253 / ref 177 ms  pitch -35 c
+HOLD  054-F#  score 114.9  harmonics rms 10.4 dB  noise rms 3.5 dB  attack 127 / ref 117 ms  pitch -31 c
+HOLD  066-F#  score 270.3  harmonics rms 10.7 dB  noise rms 17.6 dB  attack 47 / ref 47 ms  pitch -34 c
+HOLD  079-G   score 284.0  harmonics rms 16.4 dB  noise rms 5.4 dB  attack 17 / ref 23 ms  pitch -36 c
+bottom C speaks on fundamental: True
+
+[exited with code 0]

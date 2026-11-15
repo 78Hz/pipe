@@ -338,6 +338,16 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 struct JetParams { double lpk = 1.0; int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
                    double noise = 0.0;
                    double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
+// Principal constants matched to the reference (Montre 8', GrandOrgue demo) on G2/G3/G4 over the full
+// spectrum, inter-harmonic noise and attack (tools/ref/match.py, data/reference/fit3_principal_matched.txt).
+// The jet itself is the turbulent organ-pipe jet with Verge's source spacing on its thickness at the
+// lip; the match moved the physics values (y0/b 0.5, gain x1, kd 1) by under 10 %.
+// gain is set per pipe: 1.009 * 2 (b/h) / 0.10.
+inline JetParams matchedPrincipal() {
+    JetParams p; p.fitted = true; p.turbulent = true; p.ddRule = 1; p.sign = -1.0;
+    p.y0b = 0.538; p.lpk = 2.186; p.kd = 0.992; p.noise = 0.0534; p.gain = -1.009;   // gain < 0: scale of 2 (b/h) / 0.10
+    return p;
+}
 // Turbulence noise (Verge 1995 ch. 5-6; Verge et al. ISMA 1995): a dipole, i.e. a pressure jump
 // across the mouth, scaling with rho U^2 / 2, band-limited around Strouhal St_h = f h / U ~ 0.05
 // (2nd-order band-pass), present above Re = U h / nu ~ 700; below Re ~ 3000 the jet is turbulent
@@ -582,7 +592,7 @@ struct FlueSim {
             const double fr = pos - i0;
             const int n = (int)vHist.size();
             const double va = vHist[(size_t)(((i0 % n) + n) % n)], vb = vHist[(size_t)((((i0 + 1) % n) + n) % n)];
-            eta = jp.sign * (h / Uj) * (jp.gain > 0 ? jp.gain : std::exp(jp.beta * W / h)) * (va + (vb - va) * fr);
+            eta = jp.sign * (h / Uj) * (jp.gain > 0 ? jp.gain : jp.gain < 0 ? -jp.gain * 2.0 * (bj / h) / 0.10 : std::exp(jp.beta * W / h)) * (va + (vb - va) * fr);
             eta = std::max(-W, std::min(W, eta));
             // Short waves do not grow on a jet (Fletcher 1979: growth negative for k b > 2): the jet
             // cannot follow deflections faster than about U/b. Without this, as the wind dies at the
