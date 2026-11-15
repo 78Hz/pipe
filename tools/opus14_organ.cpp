@@ -503,7 +503,9 @@ int main(int argc, char** argv) {
                 out.why += buf;
                 if (out.ok) break;
                 // a slow or unstable pipe: first the sweep (once), then the jet gain both ways
-                if ((slow || unstable) && !swept) { sweep(attempt); continue; }
+                // a slow or faint pipe first gets a stronger jet (as a beard steadies the sheet: Pykett); the sweep
+                // of wind and languid comes if that has not worked by the sixth try
+                if ((slow || unstable) && !swept && attempt >= 6) { sweep(attempt); continue; }
                 if (slow) jpp.gain = fam[jf].gain * std::pow(1.2, attempt + 1);
                 else if (unstable) jpp.gain = fam[jf].gain * (attempt % 2 == 0 ? std::pow(0.88, attempt / 2 + 1) : std::pow(1.15, attempt / 2 + 1));
                 else break;
