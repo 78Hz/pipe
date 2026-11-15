@@ -130,11 +130,29 @@ public:
         }
         // tongue (velocity implicit in the stiff terms)
         const double dP = boot - p;
-        double K = wrNow * wrNow, C = wrNow / sp.Qr;
-        if (x < 0) { const double wc = 20.0 * wrNow; K += wc * wc; C += 2.0 * wc; }   // on the shallot face
         const double force = -accK * dP + wrNow * wrNow * sp.x0;
-        vx = (vx + dt * (force - K * x)) / (1.0 + dt * C + dt * dt * K);
-        x += dt * vx;
+        // on the shallot face (x < 0) a stiff, damped contact. The step is split at the instant the tongue
+        // meets or leaves the face, so the impact is timed within the sample: switched at whole samples
+        // the period of a treble reed (40 - 60 samples) locked to whole samples, its pitch in steps of
+        // 20 - 40 c, and it jumped between regimes for small changes of tuning.
+        auto step = [&](double h, bool contact, double& xx, double& vv) {
+            double K = wrNow * wrNow, C = wrNow / sp.Qr;
+            if (contact) { const double wc = 20.0 * wrNow; K += wc * wc; C += 2.0 * wc; }
+            vv = (vv + h * (force - K * xx)) / (1.0 + h * C + h * h * K);
+            xx += h * vv;
+        };
+        {
+            const double x0s = x, v0s = vx;
+            const bool c0 = x0s < 0;
+            step(dt, c0, x, vx);
+            if ((x < 0) != c0 && x0s != x) {
+                const double th = std::max(0.0, std::min(1.0, x0s / (x0s - x)));
+                double xx = x0s, vv = v0s;
+                step(th * dt, c0, xx, vv);
+                step((1.0 - th) * dt, !c0, xx, vv);
+                x = xx; vx = vv;
+            }
+        }
         // Flow and pressure solved together (Guillemain et al. 2005): the resonator answers the flow
         // of this very sample through its instantaneous part, p = Pz + Zd U, so with Bernoulli in the
         // slit U - Ur = A sgn(D) sqrt|D|, D = boot - p, the flow has a closed form.
