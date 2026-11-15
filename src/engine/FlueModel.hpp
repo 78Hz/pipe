@@ -335,7 +335,7 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 // measurements once for the instrument and then held fixed: beta (growth), gamma (convection
 // speed / jet speed), kd (scale of the dipole spacing) and the lip offset y0/b. Literature
 // values for a recorder: beta ~ 0.3, gamma ~ 0.4, kd = 1.
-struct JetParams { bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
+struct JetParams { int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
                    double noise = 0.0;
                    double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
 // Turbulence noise (Verge 1995 ch. 5-6; Verge et al. ISMA 1995): a dipole, i.e. a pressure jump
@@ -522,6 +522,7 @@ struct FlueSim {
         return acc / os;
     }
     double palletPhase = 0;
+    double dbgDrive = 0, dbgVortex = 0, dbgVol = 0, dbgEta = 0;   // terms of the last sample (diagnostics)
     double tauPrev = 1e9;   // jet delay of the previous sample (arrival order)
     double sub(double footPa) {
         foot = footPa;
@@ -554,8 +555,16 @@ struct FlueSim {
         xiHist[(size_t)histPos] = xi;
         if (jp.fitted) vHist[(size_t)histPos] = vPrev;
         if (jp.fitted && Uj > 1e-3 && reached) {
-            const double bj = 0.4 * h;
-            const double tauS = W / (jp.gamma * Uj);
+            // Jet at the lip. Organ-pipe jets are "rarely in the laminar flow regime but are usually
+            // homogeneously turbulent ... downstream from the flue V0 decreases and b increases"
+            // (Fletcher et al. 1980). Plane turbulent jet (Thwaites & Fletcher 1983, eqs. 4-5;
+            // Rajaratnam 1976 constants): centreline speed Vl = 2.47 sqrt(h/W) U, sech^2 half-width
+            // b = 0.113 W, disturbances travel at v(x)/2. The laminar Bickley values (b = 2h/5,
+            // speed U, travel at gamma U) hold for a recorder (W/h ~ 4) but not at W/h = 20-60.
+            const bool tj = jp.turbulent;
+            const double bj = tj ? b : 0.4 * h;
+            const double Vj = tj ? lipSpeed * Uj : Uj;
+            const double tauS = tj ? transit / Uj : W / (jp.gamma * Uj);
             double tau = std::min((double)vHist.size() - 4.0, std::max(1.0, tauS * fs - 1.0));
             // Arrival order is kept: what reaches the lip now left the flue no earlier than what
             // reached it a sample ago. As the wind dies, W/(gamma U) grows faster than real time;
@@ -575,11 +584,11 @@ struct FlueSim {
             // cannot follow deflections faster than about U/b. Without this, as the wind dies at the
             // end of a note (eta ~ h/U) the jet flips across the lip in microseconds and clicks.
             {
-                const double wc = Uj / bj;
+                const double wc = Vj / bj;
                 etaLP += (1.0 - std::exp(-wc / fs)) * (eta - etaLP);
                 eta = etaLP;
             }
-            qin = Wm * bj * Uj * (1.0 + std::tanh((eta - jp.y0b * bj) / bj));
+            qin = Wm * bj * Vj * (1.0 + std::tanh((eta - jp.y0b * bj) / bj));
         } else if (!jp.fitted && Uj > 1e-3 && reached) {
             // travel time of jet waves to the lip: u = V(x)/2 on the turbulent jet
             const double tauS = transit * (1.0 / Uj);
@@ -638,14 +647,26 @@ struct FlueSim {
             if (!nbp.on) setupNoise(jetSpeed(chest));
             const double Re = Uj * h / 1.5e-5;
             double gate = std::min(1.0, std::max(0.0, (Re - 600.0) / 200.0));
-            if (Re < 3000.0) { const double c = std::cosh((eta - jp.y0b * 0.4 * h) / (0.4 * h)); gate *= 1.0 / (c * c); }
+            if (Re < 3000.0) { const double bn = jp.turbulent ? b : 0.4 * h; const double c = std::cosh((eta - jp.y0b * bn) / bn); gate *= 1.0 / (c * c); }
             const double xw = white() * nbp.norm;
             const double y = nbp.b0 * xw + nbp.z1;
             nbp.z1 = -nbp.a1 * y + nbp.z2;
             nbp.z2 = nbp.b2 * xw - nbp.a2 * y;
             dpNoise = jp.noise * 0.5 * rho * Uj * Uj * gate * y;
         }
-        const double dp = dpNoise - (rho * dd * (jp.fitted ? jp.kd : 1.0) / Sm) * dQin - 0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) + volSign * dpVol;
+        // Distance between the two flow sources of the jet-drive dipole (Ernoult 2016, sec. 2.3):
+        //   0: Verge et al. (1994), sources one jet thickness behind the labium, jet thickness = h:
+        //      dd = (4/pi) sqrt(2 h W) (derived for W/h ~ 4);
+        //   1: the same rule with the jet's actual thickness at the labium, h_lip = b / 0.4 (equals h
+        //      for the laminar jet, b = 2h/5, so it reduces to Verge's formula there);
+        //   2: Segoufin et al. (2004), from the forces on the edge: dd = Uj / (4 f).
+        double ddE = dd;
+        if (jp.fitted && jp.ddRule == 1) ddE = 4.0 / M_PI * std::sqrt(2.0 * ((jp.turbulent ? b : 0.4 * h) / 0.4) * W);
+        else if (jp.fitted && jp.ddRule == 2) ddE = Uj / (4.0 * omega / (2.0 * M_PI));
+        dbgDrive = -(rho * ddE * (jp.fitted ? jp.kd : 1.0) / Sm) * dQin;
+        dbgVortex = -0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1);
+        dbgVol = volSign * dpVol; dbgEta = eta;
+        const double dp = dpNoise + dbgDrive + dbgVortex + dbgVol;
         double q = 0, s = 0, sTop = 0;
         for (auto& m : modes) {
             const double y = m.b0 * dp + m.z1;
