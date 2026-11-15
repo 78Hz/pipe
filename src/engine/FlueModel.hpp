@@ -39,6 +39,7 @@
 
 #include "Opus14Data.hpp"
 #include "Resonator.hpp"
+#include "FlueRT.hpp"
 #include <cstring>
 #include <string>
 #include <cstdint>
@@ -87,7 +88,7 @@ inline const opus14::Row* findRow(const opus14::Stop& s, const char* label) {
 // Geometric interpolation of a printed row at a key; alt = use the second value of
 // a pair (rectangular depth). Outside the printed points, the nearest octave's ratio
 // continues. Returns NaN if fewer than one valid point.
-inline double interp(const opus14::Stop& s, const opus14::Row* r, int key, bool alt = false) {
+inline double interp(const opus14::Stop& s, const opus14::Row* r, double key, bool alt = false) {
     if (!r) return NAN;
     int idx[7], n = 0;
     for (int i = 0; i < s.nCols; ++i) {
@@ -103,7 +104,7 @@ inline double interp(const opus14::Stop& s, const opus14::Row* r, int key, bool 
     const double t = (double)(key - s.key[a]) / (s.key[b] - s.key[a]);
     return val(a) * std::pow(val(b) / val(a), t);
 }
-inline bool hasValueAt(const opus14::Stop& s, const opus14::Row* r, int key) {
+inline bool hasValueAt(const opus14::Stop& s, const opus14::Row* r, double key) {
     // the row has a printed value at or below this key
     if (!r) return false;
     for (int i = 0; i < s.nCols; ++i) if (s.key[i] <= key && !std::isnan(r->v[i])) return true;
@@ -189,12 +190,18 @@ inline void keepResonances(std::vector<Mode>& m) {
     m.resize(n);
 }
 
+// A pipe of stop s at a place `key` on its scale (fractional for mixture ranks, whose scales are
+// printed for a base pitch), cut to sound at targetHz.
+inline Design designAt(const opus14::Stop& s, double key, double targetHz, const Voicing& v, double tempC = 20.0, double fs = 48000.0);
 inline Design design(const opus14::Stop& s, int key, const Voicing& v, const double* temperament = kWegscheider,
                      double tempC = 20.0, double fs = 48000.0) {
+    return designAt(s, key, soundingHz(key, s.feet, temperament), v, tempC, fs);
+}
+inline Design designAt(const opus14::Stop& s, double key, double targetHz, const Voicing& v, double tempC, double fs) {
     Design d;
     Air air; air.tempC = tempC;
     d.family = familyOf(s);
-    d.target = soundingHz(key, s.feet, temperament);
+    d.target = targetHz;
     const int ob = overblowFrom(s);
     d.speakMode = key >= ob ? 2 : 1;
 
@@ -335,7 +342,7 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 // measurements once for the instrument and then held fixed: beta (growth), gamma (convection
 // speed / jet speed), kd (scale of the dipole spacing) and the lip offset y0/b. Literature
 // values for a recorder: beta ~ 0.3, gamma ~ 0.4, kd = 1.
-struct JetParams { double lpk = 1.0; int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
+struct JetParams { double vortex = 1.0; double lpk = 1.0; int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
                    double noise = 0.0;
                    double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
 // Principal constants matched to the reference (Montre 8', GrandOrgue demo) on G2/G3/G4 over the full
@@ -444,7 +451,9 @@ struct FlueSim {
         }
         xiHist.assign(8192 * (size_t)os, 0.0); vHist.assign(xiHist.size(), 0.0); histPos = 0; xi = 0;
         {
-            const double fc = std::min(12000.0, 0.4 * fs), K = std::tan(M_PI * fc / fs), q = 1.0 / std::sqrt(2.0);
+            // numerical band limit at 0.4 of the internal rate (which is at least 24 x the pitch, so the
+            // filter's phase at the fundamental stays under 9 degrees)
+            const double fc = 0.4 * fs, K = std::tan(M_PI * fc / fs), q = 1.0 / std::sqrt(2.0);
             const double nrm = 1.0 / (1.0 + K / q + K * K);
             lp = { K * K * nrm, 2 * K * K * nrm, K * K * nrm, 2 * (K * K - 1) * nrm, (1 - K / q + K * K) * nrm, 0, 0 };
             lpj = lp;
@@ -679,7 +688,7 @@ struct FlueSim {
         if (jp.fitted && jp.ddRule == 1) ddE = 4.0 / M_PI * std::sqrt(2.0 * ((jp.turbulent ? b : 0.4 * h) / 0.4) * W);
         else if (jp.fitted && jp.ddRule == 2) ddE = Uj / (4.0 * omega / (2.0 * M_PI));
         dbgDrive = -(rho * ddE * (jp.fitted ? jp.kd : 1.0) / Sm) * dQin;
-        dbgVortex = -0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1);
+        dbgVortex = -0.5 * rho * (v / 0.6) * (v / 0.6) * (v >= 0 ? 1 : -1) * jp.vortex;
         dbgVol = volSign * dpVol; dbgEta = eta;
         const double dp = dpNoise + dbgDrive + dbgVortex + dbgVol;
         double q = 0, s = 0, sTop = 0;
@@ -920,6 +929,26 @@ inline VoicingReport voice(Design& d, Voicing& v, double fs = 48000.0) {
     }
     r.log += "lost its note after cutting; ";
     return r;
+}
+
+// The real-time pipe's description from a design and the family's jet constants (gain given as
+// a scale of 2 (b/h) / 0.10, i.e. jp.gain < 0).
+inline FluePipeSpec specOf(const Design& d, const JetParams& jp) {
+    FluePipeSpec s;
+    FlueSim sim; Voicing v; sim.init(d, v, 48000);   // jet at the lip (b, transit, lip speed)
+    s.target = (float)d.target; s.h = (float)d.flue; s.W = (float)d.cutup; s.Wm = (float)d.mouthWidth;
+    s.languid = (float)d.languid; s.radius = (float)d.radius; s.toe = (float)d.toe; s.footPa = (float)d.footPa;
+    s.b = (float)sim.b; s.transit = (float)sim.transit; s.lipSpeed = (float)sim.lipSpeed;
+    s.length = (float)d.g.body[0].L; s.shape = (float)d.shape; s.wood = d.wood ? 1.f : 0.f;
+    s.y0b = (float)jp.y0b; s.lpk = (float)jp.lpk; s.gscale = (float)(jp.gain < 0 ? -jp.gain : 1.0); s.kd = (float)jp.kd;
+    s.noise = (float)jp.noise; s.sign = (float)jp.sign; s.vortex = (float)jp.vortex;
+    s.nModes = (int)std::min<size_t>(kRtMaxModes, d.modes.size());
+    for (int i = 0; i < s.nModes; ++i) {
+        s.f[i] = (float)d.modes[i].f; s.Q[i] = (float)d.modes[i].Q;
+        s.pkRe[i] = (float)d.modes[i].peak.real(); s.pkIm[i] = (float)d.modes[i].peak.imag();
+        s.topRe[i] = (float)d.topRatio[i].real(); s.topIm[i] = (float)d.topRatio[i].imag();
+    }
+    return s;
 }
 
 } // namespace flue

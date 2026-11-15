@@ -108,11 +108,14 @@ public:
         static const double mean[12]   = { 10.3, -13.7, 3.4, 20.5, -3.4, 13.7, -10.3, 6.8, -17.1, 0.0, 17.1, -6.8 };
         static const double kirn[12]   = { 0, -9.8, -6.8, -5.9, -13.7, -2.0, -11.7, -3.4, -7.8, -10.3, -3.9, -11.7 };
         static const double vall[12]   = { 5.9, 0.0, 2.0, 3.9, -2.0, 7.8, -2.0, 3.9, 2.0, 0.0, 5.9, -3.9 };
+        // Wegscheider "well tempered 20 note", the temperament Opus 14 is tuned in (Vogt App. 4; data/opus14/organ.txt)
+        static const double wegs[12]   = { 10.26, 3.81, 3.42, 7.39, 0.95, 9.30, 2.86, 6.84, 4.77, 0.0, 8.35, 1.91 };
         switch (sys) {
             case kTunWerck: return werck;
             case kTunMeantone: return mean;
             case kTunKirn: return kirn;
             case kTunVallotti: return vall;
+            case kTunWegscheider: return wegs;
             default: return et;
         }
     }

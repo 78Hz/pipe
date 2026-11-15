@@ -23,7 +23,7 @@
 
 namespace pipe {
 
-constexpr float kChestNominal[kNumDivisions] = { 94.f, 78.f, 85.f };   // mm water
+constexpr float kChestNominal[kNumDivisions] = { 79.f, 79.f, 79.f, 79.f };   // mm water: Opus 14 is voiced on 79 mm throughout (Vogt ch. 3)
 constexpr float kBlowerCapacity = 260.f;   // flow units (Principal 8' C4 = 1)
 
 enum ReservoirLoad { kLoadWeights = 0, kLoadSprings, kNumReservoirLoads };
@@ -55,7 +55,7 @@ struct WindSystem {
     float fan = 0.f;            // blower speed, 0 .. 1
     float reservoir = 0.f;      // pressure under the lid (with sag), mm
     float sag = 0.f, sagVel = 0.f;
-    float chest[kNumDivisions] = { 0.f, 0.f, 0.f };
+    float chest[kNumDivisions] = {};
     float tremPhase = 0.f;
     float tremAmt = 0.f;        // smoothed on/off
     float demand = 0.f;         // last demand, relative to blower capacity

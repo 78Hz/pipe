@@ -1,0 +1,4 @@
+# Reed constants per family, matched to reference recordings (tools/ref/match.py MODE=reed).
+# family   width/lowerD  rest-opening/L  tongue-Q  boot-litres(8')  closure/x0
+trumpet    0.373         0.0203          63.5      0.62             1.0
+oboe       0.373         0.0203          63.5      0.62             1.0

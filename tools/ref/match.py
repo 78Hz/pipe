@@ -6,8 +6,12 @@ import numpy as np, subprocess, os, sys, json
 from scipy.io import wavfile
 from scipy.optimize import minimize
 EVAL, REF, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
-TRAIN, HOLD = [43, 55, 67], [42, 54, 66, 79]
-NAMES = {42:'042-F#',43:'043-G',54:'054-F#',55:'055-G',66:'066-F#',67:'067-G',78:'078-F#',79:'079-G'}
+TRAIN = [int(k) for k in os.environ.get('TRAIN', '43 55 67').split()]
+HOLD = [int(k) for k in os.environ.get('HOLD', '42 54 66 79').split()]
+FEET = float(os.environ.get('FEET', '8'))
+LOWKEY = int(os.environ.get('LOWKEY', '36'))
+NAMES = {k: '%03d-%s' % (k, 'G' if k % 12 == 7 else 'F#') for k in range(24, 110)}
+def nominal(k): return 440 * 2 ** ((k - 69) / 12) * 8 / FEET
 BANDS = (125, 250, 500, 1000, 2000, 4000, 8000)
 
 def spectrum(X, fs):
@@ -36,7 +40,7 @@ def features(X, fs, a, b, guess, onset):
 def ref_features(k):
     fs, x = wavfile.read(f'{REF}/{NAMES[k]}.wav'); x = x.astype(float); X = x[:, None] if x.ndim == 1 else x
     e = np.abs(X[:, 0]); on = np.argmax(np.convolve(e, np.ones(220) / 220, 'same') > 0.01 * e.max())
-    return features(X, fs, 0.8, 3.0, 440 * 2 ** ((k - 69) / 12), on)
+    return features(X, fs, 0.8, 3.0, nominal(k), on)
 R = {k: ref_features(k) for k in TRAIN + HOLD}
 
 def render(params, keys):
@@ -45,7 +49,7 @@ def render(params, keys):
     for k in keys:
         X = np.fromfile(f'{OUT}/{k}.f32', np.float32).astype(float).reshape(-1, 2)
         if not np.isfinite(X).all() or np.abs(X).max() < 1e-9: out[k] = None; continue
-        out[k] = features(X, 48000, 1.5, 3.2, R[k]['f0'] if k in R else 440 * 2 ** ((k - 69) / 12), 0)
+        out[k] = features(X, 48000, 1.5, 3.2, R[k]['f0'] if k in R else nominal(k), 0)
     return out
 
 def note_error(m, r):
@@ -59,16 +63,21 @@ def note_error(m, r):
     return eh + 0.5 * en + 0.5 * ea, dict(harm_rms=np.sqrt(eh), noise_rms=np.sqrt(en), att_m=m['att'], att_r=r['att'], pitch_c=pitch)
 
 def speaks_fundamental(params):
-    subprocess.run([EVAL, OUT] + ['%.6g' % p for p in params] + ['36'], check=True)
-    X = np.fromfile(f'{OUT}/36.f32', np.float32).astype(float).reshape(-1, 2)
-    P, f = spectrum(X[int(1.5*48000):], 48000); f1 = 65.4
+    subprocess.run([EVAL, OUT] + ['%.6g' % p for p in params] + [str(LOWKEY)], check=True)
+    X = np.fromfile(f'{OUT}/{LOWKEY}.f32', np.float32).astype(float).reshape(-1, 2)
+    P, f = spectrum(X[int(1.5*48000):], 48000); f1 = nominal(LOWKEY)
     lvl = [P[np.abs(f - k * f1) < 0.06 * f1].max() for k in (1, 2, 3, 4)]
     return lvl[0] >= max(lvl[1:])
 
-LO = np.array([-1.5, np.log(0.1), np.log(0.3), np.log(0.3), np.log(0.003)])
-HI = np.array([1.5, np.log(10), np.log(3), np.log(3), np.log(0.3)])
-def params_of(z):
-    z = np.clip(z, LO, HI); return [z[0], np.exp(z[1]), np.exp(z[2]), np.exp(z[3]), np.exp(z[4])]
+MODE = os.environ.get('MODE', 'flue')
+if MODE == 'reed':   # tongue width / resonator lower diameter, rest opening / free length, tongue Q, boot litres (8')
+    LO = np.log(np.array([0.15, 0.004, 5.0, 0.05, 0.02])); HI = np.log(np.array([1.5, 0.12, 300.0, 4.0, 3.0]))
+    def params_of(z): z = np.clip(z, LO, HI); return list(np.exp(z))
+else:
+    LO = np.array([-1.5, np.log(0.1), np.log(0.3), np.log(0.3), np.log(0.003)])
+    HI = np.array([1.5, np.log(10), np.log(3), np.log(3), np.log(0.3)])
+    def params_of(z):
+        z = np.clip(z, LO, HI); return [z[0], np.exp(z[1]), np.exp(z[2]), np.exp(z[3]), np.exp(z[4])]
 log = open(f'{OUT}/log.txt', 'a')
 def cost(z):
     p = params_of(z); M = render(p, TRAIN); c = 0; det = {}
@@ -79,16 +88,19 @@ def cost(z):
     return c
 
 if __name__ == '__main__':
-    starts = [[0.5, 0, 0, 0, np.log(0.04)], [0.0, np.log(0.5), 0, 0, np.log(0.04)], [1.0, np.log(2), np.log(0.7), 0, np.log(0.04)]]
+    if MODE == 'reed':
+        starts = [list(np.log([0.4, 0.02, 60, 0.6, 0.5])), list(np.log([0.6, 0.03, 30, 0.5, 1.2]))]
+    else:
+        starts = [[0.5, 0, 0, 0, np.log(0.04)], [0.0, np.log(0.5), 0, 0, np.log(0.04)], [1.0, np.log(2), np.log(0.7), 0, np.log(0.04)]]
     best = None
     for z0 in starts:
-        z0 = np.array(z0, float); step = np.array([0.4, 0.7, 0.5, 0.5, 0.7])
-        simplex = np.vstack([z0] + [z0 + np.eye(5)[i] * step[i] for i in range(5)])
-        r = minimize(cost, z0, method='Nelder-Mead', options=dict(maxfev=200, xatol=1e-2, fatol=0.05, initial_simplex=simplex))
+        z0 = np.array(z0, float); step = np.array([0.5, 0.6, 0.7, 0.7, 0.8]) if MODE == 'reed' else np.array([0.4, 0.7, 0.5, 0.5, 0.7])
+        nd = len(z0); simplex = np.vstack([z0] + [z0 + np.eye(nd)[i] * step[i] for i in range(nd)])
+        r = minimize(cost, z0, method='Nelder-Mead', options=dict(maxfev=int(os.environ.get('MAXFEV', '200')), xatol=1e-2, fatol=0.05, initial_simplex=simplex))
         print('start', z0, '->', params_of(r.x), 'cost %.1f' % r.fun, flush=True)
         if best is None or r.fun < best.fun: best = r
     p = params_of(best.x); json.dump(dict(params=p, cost=best.fun), open(f'{OUT}/best.json', 'w'))
-    print('BEST y0b %.3f lpk %.3f gscale %.3f kd %.3f noise %.4f cost %.1f' % tuple(p + [best.fun]))
+    print('BEST ' + ' '.join('%.4g' % v for v in p) + ' cost %.1f' % best.fun)
     M = render(p, TRAIN + HOLD)
     for k in TRAIN + HOLD:
         e, d = note_error(M[k], R[k])

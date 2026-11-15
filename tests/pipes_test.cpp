@@ -87,6 +87,8 @@ static double centsOff(const float* x, int n, double expectHz) {
     return 1200 * std::log2(finePitch(x, n, f) / expectHz);
 }
 
+static int rankOf(const char* stopId) { const int s = stopById(stopId); return s >= 0 ? kStops[s].rankFirst : 0; }
+
 struct Rig {
     std::unique_ptr<Engine> en;
     std::vector<float> L, R;
@@ -197,7 +199,7 @@ static void tuningSystems() {
         { kTunKirn, "Kirnberger III", { 0, 90.225, 193.157, 294.135, 386.314, 498.045, 590.224, 696.578, 792.18, 889.735, 996.09, 1088.269 } },
         { kTunVallotti, "Vallotti", { 0, 94.135, 196.09, 298.045, 392.18, 501.955, 592.18, 698.045, 796.09, 894.135, 1000.0, 1090.225 } },
     };
-    const int principal = 7;
+    const int principal = rankOf("i_octave_8");
     Rig g;
     auto play = [&](int key, double expect) {
         g.send(0x90, key, 100); g.run(0.8);
@@ -277,7 +279,7 @@ static void mpeTiming() {
     std::printf("3. MPE: note-on, then the first pressure message after a gap (Principal 8', member channel 2)\n");
     Rig g;
     auto setup = [&] {
-        g.reset(); g.draw(7);
+        g.reset(); g.draw(rankOf("i_octave_8"));
         g.send(0xB0, 101, 0); g.send(0xB0, 100, 6); g.send(0xB0, 6, 15);     // MCM: lower zone, 15 member channels
         g.run(0.05);
     };
@@ -369,8 +371,8 @@ static void strongest(const std::vector<float>& L, const std::vector<float>& R, 
 // while its tone builds from silence (about 45 cents at first; within 5 cents after about 60 periods).
 static void reedAttack() {
     std::printf("8. reed attack from silence (known limit of the reed model)\n");
-    Rig g; g.draw(17); g.run(0.05);
-    const int key = 48; const double f = et(key) * rankRatio(17, key);
+    Rig g; g.draw(rankOf("i_trumpet_8")); g.run(0.05);
+    const int key = 48; const double f = et(key) * rankRatio(rankOf("i_trumpet_8"), key);
     g.send(0x90, key, 100);
     double worst = 0, settledAt = -1; const double step = 3.0 / f;
     for (double t = step; t < 2.0; t += step) {
@@ -397,7 +399,7 @@ static void blowerOffOn() {
         // a short coast-down, so what is measured is the reservoir, not the blower slowing
         g.en->setParameter(kParamResLoad, (float)load); g.en->setParameter(kParamResSize, 1.f); g.en->setParameter(kParamSpinDown, 1.f);
         if (fullOrgan) { for (int st = 0; st < kNumStops; ++st) if (kStops[st].type == kStopRank || kStops[st].type == kStopMixture) g.en->setParameter(st, 1.f); }
-        else g.draw(7);
+        else g.draw(rankOf("i_octave_8"));
         g.en->setParameter(kParamZoneLoDiv, (float)kGreat);
         g.run(0.1); for (int k : chord) g.send(0x90, k, 100); g.run(1.5);
         g.en->setParameter(kParamBlowerOn, 0.f);
@@ -430,7 +432,7 @@ static void blowerOffOn() {
 
     // nothing played: only leakage draws on the reservoir
     {
-        Rig g; g.en->setParameter(kParamResSize, 1.f); g.draw(7); g.run(0.1);
+        Rig g; g.en->setParameter(kParamResSize, 1.f); g.draw(rankOf("i_octave_8")); g.run(0.1);
         g.en->setParameter(kParamBlowerOn, 0.f); g.run(60.0);
         const float lid = g.en->outputs[kOutLid - kOutFirst];
         g.send(0x90, 60, 100); g.run(1.0);
@@ -440,7 +442,7 @@ static void blowerOffOn() {
 
     // start-up: the blower was off when the project was saved; a chord is held and the blower started
     {
-        Rig g; g.en->setParameter(kParamBlowerOn, 0.f); g.draw(7); g.run(0.1);
+        Rig g; g.en->setParameter(kParamBlowerOn, 0.f); g.draw(rankOf("i_octave_8")); g.run(0.1);
         for (int k : chord) g.send(0x90, k, 100); g.run(1.0);
         double c, db; strongest(g.L, g.R, 9600, c3, c, db);
         check(db < -70, "blower off from the start: the held chord is silent (%.1f dB)", db);

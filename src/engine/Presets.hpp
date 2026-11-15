@@ -111,21 +111,21 @@ inline bool decodePreset(const std::string& text, PresetData& p) {
 struct FactoryPreset { const char* name; const char* tag; const char* tuningLabel; };
 constexpr int kNumFactoryPresets = 12;
 static const FactoryPreset kFactory[kNumFactoryPresets] = {
-    { "PLEIN JEU GT+PED", "BAROQUE", "WERCK III" },
-    { "PRINCIPAL CHORUS", "BAROQUE", "12-TET" },
-    { "FLUTES 8+4", "BAROQUE", "WERCK III" },
-    { "TRIO SONATA", "BAROQUE", "WERCK III" },
-    { "CORNET SEPARE", "BAROQUE", "1/4 MEANTONE" },
-    { "GRAND JEU", "BAROQUE", "1/4 MEANTONE" },
-    { "STRINGS + CELESTE", "ROMANTIC", "12-TET" },
-    { "FULL SWELL", "ROMANTIC", "12-TET" },
+    { "OCTAVE 8 + PEDAL", "OPUS 14", "WEGSCHEIDER" },
+    { "ORGANO PLENO", "OPUS 14", "WEGSCHEIDER" },
+    { "PRINCIPALS 8+4", "OPUS 14", "WEGSCHEIDER" },
+    { "FLUTES 8+4", "OPUS 14", "WEGSCHEIDER" },
+    { "TRIO", "OPUS 14", "1/4 MEANTONE" },
+    { "CORNET", "OPUS 14", "1/4 MEANTONE" },
+    { "GRAND JEU", "OPUS 14", "WEGSCHEIDER" },
+    { "GAMBA + CELESTE", "ROMANTIC", "12-TET" },
+    { "FULL UNTERWERK", "ROMANTIC", "12-TET" },
     { "FOKKER 31 CHORUS", "MICROTONAL", "31-EDO" },
-    { "GEDACKT 19", "MICROTONAL", "19-EDO" },
-    { "BREATH FLUTE", "EXPRESSIVE", "12-TET" },
-    { "PRESSURE REEDS", "EXPRESSIVE", "12-TET" },
+    { "BREATH FLUTE", "EXPRESSIVE", "WEGSCHEIDER" },
+    { "PRESSURE REEDS", "EXPRESSIVE", "WEGSCHEIDER" },
 };
 // display order -> recipe below (P01 is the plugin's default sound)
-static const int kFactoryRecipe[kNumFactoryPresets] = { 6, 0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11 };
+static const int kFactoryRecipe[kNumFactoryPresets] = { 6, 0, 1, 2, 3, 4, 5, 7, 8, 9, 11, 12 };
 
 inline int stopIndex(const char* id) {
     for (int s = 0; s < kNumStops; ++s) if (std::strcmp(kStops[s].id, id) == 0) return s;
@@ -155,40 +155,44 @@ inline PresetData factoryPreset(int index) {
     p.states[kStateCustomIr] = "";
     switch (kFactoryRecipe[index]) {
     case 0:
-        on({ "gt_principal", "gt_octave", "gt_superoct", "gt_mixtur", "pd_subbass", "pd_octavbass", "pd_choralbass", "cp_gt_pd" });
-        set(kParamTuning, kTun12); break;
+        on({ "i_praestant_16", "i_octave_8", "i_octave_4", "i_quinte_223", "i_superoctave_2", "i_mixture_v_113",
+             "p_principal_16", "p_subbass_16", "p_octave_8", "p_octave_4", "p_mixture_v_223", "p_posaune_16" });
+        set(kParamTuning, kTunWegscheider); break;
     case 1:
-        on({ "gt_rohrflote", "gt_spitzflote", "pd_subbass", "pd_gedacktbass" });
-        set(kParamTuning, kTunWerck); break;
+        on({ "ii_principal_8", "ii_octave_4", "p_subbass_16", "p_octave_8" });
+        set(kParamTuning, kTunWegscheider); break;
     case 2:
-        on({ "gt_principal", "sw_gedackt", "sw_flute", "sw_nasard", "pd_subbass", "pd_octavbass" });
-        set(kParamTuning, kTunWerck); break;
+        on({ "i_rohrflote_8", "i_spitzflote_4", "p_subbass_16", "p_bourdon_8" });
+        set(kParamTuning, kTunWegscheider); break;
     case 3:
-        on({ "sw_gedackt", "sw_flute", "sw_nasard", "sw_doublette", "sw_tierce", "gt_rohrflote", "pd_subbass" });
-        set(kParamTuning, kTunMeantone); set(kParamSwell, 1.f); break;
+        on({ "i_rohrflote_8", "i_octave_4", "ii_gedeckt_8", "ii_rohrflote_4", "ii_sesquialtera_ii_223", "p_subbass_16", "p_bourdon_8" });
+        set(kParamTuning, kTunMeantone); break;
     case 4:
-        on({ "gt_bourdon", "gt_principal", "gt_octave", "gt_trompete", "sw_gedackt", "sw_flute", "sw_nasard", "sw_tierce", "sw_hautbois",
-             "cp_sw_gt", "pd_contrabass", "pd_octavbass", "pd_posaune", "cp_gt_pd" });
-        set(kParamTuning, kTunMeantone); set(kParamSwell, 1.f); break;
+        on({ "i_rohrflote_8", "i_cornet_v_8", "ii_gedeckt_8", "p_subbass_16" });
+        set(kParamTuning, kTunMeantone); break;
     case 5:
-        on({ "sw_salicional", "sw_celeste", "sw_tremulant", "gt_rohrflote", "pd_gedacktbass" });
-        set(kParamTuning, kTun12); set(kParamSwell, 0.45f); set(kParamTremDepth, 0.12f); break;
+        on({ "i_octave_8", "i_octave_4", "i_trumpet_8", "i_cornet_v_8", "ii_principal_8", "ii_octave_4", "ii_trichterregal_8",
+             "iii_trompette_8", "iii_clairon_4", "cp_ii_i", "cp_iii_i", "p_posaune_16", "p_trumpet_8", "p_octave_8", "cp_i_p" });
+        set(kParamTuning, kTunWegscheider); set(kParamSwell, 1.f); break;
     case 6:
         for (int s = 0; s < kNumStops; ++s) p.params[s] = paramInfo(s).def;
-        set(kParamTuning, kTunWerck); break;
+        set(kParamTuning, kTunWegscheider); break;
     case 7:
-        on({ "sw_gedackt", "sw_salicional", "sw_principal", "sw_flute", "sw_nasard", "sw_doublette", "sw_tierce", "sw_hautbois", "cp_sw_gt",
-             "gt_principal", "pd_subbass", "pd_octavbass", "cp_sw_pd" });
-        set(kParamTuning, kTun12); set(kParamSwell, 1.f); break;
+        on({ "iii_gamba_8", "iii_celeste_8", "tremulant", "p_subbass_16" });
+        set(kParamTuning, kTun12); set(kParamSwell, 0.45f); set(kParamTremDepth, 0.12f); break;
     case 8:
-        on({ "gt_principal", "gt_octave", "gt_quinte", "gt_superoct", "pd_subbass", "pd_octavbass", "cp_gt_pd" });
-        set(kParamTuning, kTun31); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
+        on({ "iii_bourdon_16", "iii_principal_8", "iii_gamba_8", "iii_flute_harmonique_8", "iii_principal_4", "iii_flute_harmonique_4",
+             "iii_octavin_2", "iii_mixture_v_2", "iii_bassoon_16", "iii_trompette_8", "iii_oboe_8", "iii_clairon_4", "p_subbass_16", "p_octave_8", "cp_iii_p" });
+        set(kParamTuning, kTun12); set(kParamSwell, 1.f); break;
     case 9:
-        on({ "gt_rohrflote", "sw_gedackt", "pd_subbass" });
-        set(kParamTuning, kTun19); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
+        on({ "i_octave_8", "i_octave_4", "i_quinte_223", "i_superoctave_2", "p_subbass_16", "p_octave_8" });
+        set(kParamTuning, kTun31); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
     case 10:
-        on({ "gt_rohrflote", "sw_flute" });
-        set(kParamTuning, kTun12); set(kParamPressMax, 130.f);
+        on({ "ii_gedeckt_8", "p_subbass_16" });
+        set(kParamTuning, kTun19); set(kParamMapLo, kMapSequential); set(kParamMapHi, kMapSequential); break;
+    case 11:
+        on({ "iii_flute_harmonique_8" });
+        set(kParamTuning, kTunWegscheider); set(kParamPressMax, 130.f);
         {   // breath: the key is the pallet all the way, aftertouch aims the jet
             ModMatrix m; m.setDefaults();
             m.rows[0].hi = 1.f; m.rows[0].curve = kCurveSoft; m.rows[0].smoothMs = 20.f;
@@ -197,9 +201,9 @@ inline PresetData factoryPreset(int index) {
             p.states[kStateMatrix] = m.serialize();
         }
         set(kParamPalletSlow, 120.f); set(kParamStability, 0.9f); break;
-    case 11:
-        on({ "gt_trompete", "sw_hautbois", "pd_posaune" });
-        set(kParamTuning, kTun12); set(kParamPressMax, 140.f); set(kParamSwell, 1.f);
+    case 12:
+        on({ "i_trumpet_8", "iii_oboe_8", "p_posaune_16" });
+        set(kParamTuning, kTunWegscheider); set(kParamPressMax, 140.f); set(kParamSwell, 1.f);
         {   // reeds: aftertouch pushes the wind hard
             ModMatrix m; m.setDefaults();
             m.rows[1].zone = kZoneAll; m.rows[1].curve = kCurveLin;

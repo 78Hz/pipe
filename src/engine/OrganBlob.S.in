@@ -1,0 +1,31 @@
+/* Pipe - embeds the organ's precomputed flue pipes (data/opus14/organ_pipes.bin). */
+#if defined(__APPLE__)
+    .section __TEXT,__const
+    .globl _pipe_organ_blob
+    .globl _pipe_organ_blob_end
+    .p2align 4
+_pipe_organ_blob:
+    .incbin "@PIPE_ORGAN_BLOB@"
+_pipe_organ_blob_end:
+    .byte 0
+#elif defined(_WIN32)
+    .section .rdata,"dr"
+    .globl pipe_organ_blob
+    .globl pipe_organ_blob_end
+    .p2align 4
+pipe_organ_blob:
+    .incbin "@PIPE_ORGAN_BLOB@"
+pipe_organ_blob_end:
+    .byte 0
+#else
+    .section .rodata
+    .globl pipe_organ_blob
+    .globl pipe_organ_blob_end
+    .type pipe_organ_blob, @object
+    .balign 16
+pipe_organ_blob:
+    .incbin "@PIPE_ORGAN_BLOB@"
+pipe_organ_blob_end:
+    .byte 0
+    .section .note.GNU-stack,"",@progbits
+#endif

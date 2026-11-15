@@ -1,20 +1,33 @@
 // Pipe - physically modelled pipe organ
-// The instrument: three divisions, 27 ranks of pipes and 28 stop controls.
+// The instrument: Pasi Opus 14 (St. Cecilia Cathedral, Omaha, 2003). Four divisions, the stop list
+// as published (Vogt 2010 App. 1; Pasi Organ Builders), mixtures expanded into their ranks. The
+// stops and ranks come from the generated organ (Opus14Organ.hpp, tools/opus14_organ.cpp); the
+// couplers and the tremulant are added here.
 #pragma once
 
 #include "PipeModels.hpp"
+#include "Opus14Organ.hpp"
+#include <array>
+#include <cstring>
+#include <string>
 
 namespace pipe {
 
-enum Division { kPedal = 0, kGreat = 1, kSwell = 2, kNumDivisions = 3 };
+// Divisions. The engine's numbering keeps Pedal 0 and puts the enclosed division at 2.
+//   I = Hauptwerk, II = Oberwerk, III = Unterwerk (enclosed, swell box)
+enum Division { kPedal = 0, kGreat = 1, kSwell = 2, kPositive = 3, kNumDivisions = 4 };
 inline const char* divisionName(int d) {
-    static const char* n[] = { "PEDAL", "GREAT", "SWELL" };
+    static const char* n[] = { "PEDAL", "I HAUPTWERK", "III UNTERWERK", "II OBERWERK" };
+    return (d >= 0 && d < kNumDivisions) ? n[d] : "-";
+}
+inline const char* divisionShort(int d) {
+    static const char* n[] = { "PED", "I", "III", "II" };
     return (d >= 0 && d < kNumDivisions) ? n[d] : "-";
 }
 
-// Keyboard compass (MIDI key numbers of the 8' pitch)
-constexpr int kManualLow = 36, kManualHigh = 93;  // C2 .. A6 (C - a''')
-constexpr int kPedalLow = 36, kPedalHigh = 65;    // C2 .. F4 (C - f')
+// Keyboard compass (MIDI key numbers of the 8' pitch): manuals C-a3, pedal C-f1 (Pasi)
+constexpr int kManualLow = 36, kManualHigh = 93;
+constexpr int kPedalLow = 36, kPedalHigh = 65;
 
 enum PipeKind { kKindOpen = 0, kKindStopped, kKindString, kKindReed };
 
@@ -23,124 +36,115 @@ struct RankDef {
     const char* name;      // display name
     int division;
     int kind;              // PipeKind
-    int family;            // FluePipeFamily or ReedPipeFamily
-    float ratio;           // frequency ratio to 8' pitch (0 = mixture row, see mixtureRatio)
-    int mixRow;            // mixture row 0..3, -1 otherwise
-    // default voicing
-    float scaleHT;         // diameter vs. normal (Toepfer) scale, in half-tones (+ = wider)
-    float mouth;           // mouth width, fraction of circumference
-    float cutup;           // cut-up, fraction of mouth width
-    float toeMM;           // toe (foot) pressure, mm water column
-    float chiff;           // attack transient 0..1
-    int nicking;           // 0 none, 1 light, 2 heavy
+    int family;            // FluePipeFamily or ReedPipeFamily (reeds: the interim reed model)
+    float ratio;           // nominal frequency ratio to 8' pitch (per key: rankRatio)
+    int mixRow;            // mixture row, -1 otherwise
+    // voicer's defaults (the flue pipes' sound comes from their Pasi dimensions; these remain for reeds)
+    float scaleHT, mouth, cutup, toeMM, chiff;
+    int nicking;
     float regulationDb;    // loudness trim
-    float detuneCents;     // celeste
-    int lowestKey;         // first key that has a pipe (celestes start at tenor C)
-    float metalTin;        // % tin (display only); 0 = wood
+    float detuneCents;     // undulating stops (Celeste, Suavial)
+    int lowestKey;         // first key that has a pipe
+    float metalTin;        // % tin (display); 0 = wood
 };
 
-constexpr int kNumRanks = 27;
-constexpr RankDef kRanks[kNumRanks] = {
-    // Pedal
-    { "pd_contrabass", "CONTRABASS 16'",  kPedal, kKindOpen,    kFamilyOpen,    0.5f, -1,  3.f, 0.25f, 0.30f, 94.f, 0.35f, 1, -1.f, 0.f, 0, 0.f },
-    { "pd_subbass",    "SUBBASS 16'",     kPedal, kKindStopped, kFamilyStopped, 0.5f, -1,  6.f, 0.25f, 0.33f, 94.f, 0.25f, 1,  0.f, 0.f, 0, 0.f },
-    { "pd_octavbass",  "OCTAVBASS 8'",    kPedal, kKindOpen,    kFamilyOpen,    1.0f, -1,  2.f, 0.25f, 0.27f, 94.f, 0.35f, 1, -2.f, 0.f, 0, 75.f },
-    { "pd_gedacktbass","GEDACKTBASS 8'",  kPedal, kKindStopped, kFamilyStopped, 1.0f, -1,  4.f, 0.25f, 0.32f, 94.f, 0.25f, 1, -3.f, 0.f, 0, 0.f },
-    { "pd_choralbass", "CHORALBASS 4'",   kPedal, kKindOpen,    kFamilyOpen,    2.0f, -1,  0.f, 0.25f, 0.25f, 94.f, 0.40f, 1, -3.f, 0.f, 0, 75.f },
-    { "pd_posaune",    "POSAUNE 16'",     kPedal, kKindReed,    kReedTrumpet,   0.5f, -1,  0.f, 0.25f, 0.25f, 94.f, 0.0f,  0, -1.f, 0.f, 0, 50.f },
-    // Great
-    { "gt_bourdon",    "BOURDON 16'",     kGreat, kKindStopped, kFamilyStopped, 0.5f, -1,  3.f, 0.25f, 0.32f, 78.f, 0.25f, 1, -3.f, 0.f, 0, 0.f },
-    { "gt_principal",  "PRINCIPAL 8'",    kGreat, kKindOpen,    kFamilyOpen,    1.0f, -1,  0.f, 0.25f, 0.25f, 78.f, 0.45f, 1,  0.f, 0.f, 0, 75.f },
-    { "gt_rohrflote",  "ROHRFLOTE 8'",    kGreat, kKindStopped, kFamilyStopped, 1.0f, -1,  3.f, 0.25f, 0.30f, 78.f, 0.40f, 0, -3.f, 0.f, 0, 40.f },
-    { "gt_octave",     "OCTAVE 4'",       kGreat, kKindOpen,    kFamilyOpen,    2.0f, -1,  0.f, 0.25f, 0.25f, 78.f, 0.45f, 1, -1.f, 0.f, 0, 75.f },
-    { "gt_spitzflote", "SPITZFLOTE 4'",   kGreat, kKindOpen,    kFamilyOpen,    2.0f, -1,  2.f, 0.22f, 0.30f, 78.f, 0.40f, 0, -4.f, 0.f, 0, 40.f },
-    { "gt_quinte",     "QUINTE 2-2/3'",   kGreat, kKindOpen,    kFamilyOpen,    3.0f, -1, -1.f, 0.25f, 0.25f, 78.f, 0.40f, 1, -6.f, 0.f, 0, 75.f },
-    { "gt_superoct",   "SUPEROCTAVE 2'",  kGreat, kKindOpen,    kFamilyOpen,    4.0f, -1, -1.f, 0.25f, 0.25f, 78.f, 0.45f, 1, -4.f, 0.f, 0, 75.f },
-    { "gt_mixtur1",    "MIXTUR IV a",     kGreat, kKindOpen,    kFamilyOpen,    0.0f,  0, -2.f, 0.25f, 0.24f, 78.f, 0.45f, 1, -8.f, 0.f, 0, 75.f },
-    { "gt_mixtur2",    "MIXTUR IV b",     kGreat, kKindOpen,    kFamilyOpen,    0.0f,  1, -2.f, 0.25f, 0.24f, 78.f, 0.45f, 1, -8.f, 0.f, 0, 75.f },
-    { "gt_mixtur3",    "MIXTUR IV c",     kGreat, kKindOpen,    kFamilyOpen,    0.0f,  2, -2.f, 0.25f, 0.24f, 78.f, 0.45f, 1, -9.f, 0.f, 0, 75.f },
-    { "gt_mixtur4",    "MIXTUR IV d",     kGreat, kKindOpen,    kFamilyOpen,    0.0f,  3, -2.f, 0.25f, 0.24f, 78.f, 0.45f, 1, -9.f, 0.f, 0, 75.f },
-    { "gt_trompete",   "TROMPETE 8'",     kGreat, kKindReed,    kReedTrumpet,   1.0f, -1,  0.f, 0.25f, 0.25f, 78.f, 0.0f,  0, -2.f, 0.f, 0, 50.f },
-    // Swell
-    { "sw_gedackt",    "GEDACKT 8'",      kSwell, kKindStopped, kFamilyStopped, 1.0f, -1,  3.f, 0.25f, 0.32f, 85.f, 0.35f, 0, -2.f, 0.f, 0, 0.f },
-    { "sw_salicional", "SALICIONAL 8'",   kSwell, kKindString,  kFamilyString,  1.0f, -1, -6.f, 0.20f, 0.22f, 85.f, 0.20f, 2, -5.f, 0.f, 0, 75.f },
-    { "sw_celeste",    "VOIX CELESTE 8'", kSwell, kKindString,  kFamilyString,  1.0f, -1, -6.f, 0.20f, 0.22f, 85.f, 0.20f, 2, -5.f, 4.f, 48, 75.f },
-    { "sw_principal",  "PRINCIPAL 4'",    kSwell, kKindOpen,    kFamilyOpen,    2.0f, -1,  0.f, 0.25f, 0.25f, 85.f, 0.40f, 1, -2.f, 0.f, 0, 75.f },
-    { "sw_flute",      "FLUTE HARM. 4'",  kSwell, kKindOpen,    kFamilyOpen,    2.0f, -1,  3.f, 0.25f, 0.30f, 85.f, 0.30f, 1, -2.f, 0.f, 0, 40.f },
-    { "sw_nasard",     "NASARD 2-2/3'",   kSwell, kKindOpen,    kFamilyOpen,    3.0f, -1,  3.f, 0.22f, 0.30f, 85.f, 0.35f, 0, -6.f, 0.f, 0, 40.f },
-    { "sw_doublette",  "DOUBLETTE 2'",    kSwell, kKindOpen,    kFamilyOpen,    4.0f, -1, -1.f, 0.25f, 0.25f, 85.f, 0.45f, 1, -5.f, 0.f, 0, 75.f },
-    { "sw_tierce",     "TIERCE 1-3/5'",   kSwell, kKindOpen,    kFamilyOpen,    5.0f, -1,  2.f, 0.22f, 0.30f, 85.f, 0.35f, 0, -8.f, 0.f, 0, 40.f },
-    { "sw_hautbois",   "HAUTBOIS 8'",     kSwell, kKindReed,    kReedOboe,      1.0f, -1,  0.f, 0.25f, 0.25f, 85.f, 0.0f,  0, -4.f, 0.f, 0, 50.f },
-};
+constexpr int kNumRanks = organ::kNumOrganRanks;
 
-// Mixture IV 1-1/3': harmonic numbers above 8' for each row, breaking back
-// (repeating) every octave so the top pipes stay a buildable size.
-inline float mixtureRatio(int row, int key) {
-    static const float rows[4][4] = {
-        { 6.f, 8.f, 12.f, 16.f },   // C2..B2 : 1-1/3' 1' 2/3' 1/2'
-        { 4.f, 6.f, 8.f, 12.f },    // C3..B3 : 2' 1-1/3' 1' 2/3'
-        { 3.f, 4.f, 6.f, 8.f },     // C4..B4 : 2-2/3' 2' 1-1/3' 1'
-        { 2.f, 3.f, 4.f, 6.f },     // C5..   : 4' 2-2/3' 2' 1-1/3'
-    };
-    int b = key < 48 ? 0 : key < 60 ? 1 : key < 72 ? 2 : 3;
-    return rows[b][row];
+namespace detail {
+inline int jetKind(int jf) { return jf == 1 ? kKindString : jf == 3 ? kKindStopped : kKindOpen; }
+inline int reedFamilyOf(const char* name) {
+    const char* oboes[] = { "Oboe", "Vox", "Regal", "Dulzian", "Bassoon" };
+    for (auto o : oboes) if (std::strstr(name, o)) return kReedOboe;
+    return kReedTrumpet;
 }
+struct RankIds { std::array<std::string, kNumRanks> s; };
+inline const RankIds& rankIds() {
+    static const RankIds ids = [] {
+        RankIds r;
+        for (int i = 0; i < kNumRanks; ++i) {
+            const auto& R = organ::kOrganRanks[i];
+            int n = 0; for (int j = 0; j < i; ++j) if (organ::kOrganRanks[j].stop == R.stop) ++n;
+            r.s[(size_t)i] = std::string(organ::kOrganStops[R.stop].id) + (organ::kOrganStops[R.stop].rankCount > 1 ? "_" + std::to_string(n + 1) : "");
+        }
+        return r;
+    }();
+    return ids;
+}
+inline std::array<RankDef, kNumRanks> buildRanks() {
+    std::array<RankDef, kNumRanks> a{};
+    for (int i = 0; i < kNumRanks; ++i) {
+        const auto& R = organ::kOrganRanks[i];
+        RankDef d{};
+        d.id = rankIds().s[(size_t)i].c_str();
+        d.name = R.name;
+        d.division = R.division;
+        d.kind = R.reed ? kKindReed : jetKind(R.jetFamily);
+        d.family = R.reed ? reedFamilyOf(R.name) : (d.kind == kKindStopped ? kFamilyStopped : d.kind == kKindString ? kFamilyString : kFamilyOpen);
+        float ratio = 0.f; for (int k = 0; k < 128 && ratio == 0.f; ++k) ratio = organ::kOrganRatio[i][k];
+        d.ratio = ratio;
+        d.mixRow = organ::kOrganStops[R.stop].rankCount > 1 && std::strstr(R.name, "MIXTURE") ? 0 : -1;
+        d.scaleHT = 0.f; d.mouth = 0.25f; d.cutup = 0.25f; d.toeMM = 79.f; d.chiff = 0.f; d.nicking = 0;
+        d.regulationDb = 0.f;
+        d.detuneCents = R.detuneCents;
+        d.lowestKey = R.lowestKey;
+        d.metalTin = std::strstr(R.name, "wood") || std::strstr(R.name, "Subbass") ? 0.f : 3.f;   // 97 % lead (Pasi)
+        a[(size_t)i] = d;
+    }
+    return a;
+}
+} // namespace detail
 
+static const std::array<RankDef, kNumRanks> kRanks = detail::buildRanks();
+
+// Frequency ratio to 8' of the pipe under this rank and key (0: the rank has no pipe there).
 inline float rankRatio(int rank, int key) {
-    const RankDef& r = kRanks[rank];
-    return r.mixRow >= 0 ? mixtureRatio(r.mixRow, key) : r.ratio;
+    return (key >= 0 && key < 128) ? organ::kOrganRatio[rank][key] : 0.f;
 }
 
-// Stop controls (drawknobs / tabs)
+// Stop controls (drawknobs)
 enum StopType { kStopRank = 0, kStopMixture, kStopCoupler, kStopTremulant };
 struct StopDef {
     const char* id;
     const char* label;
     const char* foot;
-    int division;
+    int division;               // the keyboard it belongs to (couplers: the one that plays)
     int type;
     int rankFirst, rankCount;   // ranks this stop opens
-    int couplerFrom;            // coupler: source division whose pipes are added
+    int couplerFrom;            // coupler: division whose pallets the key also opens
     bool reed;
 };
-constexpr int kNumStops = 28;
-constexpr StopDef kStops[kNumStops] = {
-    { "pd_contrabass", "CONTRABASS",  "16'",    kPedal, kStopRank, 0, 1, -1, false },
-    { "pd_subbass",    "SUBBASS",     "16'",    kPedal, kStopRank, 1, 1, -1, false },
-    { "pd_octavbass",  "OCTAVBASS",   "8'",     kPedal, kStopRank, 2, 1, -1, false },
-    { "pd_gedacktbass","GEDACKTBASS", "8'",     kPedal, kStopRank, 3, 1, -1, false },
-    { "pd_choralbass", "CHORALBASS",  "4'",     kPedal, kStopRank, 4, 1, -1, false },
-    { "pd_posaune",    "POSAUNE",     "16'R",   kPedal, kStopRank, 5, 1, -1, true },
-    { "cp_gt_pd",      "GT > PED",    "CPL",    kPedal, kStopCoupler, 0, 0, kGreat, false },
-    { "cp_sw_pd",      "SW > PED",    "CPL",    kPedal, kStopCoupler, 0, 0, kSwell, false },
-    { "gt_bourdon",    "BOURDON",     "16'",    kGreat, kStopRank, 6, 1, -1, false },
-    { "gt_principal",  "PRINCIPAL",   "8'",     kGreat, kStopRank, 7, 1, -1, false },
-    { "gt_rohrflote",  "ROHRFLOTE",   "8'",     kGreat, kStopRank, 8, 1, -1, false },
-    { "gt_octave",     "OCTAVE",      "4'",     kGreat, kStopRank, 9, 1, -1, false },
-    { "gt_spitzflote", "SPITZFLOTE",  "4'",     kGreat, kStopRank, 10, 1, -1, false },
-    { "gt_quinte",     "QUINTE",      "2-2/3'", kGreat, kStopRank, 11, 1, -1, false },
-    { "gt_superoct",   "SUPEROCTAVE", "2'",     kGreat, kStopRank, 12, 1, -1, false },
-    { "gt_mixtur",     "MIXTUR IV",   "1-1/3'", kGreat, kStopMixture, 13, 4, -1, false },
-    { "gt_trompete",   "TROMPETE",    "8'R",    kGreat, kStopRank, 17, 1, -1, true },
-    { "cp_sw_gt",      "SW > GT",     "CPL",    kGreat, kStopCoupler, 0, 0, kSwell, false },
-    { "sw_gedackt",    "GEDACKT",     "8'",     kSwell, kStopRank, 18, 1, -1, false },
-    { "sw_salicional", "SALICIONAL",  "8'",     kSwell, kStopRank, 19, 1, -1, false },
-    { "sw_celeste",    "VOIX CELESTE","8'",     kSwell, kStopRank, 20, 1, -1, false },
-    { "sw_principal",  "PRINCIPAL",   "4'",     kSwell, kStopRank, 21, 1, -1, false },
-    { "sw_flute",      "FLUTE HARM.", "4'",     kSwell, kStopRank, 22, 1, -1, false },
-    { "sw_nasard",     "NASARD",      "2-2/3'", kSwell, kStopRank, 23, 1, -1, false },
-    { "sw_doublette",  "DOUBLETTE",   "2'",     kSwell, kStopRank, 24, 1, -1, false },
-    { "sw_tierce",     "TIERCE",      "1-3/5'", kSwell, kStopRank, 25, 1, -1, false },
-    { "sw_hautbois",   "HAUTBOIS",    "8'R",    kSwell, kStopRank, 26, 1, -1, true },
-    { "sw_tremulant",  "TREMULANT",   "WIND",   kSwell, kStopTremulant, 0, 0, -1, false },
-};
+// Couplers (V1): III/P, II/P, I/P, III/II, III/I, II/I; one tremulant.
+constexpr int kNumCouplers = 6;
+constexpr int kNumStops = organ::kNumOrganStops + kNumCouplers + 1;
+
+namespace detail {
+inline std::array<StopDef, kNumStops> buildStops() {
+    std::array<StopDef, kNumStops> a{};
+    for (int s = 0; s < organ::kNumOrganStops; ++s) {
+        const auto& o = organ::kOrganStops[s];
+        a[(size_t)s] = { o.id, o.label, o.foot, o.division, o.rankCount > 1 && std::strstr(o.label, "MIXTURE") ? kStopMixture : kStopRank,
+                         o.rankFirst, o.rankCount, -1, o.reed };
+    }
+    int s = organ::kNumOrganStops;
+    a[(size_t)s++] = { "cp_iii_p", "III / PEDAL", "CPL", kPedal, kStopCoupler, 0, 0, kSwell, false };
+    a[(size_t)s++] = { "cp_ii_p", "II / PEDAL", "CPL", kPedal, kStopCoupler, 0, 0, kPositive, false };
+    a[(size_t)s++] = { "cp_i_p", "I / PEDAL", "CPL", kPedal, kStopCoupler, 0, 0, kGreat, false };
+    a[(size_t)s++] = { "cp_iii_ii", "III / II", "CPL", kPositive, kStopCoupler, 0, 0, kSwell, false };
+    a[(size_t)s++] = { "cp_iii_i", "III / I", "CPL", kGreat, kStopCoupler, 0, 0, kSwell, false };
+    a[(size_t)s++] = { "cp_ii_i", "II / I", "CPL", kGreat, kStopCoupler, 0, 0, kPositive, false };
+    a[(size_t)s++] = { "tremulant", "TREMULANT", "WIND", kSwell, kStopTremulant, 0, 0, -1, false };   // must stay last
+    return a;
+}
+} // namespace detail
+static const std::array<StopDef, kNumStops> kStops = detail::buildStops();
+
+inline int stopById(const char* id) {
+    for (int s = 0; s < kNumStops; ++s) if (!std::strcmp(kStops[s].id, id)) return s;
+    return -1;
+}
 
 inline int stopForRank(int rank) {
-    for (int s = 0; s < kNumStops; ++s)
-        if ((kStops[s].type == kStopRank || kStops[s].type == kStopMixture) &&
-            rank >= kStops[s].rankFirst && rank < kStops[s].rankFirst + kStops[s].rankCount)
-            return s;
-    return -1;
+    return (rank >= 0 && rank < kNumRanks) ? organ::kOrganRanks[rank].stop : -1;
 }
 
 inline bool keyInCompass(int division, float keyFloat) {

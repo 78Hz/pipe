@@ -1,0 +1,9 @@
+# Jet constants per family, matched to reference recordings on the real-time model (tools/ref/match.py,
+# results in data/reference/fit4_families.txt). chimney: no reference; the stopped constants (ASSUMPTION).
+# family    y0/b   lpk     gscale  kd     noise   vortex
+principal   0.520  3.018   1.198   0.776  0.0573  1
+string      0.771  0.990   1.328   0.870  0.0335  1
+openflute   1.067  2.095   0.744   1.683  0.0408  1
+stopped     0.038  0.782   0.334   2.376  0.0382  1
+chimney     0.038  0.782   0.334   2.376  0.0382  1
+harmonic    0.197  10.000  0.335   0.844  0.0066  1

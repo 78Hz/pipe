@@ -11,6 +11,7 @@
 #include "RoomProcessor.hpp"
 #include "Matrix.hpp"
 #include "MpeInput.hpp"
+#include "OrganPipes.hpp"
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -40,6 +41,12 @@ inline uint32_t hash32(uint32_t x) {
 }
 
 constexpr int kControlBlock = 32;
+constexpr float kMmToPa = 9.80665f;
+// output scale of the physical flue pipes: radiated pressure at 1 m (Pa) to the mix
+constexpr float kFlueGain = 0.35f;
+constexpr float kReedGain = 0.35f;
+// wind of the Octave 8' c1 (flue area x jet speed), the unit of the wind system's demand
+constexpr double kRefFlow = 4.5e-4;
 constexpr int kMaxFlueVoices = 448;
 constexpr int kMaxReedVoices = 96;
 
@@ -101,6 +108,8 @@ struct Voice {
     bool prevOk = false, cacheable = false, tunable = false;
     bool twice = false;         // model run at twice the sample rate (pipes only a few samples long)
     float rawEnv = 0.f;         // level inside the resonator (mean of |x| over about two periods)
+    // physical flue pipe: frequency ratio to the pipe as cut, and the pan of its top (the mouth uses gL/gR)
+    float pitchRatio = 1.f, curPitch = 0.f, tL = 0.f, tR = 0.f;
 };
 
 class Engine {
@@ -108,9 +117,9 @@ public:
     Engine() {
         sink.e = this;
         flues.reserve(kMaxFlueVoices);
-        for (int i = 0; i < kMaxFlueVoices; ++i) flues.emplace_back(new FlueCore());
+        for (int i = 0; i < kMaxFlueVoices; ++i) flues.emplace_back(new FluePipeRT());
         reeds.reserve(kMaxReedVoices);
-        for (int i = 0; i < kMaxReedVoices; ++i) reeds.emplace_back(new ReedCore());
+        for (int i = 0; i < kMaxReedVoices; ++i) reeds.emplace_back(new ReedPipeRT());
         voices.resize(kMaxFlueVoices + kMaxReedVoices);
         voicing = std::make_unique<Voicing>();
         pendingVoicing = std::make_unique<Voicing>();
@@ -289,7 +298,7 @@ private:
         outputs[kOutLearn - kOutFirst] = (float)(src * 128 + cc) + 1024.f * (float)(learnCounter % 4096);
     }
 
-    struct ActiveNote { int ch, key; int div[3]; int nDiv; };
+    struct ActiveNote { int ch, key; int div[kNumDivisions]; int nDiv; };
     std::vector<ActiveNote> notes;
 
     void noteOn(int ch, int key, int vel, int zone) {
@@ -301,15 +310,16 @@ private:
         const bool alt = (params[kParamEnharmonic] >= 0.5f) != altSpellingCC;
         const KeyPitch kp = tuning.keyPitch(key, mapMode, alt);
         if (!kp.valid) { silentKey = 1000 + key; silentTimer = 3.f; return; }
-        ActiveNote an{ ch, key, { -1, -1, -1 }, 0 };
+        ActiveNote an{ ch, key, { -1, -1, -1, -1 }, 0 };
         const float v = vel / 127.f;
         auto press = [&](int d, bool coupled) {
             if (pressPallet(d, key, kp, ch, zone, v, coupled)) an.div[an.nDiv++] = d;
         };
         press(div, false);
-        if (div == kGreat && stopOn(17)) press(kSwell, true);           // SW > GT
-        if (div == kPedal && stopOn(6)) press(kGreat, true);            // GT > PED
-        if (div == kPedal && stopOn(7)) press(kSwell, true);            // SW > PED
+        // couplers: the key also opens the pallet of the coupled division (one level, as the
+        // mechanical couplers of Opus 14 do not pass on what another coupler has added)
+        for (int s = 0; s < kNumStops; ++s)
+            if (kStops[s].type == kStopCoupler && kStops[s].division == div && stopOn(s)) press(kStops[s].couplerFrom, true);
         if (an.nDiv > 0) notes.push_back(an);
         // tell the player why a key makes no sound: no pipe at that pitch, or no stop drawn
         if (an.nDiv == 0) { silentKey = 1000 + key; silentTimer = 3.f; }
@@ -408,24 +418,7 @@ private:
     // Resonator lengths for the voice's frequency.
     void tuneVoice(Voice& v) {
         const double f = v.freq;
-        if (!v.reed) {
-            const RankDef& rd = kRanks[v.rank];
-            const double mfs = modelRate(v);
-            const double T = mfs / f;
-            const double jet = std::min((double)kJetSize - 8.0, v.jr * T);
-            const double bore = solveFlueBore(*flues[(size_t)v.slot], f, mfs, jet, rd.kind == kKindStopped ? T * 0.5 : T);
-            // the bore line is read before it is written, which is one more sample round the loop
-            v.baseJet = (float)jet; v.baseBore = (float)std::max(4.0, bore - 1.0);
-        } else {
-            const auto& rc = kReedFamily[v.family];
-            // one period round the two sections, less what the loop already holds: the
-            // loss filter's phase delay and one sample for each line (read before write)
-            const double w = 2.0 * M_PI * f / fs, a = reeds[(size_t)v.slot]->aBore;
-            const double lag = std::atan2((1.0 - a) * std::sin(w), 1.0 - (1.0 - a) * std::cos(w));
-            const double D = std::max(8.0, fs / f - lag / w - 2.0);
-            v.baseA = (float)((1.0 - rc.position) * D);
-            v.baseB = (float)(rc.position * D);
-        }
+        return;   // physical pipes are cut / tuned to pitch (and scaled to the tuning): no tuner
         // short windows catch a large error, long ones settle to a fraction of a cent
         v.winMin = std::max(64, (int)(6.0 * fs / f));
         v.winMax = std::max((int)(0.020f * fs), (int)(24.0 * fs / f));
@@ -477,62 +470,41 @@ private:
         const uint32_t seed = hash32((uint32_t)(rank * 131071 + key * 31 + d));
 
         if (!isReed) {
+            // An Opus 14 flue pipe, as built from the Pasi scales and cut to pitch (OrganPipes.hpp).
+            const FluePipeSpec* sp = organFlueSpec(rank, k);
+            if (!sp) { v.active = false; return; }
             v.family = rd.family;
-            v.jr = (float)std::max(kJetModelMin, std::min(kJetModelMax, modelJetRatio(g.jetRatio)));
-            FlueCore& core = *flues[(size_t)v.slot];
-            core.reset();
-            core.noise.seed(seed);
-            const auto& fc = kFlueFamily[v.family];
-            core.sign = rd.kind == kKindStopped ? -1.f : 1.f;
-            core.loopGain = fc.loopGain;
-            v.twice = f > 0.09 * fs;
-            const float mfs = modelRate(v);
-            core.aBore = onePoleCoef(fc.boreFc * (float)f, mfs);
-            core.aJet = onePoleCoef(fc.jetFc * (float)f, mfs);
-            core.aDc = onePoleCoef(kDcFc * (float)f, mfs);
-            tuneVoice(v);
-            core.boreDelay = v.baseBore; core.jetDelay = v.baseJet;
-            const float nick = voicing->rank[rank].key[kVNicking][k];
-            v.baseNoise = 0.02f * (1.f - 0.3f * nick);
-            v.chiffAmt = voicing->rank[rank].key[kVChiff][k] * 0.35f * (1.f - 0.25f * nick);
-            v.languid = voicing->rank[rank].key[kVLanguid][k];
-            // radiation / scale: wide pipes are mellow, narrow pipes bright
-            float fcOut = (float)(3.0 * kSpeedOfSound / (M_PI * g.diameterMM * 0.001));
-            if (rd.kind == kKindStopped) fcOut *= 0.7f;
-            v.lpCoef = onePoleCoef(std::max(1200.f, fcOut), fs);
-            v.lpDark = onePoleCoef(std::max(250.f, 2.5f * (float)f), fs);
-            // Where a pipe stops speaking as its wind fails depends on its mouth: a high
-            // cut-up (large jet ratio) needs more wind. No two pipes stop at the same pressure.
-            v.speakMin = 0.13f + 0.35f * std::max(0.f, (float)v.jr - (float)kJetModelMin)
-                       + 0.03f * ((seed >> 8 & 0xFF) / 127.5f - 1.f);
-            v.emph = rd.kind == kKindString ? 3.0f : rd.kind == kKindStopped ? 0.0f : 1.0f;
-            v.emphCoef = onePoleCoef((rd.kind == kKindString ? 2.5f : 4.0f) * (float)f, fs);
-            v.gain = 0.12f * reg * std::pow((float)g.flowWeight, 0.25f);
-            if (rd.kind == kKindString) v.gain *= 1.6f;
+            FluePipeRT& core = *flues[(size_t)v.slot];
+            core.init(*sp, fs, seed);
+            core.setPallet(0.002, 0.002);   // the engine moves the pallet (Pallet::aperture); this is how fast the valve follows
+            core.setChestPa(wind.chest[d] * kMmToPa);
+            v.pitchRatio = (float)(f / sp->target);
+            v.curPitch = 0.f;
+            core.setPitch(v.pitchRatio);
+            v.gain = kFlueGain * reg;
+            // wind used, relative to the Octave 8' c1 (flue area x jet speed at the voiced pressure)
+            v.flowWeight = (float)(sp->h * sp->Wm * std::sqrt(2.0 * sp->footPa / 1.2) / kRefFlow);
+            v.voicedRatio = 1.f;
+            v.speakMin = 0.2f;
             v.bendLimit = rd.kind == kKindStopped ? params[kParamBendStopped]
                         : rd.kind == kKindString ? params[kParamBendString] : params[kParamBendOpen];
-            v.curBore = v.baseBore; v.curJet = v.baseJet;
+            v.twice = false;
         } else {
+            // An Opus 14 reed pipe: Pasi resonator and tongue, tuned by wire and scroll (OrganPipes.hpp).
+            const ReedPipeSpec* sp = organReedSpec(rank, k);
+            if (!sp) { v.active = false; return; }
             v.family = rd.family;
-            const auto& rc = kReedFamily[v.family];
-            ReedCore& core = *reeds[(size_t)v.slot];
-            core.reset();
-            core.noise.seed(seed);
-            core.reedSlope = rc.slope; core.reedOffset = 0.7f;
-            core.aBore = onePoleCoef(rc.boreFc * (float)f, fs);
-            core.aDc = onePoleCoef(kDcFc * (float)f, fs);
-            tuneVoice(v);
-            core.delayA = v.baseA; core.delayB = v.baseB;
-            v.baseNoise = 0.005f;
-            v.chiffAmt = 0.06f;     // the tongue's first flutter
-            v.lpCoef = onePoleCoef(std::min(0.45f * fs, (float)f * 14.f + 2500.f), fs);
-            v.lpDark = onePoleCoef(std::max(300.f, 3.f * (float)f), fs);
-            v.speakMin = 0.32f + 0.04f * ((seed >> 8 & 0xFF) / 127.5f - 1.f);   // a reed tongue needs more wind to start beating
-            v.emph = v.family == kReedOboe ? 2.5f : 2.0f;
-            v.emphCoef = onePoleCoef(3.0f * (float)f, fs);
-            v.gain = 0.16f * reg;
+            ReedPipeRT& core = *reeds[(size_t)v.slot];
+            core.init(*sp, fs, seed);
+            core.setPallet(0.002, 0.002);
+            core.setChestPa(wind.chest[d] * kMmToPa);
+            v.pitchRatio = (float)(f / sp->target);
+            v.curPitch = 0.f;
+            core.setPitch(v.pitchRatio);
+            v.gain = kReedGain * reg;
+            v.flowWeight = (float)(0.5 * sp->w * sp->x0 * std::sqrt(2.0 * sp->footPa / 1.2) / kRefFlow);
+            v.voicedRatio = 1.f;
             v.bendLimit = params[kParamBendReed];
-            v.curA = v.baseA; v.curB = v.baseB;
         }
         v.blkLp = v.lpCoef; v.blkEmph = v.emph;
         // where the pipe stands in the case: C side left, C# side right;
@@ -543,6 +515,10 @@ private:
         const float pan = side * spread;
         v.gL = std::cos((pan + 1.f) * (float)M_PI * 0.25f);
         v.gR = std::sin((pan + 1.f) * (float)M_PI * 0.25f);
+        // the top of a flue pipe is a second source, higher and a little to the side of its mouth
+        const float panTop = std::max(-1.f, std::min(1.f, pan + (side > 0 ? 0.12f : -0.12f)));
+        v.tL = std::cos((panTop + 1.f) * (float)M_PI * 0.25f);
+        v.tR = std::sin((panTop + 1.f) * (float)M_PI * 0.25f);
     }
 
     // The pipe models are self-oscillating loops whose pitch is pulled a few
@@ -577,7 +553,7 @@ private:
     int qualityLimit(bool reed) const {
         const int q = (int)params[kParamQuality];
         if (reed) return q == 0 ? 48 : q == 1 ? 72 : kMaxReedVoices;
-        return q == 0 ? 192 : q == 1 ? 320 : kMaxFlueVoices;
+        return q == 0 ? 96 : q == 1 ? 192 : 320;   // physical flue pipes: ~0.3 % of a core each
     }
     int stealVoice(bool reed) {
         int best = -1; float bestScore = 1e30f;
@@ -702,6 +678,30 @@ private:
         for (auto& v : voices) {
             if (!v.active) continue;
             const Pallet& p = pallets[v.division][v.key];
+            {
+                // Physical pipe: the wind in its chest (with the expression boost), the pallet
+                // opening, and its pitch (tuning x bend) go to the pipe itself; it answers them.
+                const float chestMm = wind.chest[v.division] * std::max(0.f, 1.f + p.boost * boostSpan);
+                const float pal = v.stopClosed ? 0.f : p.aperture;
+                float bend = p.bendCents;
+                if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
+                const bool newPitch = bend != v.curPitch;
+                v.curPitch = bend;
+                const double ratio = v.pitchRatio * std::pow(2.f, bend / 1200.f);
+                if (!v.reed) {
+                    FluePipeRT& c = *flues[(size_t)v.slot];
+                    c.setChestPa(chestMm * kMmToPa); c.setPalletTarget(pal);
+                    if (newPitch) c.setPitch(ratio);
+                } else {
+                    ReedPipeRT& c = *reeds[(size_t)v.slot];
+                    c.setChestPa(chestMm * kMmToPa); c.setPalletTarget(pal);
+                    if (newPitch) c.setPitch(ratio);
+                }
+                const bool shut = v.stopClosed || (p.holds == 0 && p.aperture <= 0.f);
+                if (shut && v.env < 2e-5f) { if (++v.quiet > 8) v.active = false; }
+                else v.quiet = 0;
+                continue;
+            }
             // foot pressure relative to the pressure the pipe was voiced on
             const float ratio = v.stopClosed ? 0.f : std::max(0.f, p.footRatio);
             float bend = p.bendCents;
@@ -801,6 +801,7 @@ private:
         outputs[kOutChestPd - kOutFirst] = wind.chest[kPedal];
         outputs[kOutChestGt - kOutFirst] = wind.chest[kGreat];
         outputs[kOutChestSw - kOutFirst] = wind.chest[kSwell];
+        outputs[kOutChestPos - kOutFirst] = wind.chest[kPositive];
         outputs[kOutDemand - kOutFirst] = wind.demand;
         outputs[kOutLid - kOutFirst] = wind.lid;
         outputs[kOutFan - kOutFirst] = wind.fan;
@@ -888,36 +889,26 @@ private:
             float pc = v.phC, ps = v.phS, aRe = 0.f, aIm = 0.f, aE = 0.f;
             float rawEnv = v.rawEnv; const float rawCoef = std::min(1.f, 0.5f * v.freq / fs);   // averages over about two periods
             if (!v.reed) {
-                FlueCore& c = *flues[(size_t)v.slot];
-                const float dBore = (v.tBore - v.curBore) * inv, dJet = (v.tJet - v.curJet) * inv;
-                c.bias = v.curBias;
+                FluePipeRT& c = *flues[(size_t)v.slot];
+                float m[kControlBlock], t[kControlBlock];
+                c.render(m, t, n);
+                const float g = v.gain;
                 for (int i = 0; i < n; ++i) {
-                    v.curBreath += dBreath; v.curBore += dBore; v.curJet += dJet; v.curNoise += dNoise; v.level += dLevel;
-                    c.breath = v.curBreath; c.boreDelay = v.curBore; c.jetDelay = v.curJet; c.noiseAmt = v.curNoise;
-                    float x = c.tick();
-                    if (v.twice) x = 0.5f * (x + c.tick());
-                    aRe += x * pc; aIm -= x * ps; aE += x * x;
-                    { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
-                    v.lp += v.blkLp * (x - v.lp);
-                    v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.blkEmph * (v.lp - v.emphLp)) * v.gain * v.level;
-                    bl[i] += x * v.gL; br[i] += x * v.gR;
-                    const float a = std::fabs(x);
+                    const float xl = (m[i] * v.gL + t[i] * v.tL) * g, xr = (m[i] * v.gR + t[i] * v.tR) * g;
+                    bl[i] += xl; br[i] += xr;
+                    const float a = std::max(std::fabs(xl), std::fabs(xr));
                     env = a > env ? a : env * 0.9995f;
                 }
+                if (!std::isfinite(env)) { v.active = false; env = 0.f; }
+                v.env = env;
+                continue;
             } else {
-                ReedCore& c = *reeds[(size_t)v.slot];
-                const float dA = (v.tA - v.curA) * inv, dB = (v.tB - v.curB) * inv;
+                ReedPipeRT& c = *reeds[(size_t)v.slot];
+                float o[kControlBlock];
+                c.render(o, n);
+                const float g = v.gain;
                 for (int i = 0; i < n; ++i) {
-                    v.curBreath += dBreath; v.curA += dA; v.curB += dB; v.curNoise += dNoise; v.level += dLevel;
-                    c.breath = v.curBreath; c.delayA = v.curA; c.delayB = v.curB; c.noiseAmt = v.curNoise;
-                    float x = c.tick();
-                    rawEnv += rawCoef * (std::fabs(x) - rawEnv);
-                    aRe += x * pc; aIm -= x * ps; aE += x * x;
-                    { const float t = pc * v.rotC - ps * v.rotS; ps = pc * v.rotS + ps * v.rotC; pc = t; }
-                    v.lp += v.blkLp * (x - v.lp);
-                    v.emphLp += v.emphCoef * (v.lp - v.emphLp);
-                    x = (v.lp + v.blkEmph * (v.lp - v.emphLp)) * v.gain * v.level;
+                    const float x = o[i] * g;
                     bl[i] += x * v.gL; br[i] += x * v.gR;
                     const float a = std::fabs(x);
                     env = a > env ? a : env * 0.9995f;
@@ -995,8 +986,8 @@ public:
 private:
     float fs = 48000.f;
     int blockPos = 0;
-    std::vector<std::unique_ptr<FlueCore>> flues;
-    std::vector<std::unique_ptr<ReedCore>> reeds;
+    std::vector<std::unique_ptr<FluePipeRT>> flues;   // Opus 14 flue pipes (physical model, FlueRT.hpp)
+    std::vector<std::unique_ptr<ReedPipeRT>> reeds;   // Opus 14 reed pipes (physical model, ReedModel.hpp)
     std::vector<Voice> voices;
     Pallet pallets[kNumDivisions][kNumKeys];
     uint16_t recentChannels = 0;

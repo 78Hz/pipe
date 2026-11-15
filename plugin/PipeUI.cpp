@@ -453,32 +453,33 @@ private:
     // ============================================================= console
     void drawConsole()
     {
-        const float top = 84, colW = 296, gap = 12;
-        static const int order[3] = { kPedal, kGreat, kSwell };
-        for (int c = 0; c < 3; ++c)
+        // four divisions as in the console of Opus 14: Pedal, I Hauptwerk, II Oberwerk, III Unterwerk
+        const float top = 84, colW = 222, gap = 6, rowH = 29;
+        static const int order[4] = { kPedal, kGreat, kPositive, kSwell };
+        for (int c = 0; c < 4; ++c)
         {
             const int d = order[c];
             const float x = 20 + c * (colW + gap);
             std::string meta;
-            if ((int)pv[kParamZoneLoDiv] == d) meta = "LOWER ZONE";
-            else if ((int)pv[kParamZoneHiDiv] == d) meta = "UPPER ZONE";
-            else if (d == kPedal && pv[kParamPedalSplit] > 0) meta = std::string("SPLIT <") + noteName12((int)pv[kParamPedalSplit]);
-            else meta = d == kSwell ? "ENCLOSED" : "COUPLED";
+            if ((int)pv[kParamZoneLoDiv] == d) meta = "LOWER";
+            else if ((int)pv[kParamZoneHiDiv] == d) meta = "UPPER";
+            else if (d == kPedal && pv[kParamPedalSplit] > 0) meta = std::string("<") + noteName12((int)pv[kParamPedalSplit]);
+            else meta = d == kSwell ? "ENCL" : "";
             titleBar(x, top, colW, divisionName(d), meta);
             float y = top + 32;
             for (int s = 0; s < kNumStops; ++s)
             {
                 if (kStops[s].division != d) continue;
                 const bool isOn = on(s);
-                if (isOn) fill(x, y, colW, 44, ink);
-                frame(x, y, colW, 44);
-                text(x + 10, y + 23, kStops[s].label, 23, isOn ? lcd : ink);
-                text(x + colW - 10, y + 23, kStops[s].foot, 21, isOn ? lcd : ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-                addHit(x, y, colW, 44, [this, s] {
+                if (isOn) fill(x, y, colW, rowH - 3, ink);
+                frame(x, y, colW, rowH - 3);
+                text(x + 7, y + (rowH - 3) / 2, kStops[s].label, 18, isOn ? lcd : ink);
+                text(x + colW - 7, y + (rowH - 3) / 2, kStops[s].foot, 18, isOn ? lcd : ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+                addHit(x, y, colW, rowH - 3, [this, s] {
                     toggle(s);
                     if (kStops[s].type == kStopRank || kStops[s].type == kStopMixture) selRank = kStops[s].rankFirst;
                 });
-                y += 49;
+                y += rowH;
             }
         }
         // inspector
@@ -488,7 +489,7 @@ private:
         const KeyPitch kp = tuning.keyPitch(key, (int)pv[kParamMapLo], on(kParamEnharmonic));
         const double f = kp.hz * rankRatio(selRank, key);
         const PipeGeometry g = pipeGeometry(*voicing, selRank, key, f);
-        titleBar(ix, top, iw, std::string("PIPE ") + (kRanks[selRank].division == kGreat ? "GT " : kRanks[selRank].division == kSwell ? "SW " : "PD ") + kRanks[selRank].name);
+        titleBar(ix, top, iw, std::string(divisionShort(kRanks[selRank].division)) + " " + kRanks[selRank].name);
         // key selector
         button(ix, top + 34, 40, 34, "<", false, [this] { selKey = std::max(0, selKey - 1); }, 22);
         text(ix + iw / 2, top + 52, std::string("KEY ") + noteName12(key) + "  " + fmt("%.1f HZ", f), 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
@@ -516,12 +517,12 @@ private:
         frame(ix, by + bh + 8, iw, 32);
         text(ix + 10, by + bh + 25, ok ? "[OK] BUILDABLE" : (!bc.cutupOk ? "[!] CUT-UP WON'T SPEAK" : !bc.mouthOk ? "[!] MOUTH TOO WIDE" : !bc.sizeOk ? "[!] SIZE NOT BUILDABLE" : "[!] WIND OUT OF RANGE"), 21);
         float wy = by + bh + 52;
-        text(ix, wy + 10, "GREAT CHEST", 21, ink2);
-        text(ix + iw, wy + 10, fmt("%.0f / 78 MM", pv[kOutChestGt]), 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(ix, wy + 10, "I HAUPTWERK CHEST", 21, ink2);
+        text(ix + iw, wy + 10, fmt("%.0f / 79 MM", pv[kOutChestGt]), 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
         segBar(ix, wy + 24, iw, 14, 20, pv[kOutChestGt] / 85.f);
         wy += 52;
         hline(ix, wy, iw, true);
-        text(ix, wy + 18, "SWELL BOX", 21, ink2);
+        text(ix, wy + 18, "III SWELL BOX", 21, ink2);
         text(ix, wy + 44, fmt("%.0f%%", pv[kParamSwell] * 100), 34);
         addDrag(ix, wy + 4, iw / 2, 60, kParamSwell);
         text(ix + iw / 2, wy + 18, "TREMULANT", 21, ink2);
@@ -872,25 +873,25 @@ private:
         }
         line(ox + 360, oy + 160, ox + 400, oy + 160);
         line(ox + 400, oy + 55, ox + 400, oy + 265);
-        static const int divs[3] = { kGreat, kSwell, kPedal };
-        const int chestOut[3] = { kOutChestGt, kOutChestSw, kOutChestPd };
-        for (int i = 0; i < 3; ++i)
+        static const int divs[4] = { kGreat, kPositive, kSwell, kPedal };
+        const int chestOut[4] = { kOutChestGt, kOutChestPos, kOutChestSw, kOutChestPd };
+        for (int i = 0; i < 4; ++i)
         {
-            const float cy = oy + 30 + i * 105;
-            line(ox + 400, cy + 25, ox + 440, cy + 25);
-            box(ox + 440, cy, 100, 50);
+            const float cy = oy + 18 + i * 78;
+            line(ox + 400, cy + 20, ox + 440, cy + 20);
+            box(ox + 440, cy, 100, 40);
             const bool trem = on(kNumStops - 1) && (int)pv[kParamTremTarget] == divs[i];
-            text(ox + 490, cy + 26, trem ? "REG+TREM" : "REG", 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
-            line(ox + 540, cy + 25, ox + 580, cy + 25);
-            box(ox + 580, cy - 10, 270, 70);
-            text(ox + 592, cy + 14, std::string(divisionName(divs[i])) + " CHEST", 21);
-            text(ox + 838, cy + 14, fmt("%.0f MM", pv[chestOut[i]]), 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-            segBar(ox + 592, cy + 32, 246, 14, 16, pv[chestOut[i]] / (kChestNominal[divs[i]] * 1.1f));
+            text(ox + 490, cy + 21, trem ? "REG+TREM" : "REG", 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+            line(ox + 540, cy + 20, ox + 580, cy + 20);
+            box(ox + 580, cy - 6, 270, 58);
+            text(ox + 592, cy + 12, std::string(divisionName(divs[i])), 20);
+            text(ox + 838, cy + 12, fmt("%.0f MM", pv[chestOut[i]]), 20, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+            segBar(ox + 592, cy + 28, 246, 12, 16, pv[chestOut[i]] / (kChestNominal[divs[i]] * 1.1f));
         }
         // sag graph
         const float gy = oy + 330, gh = 100, gx = 30, gw = 870;
         hline(20, gy - 14, 890, true);
-        text(gx, gy + 4, "GREAT CHEST PRESSURE", 21);
+        text(gx, gy + 4, "I HAUPTWERK CHEST PRESSURE", 21);
         button(gx + 250, gy - 8, 80, 26, "4 S", !histLong, [this] { histLong = false; }, 19);
         button(gx + 336, gy - 8, 80, 26, "2 MIN", histLong, [this] { histLong = true; }, 19);
         const float* hist = histLong ? windHistLong : windHist;
@@ -953,15 +954,22 @@ private:
     void drawVoicing()
     {
         const float top = 84;
-        // rank list
-        text(26, top + 10, "RANK", 20, ink2);
-        float y = top + 24;
+        // rank list, one division at a time (78 ranks do not fit one column)
+        static const int tabDiv[4] = { kPedal, kGreat, kPositive, kSwell };
+        for (int t = 0; t < 4; ++t) {
+            const int dv = tabDiv[t];
+            button(20 + t * 56, top, 52, 26, divisionShort(dv), kRanks[selRank].division == dv, [this, dv] {
+                for (int r = 0; r < kNumRanks; ++r) if (kRanks[r].division == dv) { selRank = r; break; }
+            }, 19);
+        }
+        float y = top + 32;
         for (int r = 0; r < kNumRanks; ++r)
         {
+            if (kRanks[r].division != kRanks[selRank].division) continue;
             const bool sel = r == selRank;
             if (sel) fill(20, y, 220, 21, ink);
-            const char* div = kRanks[r].division == kGreat ? "GT " : kRanks[r].division == kSwell ? "SW " : "PD ";
-            text(26, y + 11, std::string(div) + kRanks[r].name, 20, sel ? lcd : ink);
+            std::string nm = kRanks[r].name; if (nm.size() > 24) nm = nm.substr(0, 24);
+            text(26, y + 11, nm, 19, sel ? lcd : ink);
             addHit(20, y, 220, 21, [this, r] { selRank = r; });
             y += 21;
         }
@@ -1228,7 +1236,7 @@ private:
         // per-pipe tuning
         const float px = 944, pw = 316;
         titleBar(px, top, pw, "PER-PIPE TUNING");
-        text(px, top + 44, std::string(kRanks[selRank].division == kGreat ? "GT " : kRanks[selRank].division == kSwell ? "SW " : "PD ") + kRanks[selRank].name, 21);
+        text(px, top + 44, std::string(divisionShort(kRanks[selRank].division)) + " " + kRanks[selRank].name, 21);
         button(px + pw - 76, top + 30, 36, 30, "<", false, [this] { selRank = (selRank + kNumRanks - 1) % kNumRanks; }, 20);
         button(px + pw - 36, top + 30, 36, 30, ">", false, [this] { selRank = (selRank + 1) % kNumRanks; }, 20);
         float ty = top + 70;
@@ -1749,7 +1757,7 @@ private:
     std::unique_ptr<Voicing> voicing;
     Tuning tuning;
     int screen = kScrConsole;
-    int selRank = 7, selKey = 60, applyScope = 0;
+    int selRank = 1, selKey = 60, applyScope = 0;   // I Octave 8'
     int dragHit = -1; float dragStartY = 0, dragStartV = 0;
     float windHist[kHist]; int windPos = 0; unsigned idleCount = 0;
     float windHistLong[kHist]; int windPosLong = 0; bool histLong = false; double fanAngle = 0;

@@ -127,17 +127,17 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 
   <h2>What makes Pipe different</h2>
   <div class="usp">
-    <div><h3>A real, buildable organ</h3><p>Pipe works out each pipe's size from how it is voiced, then checks that a real organ builder could make it. The stoplist is a genuine three-division organ of 27 ranks, with sensible couplers, chests and wind.</p></div>
+    <div><h3>A real organ, pipe by pipe</h3><p>Pipe is Pasi Opus 14, the organ Martin Pasi built for St. Cecilia Cathedral in Omaha in 2003: four divisions, 55 stops and their 78 ranks, built from the builder's own scale sheets. Every pipe has the length, width, mouth and wind Pasi gave it.</p></div>
     <div><h3>Alive, never frozen</h3><p>A recording is the same every time. Pipe's pipes are calculated as you play, so the start of each note and its little breath of air vary naturally, as they do in a church. Notes can last forever without a loop point.</p></div>
     <div><h3>Wind that breathes</h3><p>A blower fills a reservoir, which feeds each chest. Play a big chord and the wind sags a little, then recovers, exactly as on an old organ. You can make the wind steady and modern or flexible and historic.</p></div>
     <div><h3>Expression an organist never had</h3><p>Real organ keys are on or off. With a pressure-sensitive keyboard, Pipe lets you open each pipe's valve gradually, push extra wind into a single note, or bend its pitch. Every one of these uses a mechanism that could really exist.</p></div>
-    <div><h3>Any tuning, down to each pipe</h3><p>Pipe has historical temperaments such as Werckmeister and meantone, and equal divisions such as 19 and 31 notes per octave. It also loads Scala files. Then you can retune any single pipe by hand, as a tuner on a ladder would.</p></div>
+    <div><h3>Any tuning, down to each pipe</h3><p>Pipe plays in the Wegscheider temperament Opus 14 is tuned in, and has other historical temperaments such as Werckmeister and the quarter-comma meantone of Opus 14's second keyboard set, and equal divisions such as 19 and 31 notes per octave. It also loads Scala files. Then you can retune any single pipe by hand, as a tuner on a ladder would.</p></div>
     <div><h3>Real churches around you</h3><p>Pipe places the organ in measured acoustics: York Minster, two English parish churches and a concert hall, recorded by the University of York. You can also load your own room recordings, or use light-weight “lite” rooms.</p></div>
   </div>
   <p>And because nothing is sampled, Pipe loads in a moment and needs no huge sample library. Most of the download is the recordings of the real buildings, not the organ.</p>
 
-  <h2>What Pipe is not</h2>
-  <p>Pipe is not a copy of any particular famous organ. It is an organ that <i>could</i> exist, voiced in a broadly North European style. You are free to revoice it into something else entirely.</p>
+  <h2>What Pipe is, and is not</h2>
+  <p>Pipe is a physical model of one particular organ, Pasi Opus 14. Its pipe dimensions, wind pressure (79 mm), compass and temperament come from the builder's published scales and from Kevin Vogt's study of the instrument. Where those sources are silent (for example how the voicer set each jet, or the tongue widths of the reeds), the missing constants were set by comparing the model with recordings of real organ pipes of the same kinds. Pipe is not a recording of Opus 14: no sound of the real instrument was used.</p>
 </section>
 
 <!-- ============================================================ 2 GETTING STARTED -->
@@ -198,14 +198,16 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p class="lede">The Console is where you choose which sets of pipes sound. It's the equivalent of an organist pulling the stop knobs beside the keyboards.</p>
   <figure><img src="img/console.png"><figcaption>The Console. Stops that are drawn (switched on) are dark. On the right is information about the pipe you are looking at.</figcaption></figure>
 
-  <h2>Three divisions</h2>
-  <p>A pipe organ is really several organs in one case, each with its own keyboard. Pipe has three:</p>
+  <h2>Four divisions</h2>
+  <p>A pipe organ is really several organs in one case, each with its own keyboard. Opus 14 has three manuals and a pedal:</p>
   <table>
     <tr><th>Division</th><th>Character</th><th>Played from</th></tr>
-    <tr><td>Great</td><td>The main, bold sound of the organ: principals, flutes, mixture and a trumpet.</td><td>The lower MPE zone (normally your whole keyboard)</td></tr>
-    <tr><td>Swell</td><td>Softer and more colourful: strings, flutes, a celeste and an oboe. Its pipes stand in a box with shutters that open and close, so it can get louder and softer.</td><td>The upper MPE zone</td></tr>
-    <tr><td>Pedal</td><td>Deep bass pipes, normally played by the feet.</td><td>A split point at the bottom of the keyboard, or the couplers</td></tr>
+    <tr><td>I Hauptwerk</td><td>The main chorus: Praestant 16', principals from 8' to 2', two mixtures, a five-rank Cornet, trumpets and a Vox Humana.</td><td>The lower MPE zone (normally your whole keyboard)</td></tr>
+    <tr><td>II Oberwerk</td><td>A smaller, brighter chorus with flutes, a Sesquialtera, a Suavial that beats gently against the Principal, and the Dulzian and Trichterregal.</td><td>Choose it for either zone, or couple it to I</td></tr>
+    <tr><td>III Unterwerk</td><td>The French-style division in a swell box: Gamba and Celeste, harmonic flutes, cornet ranks and the French reeds. Its shutters open and close, so it can get louder and softer.</td><td>The upper MPE zone</td></tr>
+    <tr><td>Pedal</td><td>From the 32' Subbass and Trombone up to a 2' Cornet.</td><td>A split point at the bottom of the keyboard, or the couplers</td></tr>
   </table>
+  <p>The manuals run from C to a''' (58 notes) and the pedal from C to f' (30 notes), as on the instrument.</p>
 
   <h2>Drawing stops</h2>
   <p>Click a stop to switch it on (dark) or off (light). Each stop is one rank: one pipe for every key. The number on the right is its pitch, in the organ builder's measure of feet:</p>
@@ -213,15 +215,15 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li><b>8'</b> sounds at normal pitch, <b>16'</b> an octave lower, <b>4'</b> an octave higher, and <b>2'</b> two octaves higher.</li>
     <li>Odd numbers like <b>2-2/3'</b> and <b>1-3/5'</b> sound a fifth or a third above. They blend into the other stops and colour the tone.</li>
     <li><b>R</b> marks a reed stop, which has a brassy or nasal sound.</li>
-    <li><b>MIXTUR IV</b> has four pipes per key at high pitches, which gives a full chorus its sparkle.</li>
+    <li><b>MIXTURE V</b> and <b>MIXTURE IV</b> have five or four pipes per key at high pitches, breaking back as Pasi's mixture sheet gives. <b>CORNET V</b> (from middle C) and <b>SESQUIALTERA II</b> are several ranks under one knob.</li>
   </ul>
   <p>Stops change while you hold notes, exactly as on a real slider chest: draw a stop during a chord and those pipes start speaking.</p>
 
   <h2>Couplers</h2>
-  <p>Couplers join divisions together. <span class="ui">SW &gt; GT</span> lets the Great keyboard play the Swell stops too. <span class="ui">GT &gt; PED</span> and <span class="ui">SW &gt; PED</span> add the manual stops to the pedal. The <span class="ui">TREMULANT</span> stop makes the wind waver gently, which suits solo flutes and strings.</p>
+  <p>Couplers join divisions together, as the six on Opus 14 do: <span class="ui">II / I</span> and <span class="ui">III / I</span> let the Hauptwerk keyboard play the other manuals' stops too, <span class="ui">III / II</span> adds the Unterwerk to the Oberwerk, and <span class="ui">I / PEDAL</span>, <span class="ui">II / PEDAL</span> and <span class="ui">III / PEDAL</span> add manual stops to the pedal. The <span class="ui">TREMULANT</span> makes the wind waver gently, which suits solo flutes and strings.</p>
 
   <h2>The pipe panel</h2>
-  <p>On the right, Pipe shows one actual pipe: its length, diameter, mouth size and the wind at its foot. Use the arrows to step through the keys. The <span class="ui">[OK] BUILDABLE</span> line confirms it could be made. Below it you see the wind on the Great chest, how open the swell box is, and whether the tremulant is on. The bottom strip lists the notes and pipes currently sounding, with how much CPU Pipe is using.</p>
+  <p>On the right, Pipe shows one actual pipe of Opus 14: its length as cut to pitch, its diameter, mouth width, cut-up and the wind at its foot, all from Pasi's scales. Use the arrows to step through the keys. Below it you see the wind on the Great chest, how open the swell box is, and whether the tremulant is on. The bottom strip lists the notes and pipes currently sounding, with how much CPU Pipe is using.</p>
 </section>
 
 <!-- ============================================================ 4 PLAYING -->
@@ -339,7 +341,8 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 <section class="chapter">
   <div class="kicker">Chapter 7</div>
   <h1><span class="num">07</span>The Voicing screen</h1>
-  <p class="lede">Voicing is the organ builder's art of shaping each pipe's tone and loudness. Here you can do the same, pipe by pipe, while Pipe checks that your pipe could still be built.</p>
+  <p class="lede">Voicing is the organ builder's art of shaping each pipe's tone and loudness. The pipes of Opus 14 are built and voiced as Pasi made them; here you can regulate the loudness of each pipe, and retune single pipes on the Tuning screen.</p>
+  <div class="note"><span class="label">Opus 14 pipes</span>The physical pipes take their scale, mouth, cut-up, flue and toe from the Pasi data. The SCALE, HALVING, MOUTH, CUT-UP, LANGUID, NICKING and CHIFF settings belong to the earlier model and do not change the Opus 14 pipes; REGULATION does.</div>
   <figure><img src="img/voicing.png"><figcaption>Choose a rank on the left, a key in the chart, then adjust that pipe on the right.</figcaption></figure>
   <ol class="steps">
     <li><b>Pick a rank</b> from the list on the left (PD = Pedal, GT = Great, SW = Swell).</li>
@@ -369,7 +372,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 
   <h2>Choosing a tuning</h2>
   <ul>
-    <li><b>Historical</b>: <span class="ui">12-TET</span> is modern equal temperament (Pipe's default). <span class="ui">WERCKMEISTER III</span>, <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
+    <li><b>Historical</b>: <span class="ui">WEGSCHEIDER (OPUS 14)</span> is the well temperament the organ is tuned in, and Pipe's default. <span class="ui">12-TET</span> is modern equal temperament. <span class="ui">WERCKMEISTER III</span>, <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
     <li><b>Equal divisions</b> (EDO): the octave is split into 19, 22, 24, 31, 41 or 53 equal steps, or any number from 5 to 72 with <span class="ui">CUSTOM</span> and the <span class="ui">EDO</span> stepper. 31-EDO was used on a real Dutch organ built for Adriaan Fokker in 1950.</li>
     <li><b>Scala files</b>: <span class="ui">LOAD .SCL</span> loads a tuning from the large free Scala archive. <span class="ui">LOAD .KBM</span> optionally loads a keyboard map that says which key plays which note.</li>
   </ul>

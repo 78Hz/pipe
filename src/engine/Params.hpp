@@ -22,12 +22,12 @@ struct ParamInfo {
 };
 
 // enum labels
-static const char* const kTremTargetLabels[] = { "PEDAL", "GREAT", "SWELL" };
+static const char* const kTremTargetLabels[] = { "PEDAL", "I HAUPTWERK", "III UNTERWERK", "II OBERWERK" };
 static const char* const kTuningLabels[] = {
     "12-TET", "WERCKMEISTER III", "1/4 MEANTONE", "KIRNBERGER III", "VALLOTTI",
-    "19-EDO", "22-EDO", "24-EDO", "31-EDO", "41-EDO", "53-EDO", "CUSTOM EDO", "SCALA FILE" };
+    "19-EDO", "22-EDO", "24-EDO", "31-EDO", "41-EDO", "53-EDO", "CUSTOM EDO", "SCALA FILE", "WEGSCHEIDER (OPUS 14)" };
 enum TuningSystem { kTun12 = 0, kTunWerck, kTunMeantone, kTunKirn, kTunVallotti,
-    kTun19, kTun22, kTun24, kTun31, kTun41, kTun53, kTunCustomEdo, kTunScala, kNumTuningSystems };
+    kTun19, kTun22, kTun24, kTun31, kTun41, kTun53, kTunCustomEdo, kTunScala, kTunWegscheider, kNumTuningSystems };
 static const char* const kMapLabels[] = { "SUBSET", "SEQUENTIAL", "SCALA KBM" };
 enum KeyMapMode { kMapSubset = 0, kMapSequential, kMapKbm };
 static const char* const kRoomLabels[] = { "ST ANDREW'S LYNDHURST", "ST MARGARET'S YORK", "YORK MINSTER", "JACK LYONS HALL",
@@ -40,7 +40,7 @@ inline bool roomIsConvolution(int r) { return r <= kRoomCustom; }
 static const char* const kIrOrderLabels[] = { "FUMA", "AMBIX" };
 static const char* const kMicLabels[] = { "AB", "ORTF", "BINAURAL" };
 static const char* const kQualityLabels[] = { "ECO", "STD", "HQ" };
-static const char* const kZoneDivLabels[] = { "PEDAL", "GREAT", "SWELL", "OFF" };
+static const char* const kZoneDivLabels[] = { "PEDAL", "I HAUPTWERK", "III UNTERWERK", "II OBERWERK", "OFF" };
 
 enum ParamId {
     kParamStop0 = 0,
@@ -70,7 +70,7 @@ enum ParamId {
     kOutNote0,                       // 5 x (key, source, foot pressure mm, cents)
     kOutNoteLast = kOutNote0 + 5 * 4 - 1,
     kOutSilentKey,
-    kOutLid, kOutFan, kOutWindLeft,  // reservoir lid height 0..1, blower speed 0..1, seconds of stored wind left (-1 = supplied)                   // a key that was played but cannot sound: key + 1000 (outside the compass) or + 2000 (no stop drawn); 0 = none
+    kOutLid, kOutFan, kOutWindLeft, kOutChestPos,  // reservoir lid height 0..1, blower speed 0..1, seconds of stored wind left (-1 = supplied)                   // a key that was played but cannot sound: key + 1000 (outside the compass) or + 2000 (no stop drawn); 0 = none
     kNumParams
 };
 constexpr int kNumShownNotes = 5;
@@ -83,12 +83,13 @@ inline const ParamInfo& paramInfo(int id) {
     static bool init = false;
     if (!init) {
         init = true;
-        // stop defaults: preset P07 "Plein jeu GT+PED"
-        static const bool stopDef[kNumStops] = {
-            1,1,1,1,0,0, 1,0,                 // pedal + couplers
-            1,1,0,1,0,1,1,1,0, 0,             // great
-            1,0,0,1,1,1,1,0,0, 0 };           // swell
-        static char stopNames[kNumStops][48];
+        // stop defaults: I Octave 8', Pedal Subbass 16' and Octave 8'
+        static bool stopDef[kNumStops] = {};
+        for (int s = 0; s < kNumStops; ++s) {
+            const char* id = kStops[s].id;
+            stopDef[s] = !std::strcmp(id, "i_octave_8") || !std::strcmp(id, "p_subbass_16") || !std::strcmp(id, "p_octave_8");
+        }
+        static char stopNames[kNumStops][64];
         for (int s = 0; s < kNumStops; ++s) {
             std::snprintf(stopNames[s], sizeof(stopNames[s]), "%s %s %s",
                 divisionName(kStops[s].division), kStops[s].label, kStops[s].foot);
@@ -98,7 +99,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamSwell,       { "swell", "Swell Shutters", 0.f, 1.f, 0.64f, kPFloat, "", 0, nullptr });
         set(kParamTremSpeed,   { "trem_speed", "Tremulant Speed", 3.f, 9.f, 5.8f, kPFloat, "Hz", 0, nullptr });
         set(kParamTremDepth,   { "trem_depth", "Tremulant Depth", 0.f, 0.5f, 0.22f, kPFloat, "", 0, nullptr });
-        set(kParamTremTarget,  { "trem_target", "Tremulant Division", 0.f, 2.f, 2.f, kPEnum, "", 3, kTremTargetLabels });
+        set(kParamTremTarget,  { "trem_target", "Tremulant Division", 0.f, 3.f, 2.f, kPEnum, "", 4, kTremTargetLabels });
         set(kParamStability,   { "wind_flex", "Wind Flexibility", 0.f, 1.f, 0.7f, kPFloat, "", 0, nullptr });
         set(kParamReservoir,   { "reservoir", "Reservoir Pressure", 60.f, 140.f, 96.f, kPFloat, "mm", 0, nullptr });
         set(kParamBlowerNoise, { "blower_noise", "Blower Noise", -90.f, -30.f, -62.f, kPFloat, "dB", 0, nullptr });
@@ -117,7 +118,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamBendOpen,    { "bend_open", "Bend Limit Open Flue", 0.f, 200.f, 50.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendString,  { "bend_string", "Bend Limit String", 0.f, 200.f, 30.f, kPFloat, "ct", 0, nullptr });
         set(kParamBendReed,    { "bend_reed", "Bend Limit Reed", 0.f, 100.f, 15.f, kPFloat, "ct", 0, nullptr });
-        set(kParamTuning,      { "tuning", "Tuning System", 0.f, (float)(kNumTuningSystems - 1), (float)kTun12, kPEnum, "", kNumTuningSystems, kTuningLabels });
+        set(kParamTuning,      { "tuning", "Tuning System", 0.f, (float)(kNumTuningSystems - 1), (float)kTunWegscheider, kPEnum, "", kNumTuningSystems, kTuningLabels });
         set(kParamEdoN,        { "edo_n", "Custom EDO Steps", 5.f, 72.f, 31.f, kPInt, "", 0, nullptr });
         set(kParamARef,        { "a_ref", "A4 Reference", 400.f, 480.f, 440.f, kPFloat, "Hz", 0, nullptr });
         set(kParamMapLo,       { "map_lo", "Key Map Lower Zone", 0.f, 2.f, 1.f, kPEnum, "", 3, kMapLabels });
@@ -139,13 +140,14 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamLimiter,     { "limiter", "Output Limiter", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamIrTrim,      { "ir_trim_direct", "IR Direct Sound From Model", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamIrOrder,     { "ir_order", "Custom IR 4-Channel Order", 0.f, 1.f, 0.f, kPEnum, "", 2, kIrOrderLabels });
-        set(kParamZoneLoDiv,   { "zone_lo", "Lower Zone Plays", 0.f, 3.f, 1.f, kPEnum, "", 4, kZoneDivLabels });
-        set(kParamZoneHiDiv,   { "zone_hi", "Upper Zone Plays", 0.f, 3.f, 2.f, kPEnum, "", 4, kZoneDivLabels });
+        set(kParamZoneLoDiv,   { "zone_lo", "Lower Zone Plays", 0.f, 4.f, 1.f, kPEnum, "", 5, kZoneDivLabels });
+        set(kParamZoneHiDiv,   { "zone_hi", "Upper Zone Plays", 0.f, 4.f, 2.f, kPEnum, "", 5, kZoneDivLabels });
         set(kParamPedalSplit,  { "pedal_split", "Pedal Split Key (0=off)", 0.f, 72.f, 0.f, kPInt, "", 0, nullptr });
         set(kOutReservoir,     { "out_reservoir", "Reservoir", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
         set(kOutChestPd,       { "out_chest_pd", "Pedal Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
-        set(kOutChestGt,       { "out_chest_gt", "Great Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
-        set(kOutChestSw,       { "out_chest_sw", "Swell Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
+        set(kOutChestGt,       { "out_chest_gt", "I Hauptwerk Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
+        set(kOutChestSw,       { "out_chest_sw", "III Unterwerk Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
+        set(kOutChestPos,      { "out_chest_ii", "II Oberwerk Chest", 0.f, 200.f, 0.f, kPOutput, "mm", 0, nullptr });
         set(kOutDemand,        { "out_demand", "Wind Demand", 0.f, 2.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutPipes,         { "out_pipes", "Pipes Speaking", 0.f, 1024.f, 0.f, kPOutput, "", 0, nullptr });
         set(kOutCpu,           { "out_cpu", "DSP Load", 0.f, 100.f, 0.f, kPOutput, "%", 0, nullptr });

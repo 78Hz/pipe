@@ -35,7 +35,9 @@ int main(int argc, char** argv) {
     e->setParameter(kParamAgeDrift, 0.f); e->setParameter(kParamTuning, kTun12); e->setParameter(kParamStability, 0.f);
     e->setParameter(kParamBlowerOn, 1.f); e->setParameter(kParamBlowerNoise, -90.f);
     struct Case { int stop; const char* name; };
-    Case cases[] = { {9, "GT PRINCIPAL 8"}, {10, "GT ROHRFLOTE 8"}, {19, "SW SALICIONAL 8"}, {16, "GT TROMPETE 8"}, {26, "SW HAUTBOIS 8"}, {1, "PD SUBBASS 16"}, {11, "GT OCTAVE 4"} };
+    Case cases[] = { {stopById("i_octave_8"), "I OCTAVE 8"}, {stopById("i_rohrflote_8"), "I ROHRFLOTE 8"}, {stopById("i_salicional_8"), "I SALICIONAL 8"},
+                     {stopById("i_trumpet_8"), "I TRUMPET 8"}, {stopById("iii_oboe_8"), "III OBOE 8"}, {stopById("p_subbass_16"), "P SUBBASS 16"},
+                     {stopById("i_octave_4"), "I OCTAVE 4"}, {stopById("ii_gedeckt_8"), "II GEDECKT 8"}, {stopById("iii_gamba_8"), "III GAMBA 8"} };
     printf("pitch accuracy (cents vs expected):\n");
     double worst = 0;
     for (auto& c : cases) {
@@ -90,7 +92,7 @@ int main(int argc, char** argv) {
 
     // ---- 3. MPE: pressure and bend on one note (lower zone member channel)
     e->prepare(fs);
-    silenceAllStops(*e); e->setParameter(10, 1.f);   // Rohrflote 8 (stopped, bend limit 200c)
+    silenceAllStops(*e); e->setParameter(stopById("ii_gedeckt_8"), 1.f);   // Gedeckt 8 (stopped, bend limit 200c)
     e->setParameter(kParamTuning, kTun12); e->setParameter(kParamRoom, kRoomDry); e->setParameter(kParamAgeDrift, 0.f);
     e->setParameter(kParamZoneLoDiv, kGreat); e->setParameter(kParamPedalSplit, 0.f);
     uint8_t on[3] = { 0x91, 60, 100 }; e->midi(on, 3);
@@ -106,7 +108,7 @@ int main(int argc, char** argv) {
     // ---- 4. Expression matrix with the three kinds of controller
     auto run = [&](std::unique_ptr<Engine>& en, int samples) { std::vector<float> a(samples), b(samples); for (int i = 0; i < samples; i += 64) en->render(&a[i], &b[i], std::min(64, samples - i)); return a; };
     auto setup = [&](std::unique_ptr<Engine>& en) {
-        en->prepare(fs); silenceAllStops(*en); en->setParameter(9, 1.f);   // Principal 8
+        en->prepare(fs); silenceAllStops(*en); en->setParameter(stopById("i_octave_8"), 1.f);   // Octave 8
         en->setParameter(kParamTuning, kTun12); en->setParameter(kParamRoom, kRoomDry); en->setParameter(kParamAgeDrift, 0.f);
         en->setParameter(kParamZoneLoDiv, kGreat); en->setParameter(kParamPedalSplit, 0.f);
     };
@@ -139,7 +141,7 @@ int main(int argc, char** argv) {
     }
     {   // §2.1 MCM layouts; §2.1.4 notes on changed channels stop; channels in no zone are MIDI 1.0 (bend ±2)
         auto en = std::make_unique<Engine>(); setup(en);
-        en->setParameter(kParamZoneHiDiv, kSwell); en->setParameter(18, 1.f);   // a Swell stop for the upper zone
+        en->setParameter(kParamZoneHiDiv, kSwell); en->setParameter(stopById("iii_principal_8"), 1.f);   // a Unterwerk stop for the upper zone
         send(en, 0x9A, 62, 80); run(en, fs / 20);
         mcm(en, 0, 7); run(en, fs / 10);
         check(en->debugHolds(G, 62) == 0, "§2.1.4", "a note held on ch 11 stops when an MCM takes ch 11 out of the zone");

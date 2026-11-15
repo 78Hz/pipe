@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Stoplist.hpp"
+#include "OrganPipes.hpp"
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -126,6 +127,7 @@ struct PipeGeometry {
     double jetRatio;      // transit time / period (physical)
     double flowWeight;    // wind consumption relative to Principal 8' C4
     bool stopped, reed;
+    bool physical = false; // an Opus 14 pipe as built (dimensions from the Pasi scales)
 };
 
 constexpr double kSpeedOfSound = 343.0;   // m/s at 20 C
@@ -136,6 +138,18 @@ inline PipeGeometry pipeGeometry(const Voicing& v, int rank, int key, double fre
     const RankVoicing& rv = v.rank[rank];
     PipeGeometry g{};
     g.freq = freq;
+    if (const FluePipeSpec* sp = organFlueSpec(rank, key)) {
+        g.physical = true;
+        g.stopped = sp->shape == 1.f; g.reed = false;
+        g.diameterMM = 2000.0 * sp->radius; g.lengthM = sp->length;
+        g.mouthWidthMM = 1000.0 * sp->Wm; g.cutupMM = 1000.0 * sp->W;
+        g.toeMM = toeOverride > 0 ? toeOverride : sp->footPa / 9.80665;
+        g.jetSpeed = std::sqrt(2.0 * sp->footPa / kAirDensity);
+        g.jetTransitMs = 1000.0 * sp->transit / g.jetSpeed;
+        g.jetRatio = g.jetTransitMs * 0.001 * freq;
+        g.flowWeight = sp->h * sp->Wm * g.jetSpeed / 4.5e-4;
+        return g;
+    }
     g.stopped = d.kind == kKindStopped;
     g.reed = d.kind == kKindReed;
     // pitch of the pipe in half-tones above 8' C (65.4 Hz); stopped pipes are
@@ -176,6 +190,7 @@ struct BuildCheck {
 };
 inline BuildCheck checkPipe(const PipeGeometry& g) {
     BuildCheck c{};
+    if (g.physical) { c.mouthOk = c.cutupOk = c.sizeOk = c.pressureOk = true; c.speechMs = 1000.0 * (12.0 / g.freq) + 15.0; return c; }
     c.mouthOk = g.reed || g.mouthWidthMM <= (2.0 / 7.0) * M_PI * g.diameterMM + 1e-6;
     const double jr = modelJetRatio(g.jetRatio);
     c.cutupOk = g.reed || (jr >= kJetModelMin && jr <= kJetModelMax);
