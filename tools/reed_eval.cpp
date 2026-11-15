@@ -1,6 +1,6 @@
 // Render reed pipes of one Opus 14 reed stop with given constants (tuned first), for matching
 // against references (tools/ref/match.py, MODE=reed).
-//   reed_eval outdir widthRatio openRatio Qr bootLitres8 closure key [key ...]     env STOP, DIV
+//   reed_eval outdir widthRatio gamma Qr bootLitres8 closure key [key ...]     env STOP, DIV
 // Writes outdir/<key>.f32: stereo float32 (radiated, 0), 48 kHz, 3.2 s from key-down.
 #include "engine/ReedModel.hpp"
 #include "engine/FlueModel.hpp"
@@ -20,7 +20,7 @@ static double soundHz(const ReedPipeSpec& sp) {
 }
 int main(int argc, char** argv) {
     const char* out = argv[1];
-    reed::ReedConstants k; k.widthRatio = atof(argv[2]); k.openRatio = atof(argv[3]); k.Qr = atof(argv[4]); k.bootLitres8 = atof(argv[5]); k.closure = atof(argv[6]);
+    reed::ReedConstants k; k.widthRatio = atof(argv[2]); k.gamma = atof(argv[3]); k.Qr = atof(argv[4]); k.bootLitres8 = atof(argv[5]); k.closure = atof(argv[6]);
     const char* stop = getenv("STOP") ? getenv("STOP") : "Trompette 8'";
     const int div = getenv("DIV") ? atoi(getenv("DIV")) : 2;
     std::vector<int> keys; for (int a = 7; a < argc; ++a) keys.push_back(atoi(argv[a]));

@@ -118,33 +118,75 @@ static double etHz(int key, double ratio) { return 440.0 * std::pow(2.0, (key - 
 struct Job { int rank; int key; const opus14::Stop* s; double scaleKey; double hz; };
 struct Result { FluePipeSpec spec; bool ok = false; double cents0 = 0, centsEnd = 0; int fam = 0; std::string why; };
 
-// sounding frequency of the RT pipe: peak of mouth + top near the target
-static thread_local double tSpeech = 0;
-static double soundFreq(const FluePipeSpec& sp, double& h1, double& hHalf, double& h2) {
-    FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa); p.key(true);
-    const double T = std::max(1.2, 0.25 + 120.0 / sp.target);
-    const int N = (int)(T * 48000), L = std::min(N / 2, 48000);
-    std::vector<double> x(N); std::vector<float> m(1), t(1);
-    for (int i = 0; i < N; ++i) { p.render(m.data(), t.data(), 1); x[i] = m[0] + t[0]; }
-    {   // speech time on 10 ms rms frames against the last 0.2 s
-        const int fr = 480; double fin = 0; for (int i = N - 9600; i < N; ++i) fin += x[i] * x[i]; fin /= 9600;
-        tSpeech = T;
-        for (int i = 0; i + fr < N; i += fr) { double e = 0; for (int j = 0; j < fr; ++j) e += x[i + j] * x[i + j]; if (e / fr > 0.5 * fin) { tSpeech = (double)i / 48000; break; } }
+// What a pipe does when its key is pressed, judged from its sound (mouth + top / radiated):
+//   f        the pitch it speaks: the strongest component within 0.5 - 2 x the target, taken down to its
+//            fundamental, refined
+//   speaks   it is sounding at the end (rms) and the component at f/2 is weaker than at f
+//   tSpeech  time until it is within 3 dB of its final level (10 ms frames)
+//   spread   pitch spread over eight frames of the last 40 % (cents): does it hold one pitch
+struct Heard { double f = 0, rms = 0, tSpeech = 1e9, spread = 1e9; bool speaks = false; };
+static Heard analyse(const std::vector<double>& x, double target, double T) {
+    Heard h; const int N = (int)x.size(), L = (int)(0.4 * N);
+    double e = 0; for (int i = N - L; i < N; ++i) e += x[i] * x[i];
+    h.rms = std::sqrt(e / L);
+    if (!(h.rms > 1e-6)) return h;
+    double best = 0, bf = 0;
+    for (double c = -1200; c <= 1200; c += 10) { const double ft = target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - L, L, ft, 48000); if (a > best) { best = a; bf = ft; } }
+    double f = peakFreq(x, N - L, L, bf, 0.02, 48000);
+    while (f / 2 > target * 0.45 && toneAt(x, N - L, L, f / 2, 48000) > 0.3 * toneAt(x, N - L, L, f, 48000)) f = peakFreq(x, N - L, L, f / 2, 0.02, 48000);
+    h.f = f;
+    h.speaks = toneAt(x, N - L, L, f, 48000) > toneAt(x, N - L, L, f / 2, 48000);
+    const int fr = 480; const double fin = e / L; h.tSpeech = T;
+    for (int i = 0; i + fr < N; i += fr) { double ef = 0; for (int k = 0; k < fr; ++k) ef += x[i + k] * x[i + k]; if (ef / fr > 0.5 * fin) { h.tSpeech = (double)i / 48000; break; } }
+    const int Lf = L / 8; double mn = 1e9, mx = -1e9;
+    for (int k = 0; k < 8; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
+    h.spread = 1200 * std::log2(mx / mn);
+    return h;
+}
+static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
+static Heard hearFlue(const FluePipeSpec& sp, double pallet) {
+    FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa); p.setPallet(pallet, pallet); p.key(true);
+    const double T = renderTime(sp.target); const int N = (int)(T * 48000);
+    std::vector<double> x(N); float m, t;
+    for (int i = 0; i < N; ++i) { p.render(&m, &t, 1); x[i] = m + t; }
+    return analyse(x, sp.target, T);
+}
+static Heard hearReed(const ReedPipeSpec& sp, double pallet) {
+    ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa); p.setPallet(pallet, pallet); p.key(true);
+    const double T = renderTime(sp.target); const int N = (int)(T * 48000);
+    std::vector<double> x(N); float o;
+    for (int i = 0; i < N; ++i) { p.render(&o, 1); x[i] = o; }
+    return analyse(x, sp.target, T);
+}
+static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
+// Tunes by scaling the whole pipe (trim), by the secant method: the pitch does not move exactly in
+// proportion (the boot, the shallot and the jet speed are not scaled), so the step learns the slope.
+template <class Spec, class Hear>
+static double tuneTrim(Spec& sp, double hz, Hear hear, int maxIt = 12) {
+    double cPrev = 0, tPrev = 0; bool have = false; double c = 1e9;
+    for (int it = 0; it < maxIt; ++it) {
+        const Heard h = hear(sp);
+        if (!h.speaks) return 1e9;
+        c = 1200 * std::log2(h.f / hz);
+        if (std::fabs(c) < 0.2) break;
+        const double tc = 1200 * std::log2((double)sp.trim);   // trim in cents
+        double slope = 1.0;
+        if (have && std::fabs(tc - tPrev) > 1e-6) slope = std::max(0.2, std::min(3.0, (c - cPrev) / (tc - tPrev)));
+        cPrev = c; tPrev = tc; have = true;
+        sp.trim = (float)std::pow(2.0, (tc - c / slope) / 1200.0);
     }
-    const double f = peakFreq(x, N - L, L, sp.target, 0.06, 48000);
-    h1 = toneAt(x, N - L, L, f, 48000); hHalf = toneAt(x, N - L, L, f / 2, 48000); h2 = toneAt(x, N - L, L, 2 * f, 48000);
-    return f;
+    return c;
 }
 
 int main(int argc, char** argv) {
     if (argc < 5) { fprintf(stderr, "usage: opus14_organ constants.txt reed_constants.txt out.bin out.hpp [report]\n"); return 1; }
-    // reed constants: "family widthRatio openRatio Qr bootLitres8"
+    // reed constants: "family widthRatio gamma Qr bootLitres8 closure shallot zetaMin"
     reed::ReedConstants reedK[2];
     { std::ifstream in(argv[2]); std::string line;
       while (std::getline(in, line)) { if (line.empty() || line[0] == '#') continue; std::istringstream ss(line); std::string n; double a, b, c, d, e = 0.2;
         if (!(ss >> n >> a >> b >> c >> d)) continue;
-        ss >> e;
-        const int i = n == "oboe" ? 1 : 0; reedK[i].widthRatio = a; reedK[i].openRatio = b; reedK[i].Qr = c; reedK[i].bootLitres8 = d; reedK[i].closure = e; } }
+        ss >> e; double shf = 2.0, zm = 0.0; ss >> shf >> zm;
+        const int i = n == "oboe" ? 1 : 0; reedK[i].widthRatio = a; reedK[i].gamma = b; reedK[i].Qr = c; reedK[i].bootLitres8 = d; reedK[i].closure = e; reedK[i].shallot = shf; reedK[i].zetaMin = zm; } }
     char** outArgs = argv + 1;   // outArgs[2] = bin, [3] = hpp, [4] = report
     // constants
     JetParams fam[kNumJetFam];
@@ -201,16 +243,37 @@ int main(int argc, char** argv) {
         }
     }
     fprintf(stderr, "%zu ranks, %zu flue pipes\n", ranks.size(), jobs.size());
+    // ONLY=<text>: a trial on the ranks whose name contains it (the others are skipped; nothing usable is written)
+    const char* only = getenv("ONLY");
+    auto skip = [&](int rank) { return only && ranks[(size_t)rank].name.find(only) == std::string::npos; };
 
     std::vector<Result> res(jobs.size());
-    std::atomic<size_t> next{0}; std::mutex io;
+    std::atomic<size_t> next{0}; std::mutex io; bool reused = false;
     if (const char* reuse = getenv("REUSE_FLUES")) {
         FILE* f = fopen(reuse, "rb"); char magic[4]; uint32_t ver = 0, n = 0, sz = 0;
         if (f && fread(magic, 1, 4, f) == 4 && fread(&ver, 4, 1, f) == 1 && fread(&n, 4, 1, f) == 1 && fread(&sz, 4, 1, f) == 1
             && ver == 2 && n == jobs.size() && sz == sizeof(FluePipeSpec)) {
             for (auto& r : res) { if (fread(&r.spec, sizeof(FluePipeSpec), 1, f) != 1) break; r.ok = true; r.fam = 0; }
             next = jobs.size();
-            fprintf(stderr, "flue pipes reused from %s\n", reuse);
+            fprintf(stderr, "flue pipes reused from %s: checking every one again\n", reuse);
+            // reused pipes are not trusted: each is heard again and has to pass the same checks
+            std::atomic<size_t> nv{0};
+            auto verify = [&] {
+                for (size_t j; (j = nv++) < jobs.size();) {
+                    Result& out = res[j]; const double hz = jobs[j].hz;
+                    if (skip(jobs[j].rank)) continue;
+                    const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
+                    out.centsEnd = a.speaks ? 1200 * std::log2(a.f / hz) : 1e9;
+                    const bool slow = !a.speaks || !b.speaks || a.tSpeech > speechLimit(hz) || b.tSpeech > speechLimit(hz);
+                    const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / hz)) > 2);
+                    out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
+                    char buf[160]; snprintf(buf, sizeof buf, "[reused: %s %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f]", a.speaks ? "speaks" : "SILENT", out.centsEnd, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
+                    out.why = buf;
+                }
+            };
+            std::vector<std::thread> tv; for (unsigned i = 0; i < std::max(1u, std::thread::hardware_concurrency()); ++i) tv.emplace_back(verify);
+            for (auto& t : tv) t.join();
+            next = 0; reused = true;   // the ones that fail are voiced again
         } else fprintf(stderr, "cannot reuse %s: computing the flue pipes\n", reuse);
         if (f) fclose(f);
     }
@@ -219,37 +282,45 @@ int main(int argc, char** argv) {
             const size_t j = next++;
             if (j >= jobs.size()) return;
             const Job& jb = jobs[j]; Result& out = res[j];
+            if (skip(jb.rank) || getenv("REEDS_ONLY")) { out.ok = true; continue; }
+            if (reused && out.ok) continue;
+            out.why.clear();
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
-            Design d = designAt(*jb.s, jb.scaleKey, jb.hz, v);
-            const JetFam jf = jetFamily(*jb.s, d); out.fam = jf;
+            const Design d0 = designAt(*jb.s, jb.scaleKey, jb.hz, v);
+            const JetFam jf = jetFamily(*jb.s, d0); out.fam = jf;
             JetParams jpp = fam[jf];
-            int boosts = 0;
-            for (int it = 0; it < 4; ++it) {   // cut the body to pitch (then the final tuning below)
+            out.ok = false;
+            for (int attempt = 0; attempt < 8 && !out.ok; ++attempt) {
+                Design d = d0;
                 out.spec = specOf(d, jpp);
-                double h1, hh, h2; const double f = soundFreq(out.spec, h1, hh, h2);
-                const double c = 1200 * std::log2(f / jb.hz);
-                if (it == 0) out.cents0 = c;
-                out.centsEnd = c;
-                out.ok = h1 > 0 && h1 > hh && std::fabs(c) < 50;
-                const double speechLimit = std::max(0.3, 30.0 / jb.hz);
-                if ((!(h1 > 1e-6) || tSpeech > speechLimit) && boosts < 5) {
-                    // silent: voiced up as a voicer would make it speak (a stronger jet), and recorded
-                    jpp.gain *= 1.2; ++boosts; out.why = "voiced up x" + std::to_string(std::pow(1.2, boosts)).substr(0, 4) + (h1 > 1e-6 ? " (slow speech); " : " to speak; "); --it; continue;
+                // cut the body to pitch
+                for (int it = 0; it < 4; ++it) {
+                    const Heard h = hearFlue(out.spec, 0.012);
+                    if (!h.speaks) break;
+                    const double c = 1200 * std::log2(h.f / jb.hz);
+                    if (attempt == 0 && it == 0) out.cents0 = c;
+                    if (std::fabs(c) < 0.5 || std::fabs(c) > 300) break;
+                    recut(d, std::pow(h.f / jb.hz, 1.5));
+                    out.spec = specOf(d, jpp);
                 }
-                if (!out.ok) { out.why += "f " + std::to_string(f) + " target " + std::to_string(jb.hz); if (std::fabs(c) > 300) break; }
-                if (std::fabs(c) < 0.5) break;
-                recut(d, std::pow(f / jb.hz, 1.5));   // the jet pulls the pitch: a longer step converges faster
-            }
-            out.spec.target = (float)jb.hz;
-            // final tuning: scale the whole pipe (resonator and jet) to pitch
-            if (out.spec.trim <= 0) out.spec.trim = 1;
-            for (int t = 0; t < 4; ++t) {
-                double h1, hh, h2; const double f = soundFreq(out.spec, h1, hh, h2);
-                if (!(h1 > 1e-6) || f <= 0) break;
-                out.centsEnd = 1200 * std::log2(f / jb.hz);
-                out.ok = h1 > hh && std::fabs(out.centsEnd) < 1.0;
-                if (std::fabs(out.centsEnd) < 0.5) break;
-                out.spec.trim *= (float)(jb.hz / f);
+                out.spec.target = (float)jb.hz;
+                // final tuning: the whole pipe scaled to pitch
+                tuneTrim(out.spec, jb.hz, [](const FluePipeSpec& q) { return hearFlue(q, 0.012); });
+                // the checks: it speaks on its mode, in time, holds one pitch with a slow and a fast pallet,
+                // and is in tune
+                const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
+                out.centsEnd = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
+                const bool slow = !a.speaks || !b.speaks || a.tSpeech > speechLimit(jb.hz) || b.tSpeech > speechLimit(jb.hz);
+                const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / jb.hz)) > 2);
+                out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
+                char buf[160];
+                snprintf(buf, sizeof buf, "[%d: %s %+.1fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f] ", attempt, a.speaks ? "speaks" : "SILENT", out.centsEnd, a.spread, b.spread, a.tSpeech, b.tSpeech, out.spec.trim);
+                out.why += buf;
+                if (out.ok) break;
+                // the voicer gives it more jet, or less: an unstable pipe is tried both ways
+                if (slow) jpp.gain = fam[jf].gain * std::pow(1.2, attempt + 1);
+                else if (unstable) jpp.gain = fam[jf].gain * (attempt % 2 == 0 ? std::pow(0.88, attempt / 2 + 1) : std::pow(1.15, attempt / 2 + 1));
+                else break;
             }
             if ((j + 1) % 200 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu\n", j + 1, jobs.size()); }
         }
@@ -258,7 +329,7 @@ int main(int argc, char** argv) {
     for (unsigned i = 0; i < nt; ++i) th.emplace_back(worker);
     for (auto& t : th) t.join();
     // reeds: designed from the Pasi resonators and tongues, tuned by wire and scroll
-    struct ReedResult { ReedPipeSpec spec; double cents = 0; bool ok = false; };
+    struct ReedResult { ReedPipeSpec spec; double cents = 0; bool ok = false; std::string why; };
     std::vector<ReedResult> reedRes(reedJobs.size());
     std::atomic<size_t> nextR{0};
     auto reedHz = [](const ReedPipeSpec& sp) {
@@ -281,27 +352,46 @@ int main(int argc, char** argv) {
             const size_t j = nextR++;
             if (j >= reedJobs.size()) return;
             const Job& jb = reedJobs[j];
+            if (skip(jb.rank)) { reedRes[j].ok = true; reedRes[j].cents = 0; continue; }
             const bool oboe = detailOboe(ranks[(size_t)jb.rank].name);
             ReedResult& out = reedRes[j];
-            out.spec = reed::design(*jb.s, jb.scaleKey, jb.hz, reedK[oboe ? 1 : 0]);
-            // the tongue is set a little above the resonator's first resonance (as a voicer sets it);
-            // then the whole pipe is scaled to pitch
-            // (a fractional-length resonator - regals, Dulzian, Bassoon, Vox Humana - leaves the pitch to the tongue)
-            if (out.spec.nModes > 0 && out.spec.f[0] > 0.7f * jb.hz && out.spec.f[0] < 1.3f * jb.hz) out.spec.fr = 1.08f * out.spec.f[0];
-            else out.spec.fr = (float)(1.02 * jb.hz);
-            out.cents = 1e9;
-            int opens = 0;
-            for (int t = 0; t < 6; ++t) {   // final tuning: tongue and resonator scaled together
-                const double f = reedHz(out.spec);
-                if (f <= 0) {   // does not speak: the voicer opens the tongue (more curve)
-                    if (opens++ >= 5) break;
-                    out.spec.x0 *= 1.3f; out.spec.xs *= 1.3f; --t; continue;
+            const reed::ReedConstants& kk = reedK[oboe ? 1 : 0];
+            const ReedPipeSpec base = reed::design(*jb.s, jb.scaleKey, jb.hz, kk);
+            // Voicing: the voicer sets the tongue (tuning wire) and its curve (opening) until the pipe
+            // speaks steadily at its pitch. Settings tried around the resonator's first resonance (or the
+            // pitch, for a fractional-length resonator); the steadiest strong one within 100 cents of the
+            // pitch is kept, then the whole pipe is tuned (at most 6 %: the tuning scroll).
+            const bool resonatorLed = base.nModes > 0 && base.f[0] > 0.7f * jb.hz && base.f[0] < 1.3f * jb.hz;
+            const double ref = resonatorLed ? base.f[0] : jb.hz;
+            // down to 0.7: a short treble resonator speaks below its resonance, the tongue leading
+            static const double kTongue[] = { 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.03, 1.06, 1.1, 1.15, 1.2, 1.3 };
+            static const double kCurve[] = { 1.0, 0.8, 1.25, 0.65, 1.5 };   // gamma scaled: more curve (lower), less
+            double bestScore = -1; ReedPipeSpec best = base;
+            for (double gs : kCurve) {
+                for (double r : kTongue) {
+                    // the curve follows the tongue: the same p / p_M (gamma) for any wire setting, times the scan
+                    ReedPipeSpec c = base; c.fr = (float)(r * ref); c.x0 = (float)reed::restOpening(c, c.fr, kk.gamma * gs); reed::applyZeta(c, kk, kk.gamma * gs); c.xs = (float)(kk.closure * c.x0);
+                    const Heard h = hearReed(c, 0.012);
+                    if (!h.speaks || h.spread > 3 || h.tSpeech > speechLimit(jb.hz)) continue;
+                    const double cents = 1200 * std::log2(h.f / jb.hz);
+                    if (std::fabs(cents) > 100) continue;
+                    const double score = h.rms / (1.0 + std::fabs(cents) / 50.0);
+                    if (score > bestScore) { bestScore = score; best = c; }
                 }
-                out.cents = 1200 * std::log2(f / jb.hz);
-                if (std::fabs(out.cents) < 0.5) break;
-                out.spec.trim *= (float)(jb.hz / f);
+                if (bestScore > 0) break;   // the least change of curve that speaks
             }
-            out.ok = std::fabs(out.cents) < 1.0;
+            out.spec = best;
+            out.cents = 1e9; out.ok = false;
+            if (bestScore <= 0) out.why = "no tongue setting speaks steadily within 100 c of the pitch";
+            if (bestScore > 0) {
+                tuneTrim(out.spec, jb.hz, [](const ReedPipeSpec& q) { return hearReed(q, 0.012); });
+                const Heard a = hearReed(out.spec, 0.012), b = hearReed(out.spec, 0.002);
+                out.cents = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
+                { char buf[200]; snprintf(buf, sizeof buf, "slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
+                      a.speaks ? "speaks" : "SILENT", out.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? 1200 * std::log2(b.f / jb.hz) : 0.0, b.spread, out.spec.trim); out.why = buf; }
+                out.ok = a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(out.cents) < 0.5
+                         && std::fabs(1200 * std::log2(b.f / jb.hz)) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(out.spec.trim - 1.f) < 0.06f;
+            }
             if ((j + 1) % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  reeds %zu / %zu\n", j + 1, reedJobs.size()); }
         }
     };
@@ -359,9 +449,10 @@ int main(int argc, char** argv) {
     int badR = 0;
     for (size_t j = 0; j < reedJobs.size(); ++j) {
         const auto& r = reedRes[j]; if (!r.ok) ++badR;
-        fprintf(rep, "%-32s key %3d %8.2f Hz reed tongue %.2f mm L %.1f mm fr %.1f Hz  final %+7.2f c %s\n", ranks[(size_t)reedJobs[j].rank].name.c_str(), reedJobs[j].key, reedJobs[j].hz, r.spec.t * 1e3, r.spec.L * 1e3, r.spec.fr, r.cents, r.ok ? "ok" : "FAIL");
+        fprintf(rep, "%-32s key %3d %8.2f Hz reed tongue %.2f mm L %.1f mm fr %.1f Hz  final %+7.2f c %s %s\n", ranks[(size_t)reedJobs[j].rank].name.c_str(), reedJobs[j].key, reedJobs[j].hz, r.spec.t * 1e3, r.spec.L * 1e3, r.spec.fr, r.cents, r.ok ? "ok" : "FAIL", r.why.c_str());
     }
     if (rep != stderr) fclose(rep);
-    fprintf(stderr, "%d of %zu reed pipes not tuned within 5 cents\n", badR, reedJobs.size());
+    fprintf(stderr, "%d of %zu reed pipes fail (do not speak steadily at pitch, in time, in tune)\n", badR, reedJobs.size());
+    if (bad || badR) { fprintf(stderr, "THE ORGAN IS NOT COMPLETE: %d pipes fail - see the report\n", bad + badR); return 2; }
     return 0;
 }

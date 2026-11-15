@@ -36,6 +36,8 @@ struct ReedPipeSpec {
     float lowerR = 0, upperR = 0, length = 0;   // resonator
     float fr = 0;                  // tongue frequency as tuned (Hz)
     float trim = 1;                // final tuning: tongue and resonator scaled by this frequency ratio
+    float shallotL = 0;            // shallot: acoustic length under the tongue incl. its end correction (m), 0 = none
+    float channel = 0;             // reed channel: length of the gap the slit flow runs through (m), 0 = quasi-steady
     float hfFrom = 0;              // above the last mode the resonator is a horn: from this frequency (Hz)
     int nModes = 0;
     float f[kReedMaxModes], Q[kReedMaxModes], pkRe[kReedMaxModes], pkIm[kReedMaxModes], topRe[kReedMaxModes], topIm[kReedMaxModes];
@@ -60,11 +62,13 @@ public:
           hb0 = n; hb1 = -2 * n; hb2 = n; ha1 = 2 * (K * K - 1) * n; ha2 = (1 - K / q + K * K) * n; }
         accK = 1.56 / (kRhoB * s.t);
         Sr = 0.39 * (double)s.w * s.L;
+        // shallot inertance in series with the resonator (Rucz 2015 sec. 8.4): rho l / S of the shallot bore
+        Ls = s.shallotL > 0 ? kRho * s.shallotL / (M_PI * (double)s.lowerR * s.lowerR) : 0.0;
         pitch = 0; setPitch(1.0);
         reset();
     }
     void reset() {
-        x = sp.x0; vx = 0; boot = 0; palletPhase = 0; palletPos = 0; palletTarget = 0; U = 0; p = 0; topPrev = 0;
+        x = sp.x0; vx = 0; Us = 0; boot = 0; palletPhase = 0; palletPos = 0; palletTarget = 0; U = 0; p = 0; topPrev = 0;
         std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         hz1 = hz2 = 0; std::memset(horn, 0, sizeof horn); hpos = 0; uhPrev = 0;
     }
@@ -140,12 +144,27 @@ public:
         if (sp.xs > 0) { const double z = x / sp.xs; open = z > 30 ? x : sp.xs * std::log1p(std::exp(z)); }
         else open = x > 0 ? x : 0.0;
         double Pz = Zc * hz1, Zd = Zc * hb0;
+        // the shallot: p at the tongue = p in the resonator + Ls dU/dt (backward difference, part of the solve)
+        Pz -= Ls * fs * U; Zd += Ls * fs;
         for (int i = 0; i < nPad; ++i) { Pz += z1[i]; Zd += b0[i]; }
         const double Ur = Sr * vx;
         const double A = sp.w * open * std::sqrt(2.0 / rho);
         const double D0 = boot - Pz - Zd * Ur;
         const double a2 = A * A, q = a2 * Zd;
-        const double X = D0 >= 0 ? 0.5 * (-q + std::sqrt(q * q + 4 * a2 * D0)) : -0.5 * (-q + std::sqrt(q * q - 4 * a2 * D0));
+        double X;
+        if (sp.channel > 0) {
+            // with the inertia of the air in the reed channel (length l under the tongue):
+            // rho l / A dUs/dt = D - rho/2 Us|Us| / A^2, implicit in Us (A = w x, the slit)
+            const double Aop = sp.w * open;
+            if (Aop < 1e-12) X = 0.0;
+            else {
+                const double g = Aop / (rho * sp.channel);
+                X = (Us + dt * g * D0) / (1.0 + dt * g * Zd + dt * 0.5 * std::fabs(Us) / (sp.channel * Aop));
+            }
+            Us = X;
+        } else
+            X = D0 >= 0 ? 0.5 * (-q + std::sqrt(q * q + 4 * a2 * D0)) : -0.5 * (-q + std::sqrt(q * q - 4 * a2 * D0));
+        const double Uold = U;
         U = Ur + X;
         // resonator
         double pp = 0, top = 0;
@@ -165,7 +184,7 @@ public:
         horn[hpos] = uh;
         top += topGain * horn[(hpos - hornDelay) & (kHorn - 1)];
         hpos = (hpos + 1) & (kHorn - 1);
-        p = pp;
+        p = pp + Ls * fs * (U - Uold);   // pressure under the tongue (resonator + shallot)
         const double out = kRho / (4 * M_PI) * (top - topPrev) * fs;
         topPrev = top;
         return out;
@@ -176,7 +195,7 @@ private:
     ReedPipeSpec sp;
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
-    double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0;
+    double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;
     double Zc = 0, topGain = 1, hb0 = 0, hb1 = 0, hb2 = 0, ha1 = 0, ha2 = 0, hz1 = 0, hz2 = 0, uhPrev = 0;
@@ -191,7 +210,12 @@ private:
 namespace reed {
 using namespace resonator;
 
-struct ReedConstants { double widthRatio = 0.6, openRatio = 0.03, Qr = 30, bootLitres8 = 0.5, closure = 0.2; };
+// gamma: the voicer's curve of the tongue, as the ratio of the wind pressure to the pressure that
+// would press the tongue shut, p / p_M with p_M = k_tongue x0 / force per pascal (Kergomard's gamma).
+// A voicer curves each tongue to speak well at the wind it gets, so this ratio, not the rest opening
+// over the free length, is what holds across the compass: with a fixed x0/L the bass tongues were
+// pressed shut (p/p_M up to 2.9) and the treble ones could not start (down to 0.06).
+struct ReedConstants { double widthRatio = 0.6, gamma = 0.55, Qr = 30, bootLitres8 = 0.5, closure = 0.2, shallot = 2.0, channel = 0.0; bool shallotTube = false; double shallotR = 1.0; double zetaMin = 0.0; };
 
 inline const opus14::Row* row(const opus14::Stop& s, const char* label) {
     for (int i = 0; i < s.nRows; ++i) if (!std::strcmp(s.rows[i].label, label)) return &s.rows[i];
@@ -258,12 +282,35 @@ inline cd topFlowRatio(double w, const std::vector<Segment>& g, const Air& air) 
 // Tongue free length for a reed frequency fr (cantilever, first mode).
 inline double tongueLength(double t, double fr) { return std::sqrt(0.1615 * t * std::sqrt(1.0e11 / 8500.0) / fr); }
 
+// rest opening for a curve gamma = p_wind / p_M of a tongue at frequency fr (modal force 1.56 dP / (rho_b t))
+inline double restOpening(const ReedPipeSpec& r, double fr, double gamma) {
+    const double wr = 2 * M_PI * fr;
+    return (double)r.footPa * 1.56 / (8500.0 * (double)r.t) / (gamma * wr * wr);
+}
+
+// zeta = Zc w x0 sqrt(2 / (rho p_M)) (Kergomard): the slit against the resonator's throat, the reed's
+// strength over its pipe. With the tongue width a fixed fraction of the resonator's lower diameter it fell
+// a hundredfold up the compass (0.07 at the trumpets' c4), and the treble could not speak at its pitch,
+// though the real pipes do. The tongue width is not on the Pasi sheets: where zeta would fall below
+// zetaMin (the lowest value at the keys the constants were matched on) the tongue is made that much wider.
+inline void applyZeta(ReedPipeSpec& r, const ReedConstants& k, double gamma) {
+    r.w = (float)(k.widthRatio * 2.0 * r.lowerR);
+    if (!(k.zetaMin > 0)) return;
+    const double rho = 1.2929 * 273.15 / 293.15, Zc = rho * 343.21 / (M_PI * (double)r.lowerR * r.lowerR);
+    const double pM = (double)r.footPa / gamma, zeta = Zc * r.w * r.x0 * std::sqrt(2.0 / (rho * pM));
+    if (zeta < k.zetaMin) r.w = (float)(r.w * k.zetaMin / zeta);
+}
+inline double zetaOf(const ReedPipeSpec& r, double gamma) {
+    const double rho = 1.2929 * 273.15 / 293.15, Zc = rho * 343.21 / (M_PI * (double)r.lowerR * r.lowerR);
+    return Zc * r.w * r.x0 * std::sqrt(2.0 / (rho * (double)r.footPa / gamma));
+}
+
 inline ReedPipeSpec design(const opus14::Stop& s, double key, double targetHz, const ReedConstants& k, double fs = 48000.0) {
     ReedPipeSpec r;
     Air air; air.tempC = 20.0;
     r.target = (float)targetHz;
     r.footPa = (float)(79.0 * 9.80665);
-    const std::vector<Segment> g = resonatorOf(s, key);
+    std::vector<Segment> g = resonatorOf(s, key);
     r.lowerR = (float)g.front().r1; r.upperR = (float)g.back().r2;
     double len = 0; for (auto& x : g) len += x.L; r.length = (float)len;
     double t = at(s, "Tongue Thickness", key);
@@ -274,8 +321,14 @@ inline ReedPipeSpec design(const opus14::Stop& s, double key, double targetHz, c
     r.t = (float)(1e-3 * t);
     r.L = (float)tongueLength(r.t, targetHz);
     r.w = (float)(k.widthRatio * 2.0 * g.front().r1);
-    r.x0 = (float)(k.openRatio * r.L);
-    r.xs = (float)(k.closure * r.x0);
+    r.shallotL = (float)(k.shallot * r.L);
+    if (k.shallotTube) {
+        // the shallot as a tube of the resonator's lower bore between the tongue and the resonator: its
+        // air is both mass and volume (the lumped inertance kept only the mass)
+        g.insert(g.begin(), Segment{ k.shallotR * g.front().r1, k.shallotR * g.front().r1, (double)r.shallotL });
+        r.shallotL = 0.f;
+    }
+    r.channel = (float)k.channel;
     r.Qr = (float)k.Qr;
     r.bootVolume = (float)(1e-3 * k.bootLitres8 * std::sqrt(std::max(0.05, 8.0 * 65.4 / targetHz / 8.0)));
     const double fTop = std::min(8000.0, 0.45 * fs);
@@ -284,6 +337,10 @@ inline ReedPipeSpec design(const opus14::Stop& s, double key, double targetHz, c
     r.nModes = (int)std::min<size_t>(n, kReedMaxModes);
     r.hfFrom = 0.f;   // no horn path (see ReedPipeRT::init)
     r.fr = (float)(1.05 * targetHz);
+    r.x0 = (float)restOpening(r, r.fr, k.gamma);
+    r.lowerR = (float)g.front().r1;
+    applyZeta(r, k, k.gamma);
+    r.xs = (float)(k.closure * r.x0);
     for (int i = 0; i < r.nModes; ++i) {
         r.f[i] = (float)modes[i].f; r.Q[i] = (float)modes[i].Q;
         r.pkRe[i] = (float)modes[i].peak.real(); r.pkIm[i] = (float)modes[i].peak.imag();

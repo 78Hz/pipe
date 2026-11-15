@@ -1,5 +1,10 @@
 # Reed constants per family, matched to reference recordings (tools/ref/match.py MODE=reed), on the reed model
 # with flow and pressure solved together. Results: data/reference/fit6_reeds.txt.
-# family   width/lowerD  rest-opening/L  tongue-Q  boot-litres(8')  closure/x0
-trumpet    0.6266        0.02024         61.38     0.5789           0.5777
-oboe       0.5655        0.01435         95.75     0.8926           0.5278
+# gamma   = wind pressure / pressure that shuts the tongue (the voicer's curve, held across the compass)
+# zetaMin = least Zc w x0 sqrt(2 / (rho p_M)): where the tongue would be weaker than this against its
+#           resonator, it is made wider (the treble). Both are the geometric means, over the training keys
+#           G2 G3 G4, of the values the matched rest opening and width gave there.
+# shallot = shallot length / tongue free length
+# family   width/lowerD  gamma    tongue-Q  boot-litres(8')  closure/x0  shallot  zetaMin
+trumpet    0.6266        0.529    61.38     0.5789           0.5777      2.0      0.718
+oboe       0.5655        0.685    95.75     0.8926           0.5278      2.0      0.439

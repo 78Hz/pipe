@@ -216,8 +216,14 @@ inline Design designAt(const opus14::Stop& s, double key, double targetHz, const
         const double depth = interp(s, dia, key, true);
         // A rectangular (wood) pipe printed "width x depth" at this key: use it while the
         // key is at or below the last rectangular point.
-        bool rect = false;
-        for (int i = 0; i < s.nCols; ++i) if (!std::isnan(dia->alt[i]) && s.key[i] >= key) rect = true;
+        // A stop printed rectangular at every point (all wood, e.g. the Pedal Praestant 16' and Subbass)
+        // stays rectangular when its scale is continued beyond the last printed point.
+        bool rect = false, allRect = true;
+        for (int i = 0; i < s.nCols; ++i) {
+            if (!std::isnan(dia->alt[i]) && s.key[i] >= key) rect = true;
+            if (!std::isnan(dia->v[i]) && std::isnan(dia->alt[i])) allRect = false;
+        }
+        rect = rect || allRect;
         if (rect && !std::isnan(depth)) {
             d.wood = true;
             b.r1 = eqRadius(dmm * depth * 1e-6);
@@ -428,6 +434,20 @@ struct FlueSim {
                 transit = 2.0 * (x0 + (2.0 / 3.0) * (std::pow(W, 1.5) - std::pow(x0, 1.5)) / (2.47 * std::sqrt(h)));
                 lipSpeed = 2.47 * std::sqrt(h / W);
                 b = std::max(0.4 * h, 0.10 * W / 0.8814);          // sech^2 half-value at y = 0.8814 b
+            }
+            // Jet waves are dispersive: long waves on a jet of thickness h travel at u ~ V sqrt(k h)
+            // (Rayleigh; Fletcher 1976), so u = (V^2 C^2 w h)^(1/3) at the pipe's own pitch w. Then the
+            // jet phase is w tau = (2 pi / (I C))^(2/3) with I = Ising's number: voicing to a constant
+            // Ising number (as Opus 14 is modelled, I = 2) holds the jet phase constant up the compass,
+            // which is why Ising's rule works. C is set so that I = 2 gives w tau = 1.78 rad, the phase
+            // at which the model was matched to the references in mid-compass (G2-G4).
+            // (A non-dispersive speed let the phase climb to 3.1 rad in the treble: no oscillation.)
+            {
+                const double V = jetSpeed(d.footPa), w0 = 2 * M_PI * d.target;
+                constexpr double kPhi0 = 1.78;
+                const double C = M_PI / std::pow(kPhi0, 1.5);
+                const double u = std::cbrt(V * V * C * C * w0 * h);
+                transit = W / u * V;   // the run-time delay is transit / U (U = the jet speed now)
             }
         }
         y0 = v.y0OverB * b;
