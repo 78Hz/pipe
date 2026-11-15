@@ -221,23 +221,44 @@ inline const opus14::Row* row(const opus14::Stop& s, const char* label) {
     for (int i = 0; i < s.nRows; ++i) if (!std::strcmp(s.rows[i].label, label)) return &s.rows[i];
     return nullptr;
 }
+// Wooden reed resonators are printed "width x depth": the second value is the depth.
+inline bool woodReed(const opus14::Stop& s) {
+    return s.material && (std::strstr(s.material, "Poplar") || std::strstr(s.material, "Pine") || std::strstr(s.material, "Fir") || std::strstr(s.material, "ood"));
+}
+// A printed row at a key, interpolated geometrically between the printed keys.
+// On a metal stop a second value at a key is where a new series begins (Bassoon and Dulzian: the
+// full-length resonators from c0 on, half length below; Oboe: the belled stem from c1 on): from that key
+// up the second value is the point at that key, below it the first. On a wooden stop alt = the depth.
 inline double at(const opus14::Stop& s, const char* label, double key, bool alt = false) {
     const opus14::Row* r = row(s, label);
     if (!r) return NAN;
+    const bool series = !woodReed(s) && !alt;
+    double vals[7];
+    for (int i = 0; i < s.nCols; ++i) {
+        vals[i] = alt ? r->alt[i] : r->v[i];
+        if (series && !std::isnan(r->alt[i]) && key >= s.key[i]) vals[i] = r->alt[i];
+    }
+    if (!alt && !woodReed(s)) {   // the second series starts at its key: no interpolation across the break
+        for (int i = 0; i < s.nCols; ++i) if (!std::isnan(r->alt[i]) && key < s.key[i]) {
+            // below the break: points from the break up are the new series, so they are not used
+            for (int j = i + 1; j < s.nCols; ++j) vals[j] = NAN;
+            break;
+        }
+    }
     int idx[7], n = 0;
-    for (int i = 0; i < s.nCols; ++i) { const float v = alt ? r->alt[i] : r->v[i]; if (!std::isnan(v) && v > 0) idx[n++] = i; }
+    for (int i = 0; i < s.nCols; ++i) if (!std::isnan(vals[i]) && vals[i] > 0) idx[n++] = i;
     if (n == 0) return NAN;
-    auto val = [&](int i) { return (double)(alt ? r->alt[i] : r->v[i]); };
-    if (n == 1) return val(idx[0]);
+    if (n == 1) return vals[idx[0]];
     int j = 0; while (j + 2 < n && s.key[idx[j + 1]] < key) ++j;
     const int a = idx[j], b = idx[j + 1];
     const double t = (key - s.key[a]) / (double)(s.key[b] - s.key[a]);
-    return val(a) * std::pow(val(b) / val(a), t);
+    return vals[a] * std::pow(vals[b] / vals[a], t);
 }
-// radius from a printed diameter (round), or a square "a x b" (alt = depth)
+// radius from a printed diameter (round), or a wooden square "a x b" (alt = depth)
 inline double radiusAt(const opus14::Stop& s, const char* label, double key) {
-    const double a = at(s, label, key), b = at(s, label, key, true);
+    const double a = at(s, label, key);
     if (std::isnan(a)) return NAN;
+    const double b = woodReed(s) ? at(s, label, key, true) : NAN;
     return std::isnan(b) ? 0.5e-3 * a : eqRadius(a * b * 1e-6);
 }
 
@@ -258,9 +279,9 @@ inline std::vector<Segment> resonatorOf(const opus14::Stop& s, double key) {
         const char* cu = row(s, "Cone Upper Diameter") ? "Cone Upper Diameter" : "Bell Upper Diameter";
         const char* cl = row(s, "Cone Length") ? "Cone Length" : "Bell Cone Length";
         const double rc = radiusAt(s, cu, key), lc = at(s, cl, key);
-        // the Oboe's bell starts at c1 (no bell printed below)
+        // the bell from the first key it is printed at (the Oboe's from c1, with the belled stem)
         bool printed = false; const opus14::Row* r = row(s, cl);
-        for (int i = 0; r && i < s.nCols; ++i) if (s.key[i] <= key + 6 && !std::isnan(r->v[i])) printed = true;
+        for (int i = 0; r && i < s.nCols; ++i) if (s.key[i] <= key && !std::isnan(r->v[i])) printed = true;
         if (printed && !std::isnan(rc) && !std::isnan(lc)) g.push_back({ ru, rc, 1e-3 * lc });
     } else {   // trumpets, posaunes, clairons, cornet: one cone
         g.push_back({ radiusAt(s, "Lower Diameter", key), radiusAt(s, "Upper Diameter", key), 1e-3 * at(s, "Length", key) });
