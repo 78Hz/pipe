@@ -43,8 +43,15 @@ def ref_features(k):
     return features(X, fs, 0.8, 3.0, nominal(k), on)
 R = {k: ref_features(k) for k in TRAIN + HOLD}
 
-def render(params, keys):
-    subprocess.run([EVAL, OUT] + ['%.6g' % p for p in params] + [str(k) for k in keys], check=True)
+def evalArgs(params):
+    # flue: the 6th constant (vortex) goes by environment; reed: all on the command line
+    if MODE == 'reed': return ['%.6g' % p for p in params], dict(os.environ)
+    env = dict(os.environ); env['VORTEX'] = '%.6g' % params[5]
+    return ['%.6g' % p for p in params[:5]], env
+def render(params, keys, pallet=None):
+    a, env = evalArgs(params)
+    if pallet: env['PALLET'] = str(pallet)
+    subprocess.run([EVAL, OUT] + a + [str(k) for k in keys], check=True, env=env)
     out = {}
     for k in keys:
         X = np.fromfile(f'{OUT}/{k}.f32', np.float32).astype(float).reshape(-1, 2)
@@ -62,8 +69,28 @@ def note_error(m, r):
     pitch = 1200 * np.log2(m['f0'] / r['f0'])
     return eh + 0.5 * en + 0.5 * ea, dict(harm_rms=np.sqrt(eh), noise_rms=np.sqrt(en), att_m=m['att'], att_r=r['att'], pitch_c=pitch)
 
+STABKEYS = [int(k) for k in os.environ.get('STABKEYS', '').split()]
+def stable_count(params):
+    # keys that hold one pitch on their fundamental, struck with a fast and a slow pallet
+    bad = 0
+    for pal in (0.002, 0.04):
+        a, env = evalArgs(params); env['PALLET'] = str(pal)
+        subprocess.run([EVAL, OUT] + a + [str(k) for k in STABKEYS], check=True, env=env)
+        for k in STABKEYS:
+            X = np.fromfile(f'{OUT}/{k}.f32', np.float32).astype(float).reshape(-1, 2); x = X.sum(1)
+            if not np.isfinite(x).all() or np.sqrt(np.mean(x[-24000:] ** 2)) < 1e-5: bad += 1; continue
+            f1 = nominal(k); L = 7200; fr = []
+            for j in range(8):
+                seg = x[48000 + j * L:48000 + (j + 1) * L] * np.hanning(L); S = np.abs(np.fft.rfft(seg, 1 << 17)); f = np.fft.rfftfreq(1 << 17, 1 / 48000)
+                m = (f > f1 * 0.7) & (f < f1 * 1.3); fr.append(f[m][np.argmax(S[m])])
+                if j == 7:
+                    lv = [S[np.abs(f - h * f1) < 0.08 * f1].max() for h in (1, 2, 3)]
+            fr = np.array(fr); spread = 1200 * np.log2(fr.max() / fr.min())
+            if spread > 4 or lv[0] < max(lv[1:]): bad += 1
+    return bad
 def speaks_fundamental(params):
-    subprocess.run([EVAL, OUT] + ['%.6g' % p for p in params] + [str(LOWKEY)], check=True)
+    a, env = evalArgs(params)
+    subprocess.run([EVAL, OUT] + a + [str(LOWKEY)], check=True, env=env)
     X = np.fromfile(f'{OUT}/{LOWKEY}.f32', np.float32).astype(float).reshape(-1, 2)
     P, f = spectrum(X[int(1.5*48000):], 48000); f1 = nominal(LOWKEY)
     lvl = [P[np.abs(f - k * f1) < 0.06 * f1].max() for k in (1, 2, 3, 4)]
@@ -74,16 +101,17 @@ if MODE == 'reed':   # tongue width / resonator lower diameter, rest opening / f
     LO = np.log(np.array([0.15, 0.004, 5.0, 0.05, 0.02])); HI = np.log(np.array([1.5, 0.12, 300.0, 4.0, 3.0]))
     def params_of(z): z = np.clip(z, LO, HI); return list(np.exp(z))
 else:
-    LO = np.array([-1.5, np.log(0.1), np.log(0.3), np.log(0.3), np.log(0.003)])
-    HI = np.array([1.5, np.log(10), np.log(3), np.log(3), np.log(0.3)])
+    LO = np.array([-1.5, np.log(0.1), np.log(0.3), np.log(0.3), np.log(0.003), np.log(0.2)])
+    HI = np.array([1.5, np.log(10), np.log(3), np.log(3), np.log(0.3), np.log(5)])
     def params_of(z):
-        z = np.clip(z, LO, HI); return [z[0], np.exp(z[1]), np.exp(z[2]), np.exp(z[3]), np.exp(z[4])]
+        z = np.clip(z, LO, HI); return [z[0], np.exp(z[1]), np.exp(z[2]), np.exp(z[3]), np.exp(z[4]), np.exp(z[5])]
 log = open(f'{OUT}/log.txt', 'a')
 def cost(z):
     p = params_of(z); M = render(p, TRAIN); c = 0; det = {}
     for k in TRAIN: e, d = note_error(M[k], R[k]); c += e; det[k] = d
     c /= len(TRAIN)
     if not speaks_fundamental(p): c += 200
+    if STABKEYS: c += 60 * stable_count(p)
     log.write(json.dumps(dict(p=p, cost=c)) + '\n'); log.flush()
     return c
 
@@ -91,10 +119,10 @@ if __name__ == '__main__':
     if MODE == 'reed':
         starts = [list(np.log([0.4, 0.02, 60, 0.6, 0.5])), list(np.log([0.6, 0.03, 30, 0.5, 1.2]))]
     else:
-        starts = [[0.5, 0, 0, 0, np.log(0.04)], [0.0, np.log(0.5), 0, 0, np.log(0.04)], [1.0, np.log(2), np.log(0.7), 0, np.log(0.04)]]
+        starts = [[0.5, np.log(2), 0, 0, np.log(0.04), 0], [0.2, np.log(1), np.log(0.7), 0, np.log(0.04), np.log(2)], [0.8, np.log(3), 0, np.log(0.8), np.log(0.04), np.log(0.5)]]
     best = None
     for z0 in starts:
-        z0 = np.array(z0, float); step = np.array([0.5, 0.6, 0.7, 0.7, 0.8]) if MODE == 'reed' else np.array([0.4, 0.7, 0.5, 0.5, 0.7])
+        z0 = np.array(z0, float); step = np.array([0.5, 0.6, 0.7, 0.7, 0.8]) if MODE == 'reed' else np.array([0.4, 0.7, 0.5, 0.5, 0.7, 0.7])
         nd = len(z0); simplex = np.vstack([z0] + [z0 + np.eye(nd)[i] * step[i] for i in range(nd)])
         r = minimize(cost, z0, method='Nelder-Mead', options=dict(maxfev=int(os.environ.get('MAXFEV', '200')), xatol=1e-2, fatol=0.05, initial_simplex=simplex))
         print('start', z0, '->', params_of(r.x), 'cost %.1f' % r.fun, flush=True)
@@ -106,3 +134,4 @@ if __name__ == '__main__':
         e, d = note_error(M[k], R[k])
         print('%s %-7s score %.1f  harmonics rms %.1f dB  noise rms %.1f dB  attack %.0f / ref %.0f ms  pitch %+.0f c' % ('train' if k in TRAIN else 'HOLD ', NAMES[k], e, d['harm_rms'], d['noise_rms'], d['att_m'], d['att_r'], d['pitch_c']))
     print('bottom C speaks on fundamental:', speaks_fundamental(p))
+    if STABKEYS: print('unstable key strikes (of %d): %d' % (2 * len(STABKEYS), stable_count(p)))

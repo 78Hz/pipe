@@ -25,7 +25,7 @@
 
 namespace pipe {
 
-constexpr int kReedMaxModes = 24;
+constexpr int kReedMaxModes = 32;
 
 struct ReedPipeSpec {
     float target = 0;              // Hz
@@ -50,8 +50,10 @@ public:
         rho = kRho; c2rho = rho * 343.21 * 343.21;
         wr = 2 * M_PI * (s.fr > 0 ? s.fr : 0.1615 * (s.t / ((double)s.L * s.L)) * std::sqrt(kE / kRhoB));
         // horn above the modes: pressure rho c / S_in on the reed, flow to the top sqrt(S_top/S_in), delayed L/c
-        Zc = kRho * 343.21 / (M_PI * (double)s.lowerR * s.lowerR);
-        topGain = s.upperR / std::max(1e-4f, s.lowerR);
+        // (hfFrom = 0: no horn path. Fed back onto the tongue as rho c / S it made the reed unstable,
+        // the result depending on the sample rate; the modes carry the sound instead.)
+        Zc = s.hfFrom > 0 ? kRho * 343.21 / (M_PI * (double)s.lowerR * s.lowerR) : 0.0;
+        topGain = s.hfFrom > 0 ? s.upperR / std::max(1e-4f, s.lowerR) : 0.0;
         hornDelay = std::min(kHorn - 2, std::max(1, (int)std::lround(s.length / 343.21 * fs)));
         { const double w0 = 2 * M_PI * std::max(200.f, s.hfFrom) / fs, K = std::tan(w0 / 2), q = 0.7071, n = 1.0 / (1 + K / q + K * K);
           hb0 = n; hb1 = -2 * n; hb2 = n; ha1 = 2 * (K * K - 1) * n; ha2 = (1 - K / q + K * K) * n; }
@@ -74,12 +76,12 @@ public:
         nPad = std::min(kReedMaxModes, (sp.nModes + 3) & ~3);
         for (int i = 0; i < kReedMaxModes; ++i) {
             const double wn = 2 * M_PI * sp.f[i] * ratio;
-            if (i >= sp.nModes || wn >= M_PI * fs * 0.98) { b0[i] = b1[i] = b2[i] = a1[i] = a2[i] = cA[i] = cI[i] = 0; continue; }
+            if (i >= sp.nModes || wn >= M_PI * fs * 0.98) { b0[i] = b1[i] = b2[i] = a1[i] = a2c[i] = cA[i] = cI[i] = 0; continue; }
             const double Q = sp.Q[i];
             const double A = sp.pkRe[i] * wn / Q, B = -sp.pkIm[i] * wn * wn / Q;
             const double K = wn / std::tan(wn * dt / 2), a0 = K * K + K * wn / Q + wn * wn;
             b0[i] = (A * K + B) / a0; b1[i] = 2 * B / a0; b2[i] = (-A * K + B) / a0;
-            a1[i] = 2 * (wn * wn - K * K) / a0; a2[i] = (K * K - K * wn / Q + wn * wn) / a0;
+            a1[i] = 2 * (wn * wn - K * K) / a0; a2c[i] = (K * K - K * wn / Q + wn * wn) / a0;
             cI[i] = sp.topIm[i] * fs / wn; cA[i] = sp.topRe[i] + cI[i];
         }
     }
@@ -127,20 +129,28 @@ public:
         const double force = -accK * dP + wrNow * wrNow * sp.x0;
         vx = (vx + dt * (force - K * x)) / (1.0 + dt * C + dt * dt * K);
         x += dt * vx;
-        // flow through the slit, and the air the tongue moves
-        // The curved tongue rolls onto the shallot face from its root: the slit closes progressively
-        // over a tip travel of about xs (a smooth step, softplus), not at a corner.
+        // Flow and pressure solved together (Guillemain et al. 2005): the resonator answers the flow
+        // of this very sample through its instantaneous part, p = Pz + Zd U, so with Bernoulli in the
+        // slit U - Ur = A sgn(D) sqrt|D|, D = boot - p, the flow has a closed form.
+        // the curved tongue rolls onto the shallot face from its root: the slit closes progressively
+        // over a tip travel of about xs (softplus), not at a corner
         double open;
         if (sp.xs > 0) { const double z = x / sp.xs; open = z > 30 ? x : sp.xs * std::log1p(std::exp(z)); }
         else open = x > 0 ? x : 0.0;
-        const double ad = std::fabs(dP);
-        U = sp.w * open * std::sqrt(2.0 * ad / rho) * (dP >= 0 ? 1.0 : -1.0) + Sr * vx;
+        double Pz = Zc * hz1, Zd = Zc * hb0;
+        for (int i = 0; i < nPad; ++i) { Pz += z1[i]; Zd += b0[i]; }
+        const double Ur = Sr * vx;
+        const double A = sp.w * open * std::sqrt(2.0 / rho);
+        const double D0 = boot - Pz - Zd * Ur;
+        const double a2 = A * A, q = a2 * Zd;
+        const double X = D0 >= 0 ? 0.5 * (-q + std::sqrt(q * q + 4 * a2 * D0)) : -0.5 * (-q + std::sqrt(q * q - 4 * a2 * D0));
+        U = Ur + X;
         // resonator
         double pp = 0, top = 0;
         for (int i = 0; i < nPad; ++i) {
             const double y = b0[i] * U + z1[i];
             z1[i] = b1[i] * U - a1[i] * y + z2[i];
-            z2[i] = b2[i] * U - a2[i] * y;
+            z2[i] = b2[i] * U - a2c[i] * y;
             pp += y;
             top += cA[i] * y - cI[i] * yPrev[i];
             yPrev[i] = y;
@@ -171,7 +181,7 @@ private:
     int hornDelay = 1, hpos = 0;
     float horn[kHorn];
     double chest = 775, palletPhase = 0, palletPos = 0, palletTarget = 0, tOpen = 0.012, tClose = 0.012;
-    alignas(32) double b0[kReedMaxModes], b1[kReedMaxModes], b2[kReedMaxModes], a1[kReedMaxModes], a2[kReedMaxModes];
+    alignas(32) double b0[kReedMaxModes], b1[kReedMaxModes], b2[kReedMaxModes], a1[kReedMaxModes], a2c[kReedMaxModes];
     alignas(32) double z1[kReedMaxModes], z2[kReedMaxModes], cA[kReedMaxModes], cI[kReedMaxModes], yPrev[kReedMaxModes];
 };
 
@@ -266,11 +276,11 @@ inline ReedPipeSpec design(const opus14::Stop& s, double key, double targetHz, c
     r.xs = (float)(k.closure * r.x0);
     r.Qr = (float)k.Qr;
     r.bootVolume = (float)(1e-3 * k.bootLitres8 * std::sqrt(std::max(0.05, 8.0 * 65.4 / targetHz / 8.0)));
-    const double fTop = std::min(4000.0, 0.45 * fs);
+    const double fTop = std::min(8000.0, 0.45 * fs);
     auto modes = findModes([&](double w) { return inputImpedance(w, g, air); }, std::max(20.0, targetHz * 0.3), std::max(fTop, 3.0 * targetHz), kReedMaxModes, 6000);
     size_t n = 0; while (n < modes.size() && modes[n].Q >= 2.0) ++n;
     r.nModes = (int)std::min<size_t>(n, kReedMaxModes);
-    r.hfFrom = r.nModes > 0 ? 1.15f * r.f[r.nModes - 1] : (float)targetHz;
+    r.hfFrom = 0.f;   // no horn path (see ReedPipeRT::init)
     r.fr = (float)(1.05 * targetHz);
     for (int i = 0; i < r.nModes; ++i) {
         r.f[i] = (float)modes[i].f; r.Q[i] = (float)modes[i].Q;

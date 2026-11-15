@@ -43,8 +43,8 @@ inline uint32_t hash32(uint32_t x) {
 constexpr int kControlBlock = 32;
 constexpr float kMmToPa = 9.80665f;
 // output scale of the physical flue pipes: radiated pressure at 1 m (Pa) to the mix
-constexpr float kFlueGain = 0.35f;
-constexpr float kReedGain = 0.35f;
+constexpr float kFlueGain = 1.0f;
+constexpr float kReedGain = 1.0f;
 // wind of the Octave 8' c1 (flue area x jet speed), the unit of the wind system's demand
 constexpr double kRefFlow = 4.5e-4;
 constexpr int kMaxFlueVoices = 448;
@@ -931,8 +931,8 @@ private:
             const float w = blowerNoise.next();
             blowerLp += 0.004f * (w - blowerLp);
             const float hum = blowerLp * blowerGain * 6.f;
-            L[i] = busL[kPedal][i] + busL[kGreat][i] + swellLpL * swellGain + hum;
-            R[i] = busR[kPedal][i] + busR[kGreat][i] + swellLpR * swellGain + hum;
+            L[i] = busL[kPedal][i] + busL[kGreat][i] + busL[kPositive][i] + swellLpL * swellGain + hum;
+            R[i] = busR[kPedal][i] + busR[kGreat][i] + busR[kPositive][i] + swellLpR * swellGain + hum;
         }
     }
 
