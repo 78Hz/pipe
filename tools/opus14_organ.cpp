@@ -143,8 +143,8 @@ static size_t ckRead(const std::string& path, Fn&& use) {
 }
 
 // What a pipe does when its key is pressed, judged from its sound (mouth + top / radiated):
-//   f        the pitch it speaks: the strongest component within 0.5 - 2 x the target, taken down to its
-//            fundamental, refined
+//   f        the pitch it speaks: the strongest component within 0.5 - 2 x the target, taken down to the
+//            repetition period (the note heard), refined
 //   speaks   it is sounding at the end (rms) and the component at f/2 is weaker than at f
 //   tSpeech  time until it is within 3 dB of its final level (10 ms frames)
 //   spread   pitch spread over eight frames of the last 40 % (cents): does it hold one pitch
@@ -157,13 +157,23 @@ static Heard analyse(const std::vector<double>& x, double target, double T) {
     double best = 0, bf = 0;
     for (double c = -1200; c <= 1200; c += 10) { const double ft = target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - L, L, ft, 48000); if (a > best) { best = a; bf = ft; } }
     double f = peakFreq(x, N - L, L, bf, 0.02, 48000);
-    while (f / 2 > target * 0.45 && toneAt(x, N - L, L, f / 2, 48000) > 0.3 * toneAt(x, N - L, L, f, 48000)) f = peakFreq(x, N - L, L, f / 2, 0.02, 48000);
+    // the pitch heard is the repetition period: f/2 is the note when the sound has the odd harmonics of
+    // f/2 (f/2 itself or 3f/2); a sound of f's harmonics only repeats at 1/f. (A half-length resonator
+    // gives a weak fundamental: the strongest component is then the octave, yet the pipe speaks its note.)
+    while (f / 2 > target * 0.45) {
+        const double a = toneAt(x, N - L, L, f, 48000);
+        const double odd = std::max(toneAt(x, N - L, L, f / 2, 48000), toneAt(x, N - L, L, 1.5 * f, 48000));
+        if (!(odd > 0.3 * a)) break;
+        f = toneAt(x, N - L, L, f / 2, 48000) > 0.05 * a ? peakFreq(x, N - L, L, f / 2, 0.02, 48000) : peakFreq(x, N - L, L, 1.5 * f, 0.02, 48000) / 3.0;
+    }
     h.f = f;
     h.speaks = toneAt(x, N - L, L, f, 48000) > toneAt(x, N - L, L, f / 2, 48000);
     const int fr = 480; const double fin = e / L; h.tSpeech = T;
     for (int i = 0; i + fr < N; i += fr) { double ef = 0; for (int k = 0; k < fr; ++k) ef += x[i + k] * x[i + k]; if (ef / fr > 0.5 * fin) { h.tSpeech = (double)i / 48000; break; } }
     const int Lf = L / 8; double mn = 1e9, mx = -1e9;
-    for (int k = 0; k < 8; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
+    // followed on the strongest of the first four harmonics (the same cents, a cleaner reading)
+    int hk = 1; { double ha = 0; for (int k = 1; k <= 4; ++k) { const double v = toneAt(x, N - L, L, k * f, 48000); if (k * f < 20000 && v > ha) { ha = v; hk = k; } } }
+    for (int k = 0; k < 8; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
     h.spread = 1200 * std::log2(mx / mn);
     return h;
 }
@@ -408,6 +418,7 @@ int main(int argc, char** argv) {
             if (j >= reedJobs.size()) return;
             const Job& jb = reedJobs[j];
             if (skip(jb.rank)) { reedRes[j].ok = true; reedRes[j].cents = 0; continue; }
+            if (const char* ks = getenv("KEYS")) { int a = 0, b = 127; sscanf(ks, "%d-%d", &a, &b); if (jb.key < a || jb.key > b) { reedRes[j].ok = true; continue; } }
             if (doneR[j]) continue;
             const bool oboe = detailOboe(ranks[(size_t)jb.rank].name);
             ReedResult& out = reedRes[j];
@@ -420,8 +431,12 @@ int main(int argc, char** argv) {
             // slotted by the voicer: its resonance raised to 37 c above the pitch, at most 15 % of its
             // length (more than 8 % is named in the report).
             double slot = 1.0;
-            if (base.nModes > 0 && base.f[0] > 0.8f * jb.hz && base.f[0] < 1.3f * jb.hz) {
-                const double want = jb.hz * std::pow(2.0, 37.0 / 1200.0);
+            // A half-length resonator supports the octave: there the same holds for 2 x the pitch (one
+            // that lies below the octave takes the pipe over as it is tuned down to its note).
+            const int hn = (base.nModes > 0 && base.f[0] > 0.8f * jb.hz && base.f[0] < 1.3f * jb.hz) ? 1
+                         : (base.nModes > 0 && base.f[0] > 1.6f * jb.hz && base.f[0] < 2.6f * jb.hz) ? 2 : 0;
+            if (hn > 0) {
+                const double want = hn * jb.hz * std::pow(2.0, 37.0 / 1200.0);
                 if (base.f[0] < want) {
                     slot = std::min(want / base.f[0], 1.0 / 0.85);
                     for (int i = 0; i < base.nModes; ++i) base.f[i] = (float)(base.f[i] * slot);
@@ -437,12 +452,14 @@ int main(int argc, char** argv) {
             // down to 0.7: a short treble resonator speaks below its resonance, the tongue leading
             static const double kTongue[] = { 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.03, 1.06, 1.1, 1.15, 1.2, 1.3 };
             static const double kCurve[] = { 1.0, 0.8, 1.25, 0.65, 1.5 };   // gamma scaled: more curve (lower), less
-            double bestScore = -1; ReedPipeSpec best = base;
+            // each curve is voiced, tuned and checked in turn; the first that passes is kept, else the best
+            bool anySpeaks = false; double bestErr = 1e18; ReedResult bestOut;
             auto make = [&](double r, double gs) {
                 ReedPipeSpec c = base; c.fr = (float)(r * ref); c.x0 = (float)reed::restOpening(c, c.fr, kk.gamma * gs); reed::applyZeta(c, kk, kk.gamma * gs); c.xs = (float)(kk.closure * c.x0);
                 return c;
             };
             for (double gs : kCurve) {
+                double bestScore = -1; ReedPipeSpec best = base;
                 // the curve follows the tongue: the same p / p_M (gamma) for any wire setting, times the scan
                 struct Pt { double r, cents, rms; bool steady; };
                 std::vector<Pt> pts;
@@ -475,20 +492,31 @@ int main(int argc, char** argv) {
                         if ((cents > 0) == (a.cents > 0)) a = { r, cents, h.rms, true }; else b = { r, cents, h.rms, true };
                     }
                 }
-                if (bestScore > 0) break;   // the least change of curve that speaks
+                if (bestScore <= 0) continue;
+                anySpeaks = true;
+                ReedResult rr; rr.spec = best;
+                tuneTrim(rr.spec, jb.hz, [](const ReedPipeSpec& q) { return hearReed(q, 0.012); });
+                if (getenv("TRIMDBG")) {
+                    std::lock_guard<std::mutex> lk(io);
+                    fprintf(stderr, "%s key %d curve x%.2f:", ranks[(size_t)jb.rank].name.c_str(), jb.key, gs);
+                    for (double tc = -60; tc <= 60; tc += 15) { ReedPipeSpec q = rr.spec; q.trim = (float)(rr.spec.trim * std::pow(2.0, tc / 1200.0)); const Heard h = hearReed(q, 0.012);
+                        fprintf(stderr, "  %+.0f:%s%+.1f/%.1f", tc, h.speaks ? "" : "X", h.speaks ? 1200 * std::log2(h.f / jb.hz) : 0.0, h.spread); }
+                    fprintf(stderr, "\n");
+                }
+                const Heard a = hearReed(rr.spec, 0.012), b = hearReed(rr.spec, 0.002);
+                rr.cents = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
+                const double cb = b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9;
+                { char buf[260]; snprintf(buf, sizeof buf, "slot %.1f%% curve x%.2f | slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
+                      100.0 * (1.0 - 1.0 / slot), gs, a.speaks ? "speaks" : "SILENT", rr.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? cb : 0.0, b.spread, rr.spec.trim); rr.why = buf; }
+                rr.ok = a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(rr.cents) < 0.5
+                        && std::fabs(cb) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(rr.spec.trim - 1.f) < 0.06f;
+                const double err = rr.ok ? -1.0 : (a.speaks && b.speaks ? std::fabs(rr.cents) + std::fabs(cb) + 10.0 * (std::max(0.0, a.spread - 3) + std::max(0.0, b.spread - 3)) : 1e9);
+                if (err < bestErr) { bestErr = err; bestOut = rr; }
+                if (rr.ok) break;
             }
-            out.spec = best;
             out.cents = 1e9; out.ok = false;
-            if (bestScore <= 0) { char buf[120]; snprintf(buf, sizeof buf, "slot %.1f%% | no tongue setting speaks steadily within 100 c of the pitch", 100.0 * (1.0 - 1.0 / slot)); out.why = buf; }
-            if (bestScore > 0) {
-                tuneTrim(out.spec, jb.hz, [](const ReedPipeSpec& q) { return hearReed(q, 0.012); });
-                const Heard a = hearReed(out.spec, 0.012), b = hearReed(out.spec, 0.002);
-                out.cents = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
-                { char buf[240]; snprintf(buf, sizeof buf, "slot %.1f%% | slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
-                      100.0 * (1.0 - 1.0 / slot), a.speaks ? "speaks" : "SILENT", out.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? 1200 * std::log2(b.f / jb.hz) : 0.0, b.spread, out.spec.trim); out.why = buf; }
-                out.ok = a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(out.cents) < 0.5
-                         && std::fabs(1200 * std::log2(b.f / jb.hz)) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(out.spec.trim - 1.f) < 0.06f;
-            }
+            if (!anySpeaks) { out.spec = base; char buf[120]; snprintf(buf, sizeof buf, "slot %.1f%% | no tongue setting speaks steadily within 100 c of the pitch", 100.0 * (1.0 - 1.0 / slot)); out.why = buf; }
+            else { out.spec = bestOut.spec; out.cents = bestOut.cents; out.ok = bestOut.ok; out.why = bestOut.why; }
             ckWrite(ckR, ckm, (uint32_t)j, out.ok, out.cents, 0.0, 0, out.spec, out.why);
             if ((j + 1) % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  reeds %zu / %zu\n", j + 1, reedJobs.size()); }
         }
