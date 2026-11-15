@@ -118,6 +118,30 @@ static double etHz(int key, double ratio) { return 440.0 * std::pow(2.0, (key - 
 struct Job { int rank; int key; const opus14::Stop* s; double scaleKey; double hz; };
 struct Result { FluePipeSpec spec; bool ok = false; double cents0 = 0, centsEnd = 0; int fam = 0; std::string why; };
 
+// Checkpoint (CHECKPOINT=<prefix>): every finished pipe is appended to <prefix>.flue / <prefix>.reed as it
+// completes, so a run that is stopped resumes where it was instead of starting again.
+template <class Spec>
+static void ckWrite(FILE* f, std::mutex& m, uint32_t j, bool ok, double a, double b, int fam, const Spec& sp, const std::string& why) {
+    if (!f) return;
+    std::lock_guard<std::mutex> lk(m);
+    const uint8_t o = ok; const uint32_t len = (uint32_t)why.size(), sz = sizeof(Spec);
+    fwrite(&sz, 4, 1, f); fwrite(&j, 4, 1, f); fwrite(&o, 1, 1, f); fwrite(&a, 8, 1, f); fwrite(&b, 8, 1, f); fwrite(&fam, 4, 1, f);
+    fwrite(&sp, sizeof(Spec), 1, f); fwrite(&len, 4, 1, f); fwrite(why.data(), 1, len, f); fflush(f);
+}
+template <class Spec, class Fn>
+static size_t ckRead(const std::string& path, Fn&& use) {
+    FILE* f = fopen(path.c_str(), "rb"); if (!f) return 0;
+    size_t n = 0;
+    for (;;) {
+        uint32_t sz, j, len; uint8_t o; double a, b; int fam; Spec sp;
+        if (fread(&sz, 4, 1, f) != 1 || sz != sizeof(Spec) || fread(&j, 4, 1, f) != 1 || fread(&o, 1, 1, f) != 1 || fread(&a, 8, 1, f) != 1
+            || fread(&b, 8, 1, f) != 1 || fread(&fam, 4, 1, f) != 1 || fread(&sp, sizeof(Spec), 1, f) != 1 || fread(&len, 4, 1, f) != 1 || len > 100000) break;
+        std::string why(len, ' '); if (len && fread(&why[0], 1, len, f) != len) break;
+        use(j, o != 0, a, b, fam, sp, why); ++n;
+    }
+    fclose(f); return n;
+}
+
 // What a pipe does when its key is pressed, judged from its sound (mouth + top / radiated):
 //   f        the pitch it speaks: the strongest component within 0.5 - 2 x the target, taken down to its
 //            fundamental, refined
@@ -277,13 +301,22 @@ int main(int argc, char** argv) {
         } else fprintf(stderr, "cannot reuse %s: computing the flue pipes\n", reuse);
         if (f) fclose(f);
     }
+    const char* ck = getenv("CHECKPOINT");
+    std::vector<char> doneF(jobs.size(), 0); std::mutex ckm;
+    if (ck) {
+        const size_t n = ckRead<FluePipeSpec>(std::string(ck) + ".flue", [&](uint32_t j, bool ok, double a, double b, int fam, const FluePipeSpec& sp, const std::string& why) {
+            if (j < jobs.size()) { res[j].spec = sp; res[j].ok = ok; res[j].cents0 = a; res[j].centsEnd = b; res[j].fam = fam; res[j].why = why; doneF[j] = 1; } });
+        fprintf(stderr, "checkpoint: %zu flue pipes already done\n", n);
+    }
+    FILE* ckF = ck ? fopen((std::string(ck) + ".flue").c_str(), "ab") : nullptr;
     auto worker = [&] {
         for (;;) {
             const size_t j = next++;
             if (j >= jobs.size()) return;
             const Job& jb = jobs[j]; Result& out = res[j];
             if (skip(jb.rank) || getenv("REEDS_ONLY")) { out.ok = true; continue; }
-            if (reused && out.ok) continue;
+            if (doneF[j]) continue;
+            if (reused && out.ok) { ckWrite(ckF, ckm, (uint32_t)j, out.ok, out.cents0, out.centsEnd, out.fam, out.spec, out.why); continue; }
             out.why.clear();
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
             const Design d0 = designAt(*jb.s, jb.scaleKey, jb.hz, v);
@@ -322,6 +355,7 @@ int main(int argc, char** argv) {
                 else if (unstable) jpp.gain = fam[jf].gain * (attempt % 2 == 0 ? std::pow(0.88, attempt / 2 + 1) : std::pow(1.15, attempt / 2 + 1));
                 else break;
             }
+            ckWrite(ckF, ckm, (uint32_t)j, out.ok, out.cents0, out.centsEnd, out.fam, out.spec, out.why);
             if ((j + 1) % 200 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu\n", j + 1, jobs.size()); }
         }
     };
@@ -332,6 +366,13 @@ int main(int argc, char** argv) {
     struct ReedResult { ReedPipeSpec spec; double cents = 0; bool ok = false; std::string why; };
     std::vector<ReedResult> reedRes(reedJobs.size());
     std::atomic<size_t> nextR{0};
+    std::vector<char> doneR(reedJobs.size(), 0);
+    if (ck) {
+        const size_t n = ckRead<ReedPipeSpec>(std::string(ck) + ".reed", [&](uint32_t j, bool ok, double a, double, int, const ReedPipeSpec& sp, const std::string& why) {
+            if (j < reedJobs.size()) { reedRes[j].spec = sp; reedRes[j].ok = ok; reedRes[j].cents = a; reedRes[j].why = why; doneR[j] = 1; } });
+        fprintf(stderr, "checkpoint: %zu reed pipes already done\n", n);
+    }
+    FILE* ckR = ck ? fopen((std::string(ck) + ".reed").c_str(), "ab") : nullptr;
     auto reedHz = [](const ReedPipeSpec& sp) {
         ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa); p.key(true);
         const int N = (int)(48000 * std::max(0.8, 0.3 + 60.0 / sp.target)), L = N / 2;
@@ -353,6 +394,7 @@ int main(int argc, char** argv) {
             if (j >= reedJobs.size()) return;
             const Job& jb = reedJobs[j];
             if (skip(jb.rank)) { reedRes[j].ok = true; reedRes[j].cents = 0; continue; }
+            if (doneR[j]) continue;
             const bool oboe = detailOboe(ranks[(size_t)jb.rank].name);
             ReedResult& out = reedRes[j];
             const reed::ReedConstants& kk = reedK[oboe ? 1 : 0];
@@ -392,6 +434,7 @@ int main(int argc, char** argv) {
                 out.ok = a.speaks && b.speaks && a.spread <= 3 && b.spread <= 3 && std::fabs(out.cents) < 0.5
                          && std::fabs(1200 * std::log2(b.f / jb.hz)) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(out.spec.trim - 1.f) < 0.06f;
             }
+            ckWrite(ckR, ckm, (uint32_t)j, out.ok, out.cents, 0.0, 0, out.spec, out.why);
             if ((j + 1) % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  reeds %zu / %zu\n", j + 1, reedJobs.size()); }
         }
     };
