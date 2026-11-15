@@ -364,6 +364,9 @@ int main(int argc, char** argv) {
             }
             if (reused && out.ok) { ckWrite(ckF, ckm, (uint32_t)j, out.ok, out.cents0, out.centsEnd, out.fam, out.spec, out.why); continue; }
             out.why.clear();
+            // keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of
+            // organ strings"); other flue pipes 30
+            const double limitF = familyOf(*jb.s) == kString ? std::max(0.3, 50.0 / jb.hz) : speechLimit(jb.hz);
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
             // a harmonic pipe has its hole at half the speaking length (Flynt); its size is not published:
             // opened from 10 % of the diameter, as at the voicing machine, until the pipe settles on its
@@ -386,26 +389,34 @@ int main(int argc, char** argv) {
             // were voiced above what their toe holes pass, and speak in 1.5 s there, at once lower down.)
             auto sweep = [&](int attempt) {
                 swept = true;
-                int runA = -1, runB = -1, bestA = -1, bestB = -1;
+                int bestA = -1, bestB = -1; double bestY = jpp.y0b;
                 std::vector<double> Is; for (double I = 1.0; I <= 4.2; I *= 1.04) Is.push_back(I);
+                // the languid (lip offset y0/b) as well: the family's own first, then from the jet thrown
+                // outside the mouth to the principal's setting (a beard keeps the sheet near the lip)
+                std::vector<double> Ys = { jpp.y0b };
+                for (double y : { -0.3, 0.0, 0.2, 0.4, 0.58 }) if (std::fabs(y - jpp.y0b) > 0.05) Ys.push_back(y);
+                for (double y : Ys) {
+                int runA = -1, runB = -1;
                 for (size_t q = 0; q <= Is.size(); ++q) {
                     bool good = false;
                     if (q < Is.size()) {
                         Voicing vq = v; vq.ising = Is[q];
                         Design dq = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, vq));
-                        const FluePipeSpec sq = specOf(dq, jpp);
+                        JetParams jq = jpp; jq.y0b = y;
+                        const FluePipeSpec sq = specOf(dq, jq);
                         const Heard ha = hearFlue(sq, 0.012), hb = hearFlue(sq, 0.002);
                         good = ha.speaks && hb.speaks && std::fabs(1200 * std::log2(ha.f / jb.hz)) < 300 && std::fabs(1200 * std::log2(hb.f / jb.hz)) < 300
-                               && ha.tSpeech <= speechLimit(jb.hz) && hb.tSpeech <= speechLimit(jb.hz) && ha.spread <= 3 && hb.spread <= 3;
+                               && ha.tSpeech <= limitF && hb.tSpeech <= limitF && ha.spread <= 3 && hb.spread <= 3;
                     }
                     if (good) { if (runA < 0) runA = (int)q; runB = (int)q; }
-                    else if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; } runA = runB = -1; }
+                    else if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; bestY = y; } runA = runB = -1; }
                 }
-                char buf[160];
+                }
+                char buf[200];
                 if (bestA >= 0) {
-                    v.ising = std::sqrt(Is[(size_t)bestA] * Is[(size_t)bestB]);
-                    snprintf(buf, sizeof buf, "[%d: swept: on its mode, steady and in time for Ising %.2f - %.2f, voiced at %.2f] ", attempt, Is[(size_t)bestA], Is[(size_t)bestB], v.ising);
-                } else snprintf(buf, sizeof buf, "[%d: swept Ising 1.0 - 4.2: never on its mode, steady and in time with both attacks] ", attempt);
+                    v.ising = std::sqrt(Is[(size_t)bestA] * Is[(size_t)bestB]); jpp.y0b = bestY;
+                    snprintf(buf, sizeof buf, "[%d: swept: speaks on its mode, steady, in time for Ising %.2f - %.2f at lip offset %.2f, voiced at %.2f] ", attempt, Is[(size_t)bestA], Is[(size_t)bestB], bestY, v.ising);
+                } else snprintf(buf, sizeof buf, "[%d: swept Ising 1.0 - 4.2 and lip offset -0.3 - 0.58: never speaks on its mode, steady, in time with both attacks] ", attempt);
                 out.why += buf;
                 d0 = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, v));
                 return bestA >= 0;
@@ -418,7 +429,7 @@ int main(int argc, char** argv) {
                     const Heard ha = hearFlue(sq, 0.012), hb = hearFlue(sq, 0.002);
                     std::lock_guard<std::mutex> lk(io);
                     fprintf(stderr, "%s key %d  Ising %.2f flue %.3f mm foot %.0f Pa: slow %s %+.0fc speech %.2fs spread %.1f | fast %+.0fc speech %.2fs | limit %.2fs\n", ranks[(size_t)jb.rank].name.c_str(), jb.key, I, dq.flue * 1e3, dq.footPa,
-                            ha.speaks ? "speaks" : "SILENT", ha.speaks ? 1200 * std::log2(ha.f / jb.hz) : 0.0, ha.tSpeech, ha.spread, hb.speaks ? 1200 * std::log2(hb.f / jb.hz) : 0.0, hb.tSpeech, speechLimit(jb.hz));
+                            ha.speaks ? "speaks" : "SILENT", ha.speaks ? 1200 * std::log2(ha.f / jb.hz) : 0.0, ha.tSpeech, ha.spread, hb.speaks ? 1200 * std::log2(hb.f / jb.hz) : 0.0, hb.tSpeech, limitF);
                 }
                 out.ok = true; continue;
             }
@@ -484,7 +495,7 @@ int main(int argc, char** argv) {
                 }
                 const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
                 out.centsEnd = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
-                const bool slow = !a.speaks || !b.speaks || a.tSpeech > speechLimit(jb.hz) || b.tSpeech > speechLimit(jb.hz);
+                const bool slow = !a.speaks || !b.speaks || a.tSpeech > limitF || b.tSpeech > limitF;
                 const bool unstable = a.spread > 3 || b.spread > 3 || (b.speaks && std::fabs(1200 * std::log2(b.f / jb.hz)) > 2);
                 out.ok = !slow && !unstable && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
                 char buf[220];
