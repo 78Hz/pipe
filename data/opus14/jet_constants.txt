@@ -1,9 +1,11 @@
-# Jet constants per family, matched to reference recordings on the real-time model (tools/ref/match.py,
-# results in data/reference/fit4_families.txt). chimney: no reference; the stopped constants (ASSUMPTION).
-# family    y0/b   lpk     gscale  kd     noise   vortex
-principal   0.520  3.018   1.198   0.776  0.0573  1
-string      0.771  0.990   1.328   0.870  0.0335  1
-openflute   1.067  2.095   0.744   1.683  0.0408  1
-stopped     0.038  0.782   0.334   2.376  0.0382  1
-chimney     0.038  0.782   0.334   2.376  0.0382  1
-harmonic    0.197  10.000  0.335   0.844  0.0066  1
+# Jet constants per family, matched to reference recordings on the real-time model with stability required
+# (every key, struck with a 2 ms and a 40 ms pallet, holds one pitch on its fundamental): tools/ref/match.py,
+# results in data/reference/fit5_stable.txt. ASSUMPTIONS: chimney (no reference), string and openflute use
+# the stopped constants - the string and open-flute matches were unstable in the bass (fit5_stable.txt).
+# family    y0/b     lpk     gscale  kd      noise    vortex
+principal   0.5812   2.682   0.9452  1.026   0.05908  0.9533
+string      -0.0777  10.0    0.9587  0.30    0.02315  0.2748
+openflute   -0.0777  10.0    0.9587  0.30    0.02315  0.2748
+stopped     -0.0777  10.0    0.9587  0.30    0.02315  0.2748
+chimney     -0.0777  10.0    0.9587  0.30    0.02315  0.2748
+harmonic    0.197    10.000  0.335   0.844   0.0066   1

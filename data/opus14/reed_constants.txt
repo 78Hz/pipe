@@ -1,4 +1,5 @@
-# Reed constants per family, matched to reference recordings (tools/ref/match.py MODE=reed).
+# Reed constants per family, matched to reference recordings (tools/ref/match.py MODE=reed), on the reed model
+# with flow and pressure solved together. Results: data/reference/fit6_reeds.txt.
 # family   width/lowerD  rest-opening/L  tongue-Q  boot-litres(8')  closure/x0
-trumpet    0.373         0.0203          63.5      0.62             1.0
-oboe       0.373         0.0203          63.5      0.62             1.0
+trumpet    0.6266        0.02024         61.38     0.5789           0.5777
+oboe       0.5655        0.01435         95.75     0.8926           0.5278

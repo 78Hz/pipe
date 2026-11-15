@@ -216,14 +216,20 @@ int main(int argc, char** argv) {
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
             Design d = designAt(*jb.s, jb.scaleKey, jb.hz, v);
             const JetFam jf = jetFamily(*jb.s, d); out.fam = jf;
+            JetParams jpp = fam[jf];
+            int boosts = 0;
             for (int it = 0; it < 10; ++it) {
-                out.spec = specOf(d, fam[jf]);
+                out.spec = specOf(d, jpp);
                 double h1, hh, h2; const double f = soundFreq(out.spec, h1, hh, h2);
                 const double c = 1200 * std::log2(f / jb.hz);
                 if (it == 0) out.cents0 = c;
                 out.centsEnd = c;
                 out.ok = h1 > 0 && h1 > hh && std::fabs(c) < 50;
-                if (!out.ok) { out.why = "f " + std::to_string(f) + " target " + std::to_string(jb.hz); if (std::fabs(c) > 300) break; }
+                if (!(h1 > 1e-6) && boosts < 4) {
+                    // silent: voiced up as a voicer would make it speak (a stronger jet), and recorded
+                    jpp.gain *= 1.25; ++boosts; out.why = "voiced up x" + std::to_string(std::pow(1.25, boosts)).substr(0, 4) + " to speak; "; --it; continue;
+                }
+                if (!out.ok) { out.why += "f " + std::to_string(f) + " target " + std::to_string(jb.hz); if (std::fabs(c) > 300) break; }
                 if (std::fabs(c) < 0.5) break;
                 recut(d, std::pow(f / jb.hz, 1.5));   // the jet pulls the pitch: a longer step converges faster
             }

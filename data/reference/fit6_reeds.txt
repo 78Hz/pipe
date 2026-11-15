@@ -1,0 +1,21 @@
+=== trumpet
+BEST 0.6266 0.02024 61.38 0.5789 0.5777 cost 434.4
+train 043-G   score 582.5  harmonics rms 19.6 dB  noise rms 19.1 dB  attack 187 / ref 53 ms  pitch -7 c
+train 055-G   score 417.1  harmonics rms 17.8 dB  noise rms 13.8 dB  attack 118 / ref 54 ms  pitch -16 c
+train 067-G   score 303.6  harmonics rms 16.3 dB  noise rms 7.9 dB  attack 82 / ref 175 ms  pitch -12 c
+HOLD  042-F#  score 1090.6  harmonics rms 26.4 dB  noise rms 27.5 dB  attack 220 / ref 62 ms  pitch -15 c
+HOLD  054-F#  score 513.2  harmonics rms 13.2 dB  noise rms 25.9 dB  attack 122 / ref 84 ms  pitch -15 c
+HOLD  066-F#  score 320.9  harmonics rms 14.9 dB  noise rms 13.8 dB  attack 55 / ref 104 ms  pitch -13 c
+HOLD  079-G   score 774.3  harmonics rms 26.5 dB  noise rms 9.9 dB  attack 239 / ref 47 ms  pitch -152 c
+bottom C speaks on fundamental: True
+=== oboe
+BEST 0.5655 0.01435 95.75 0.8926 0.5278 cost 538.8
+train 043-G   score 637.8  harmonics rms 17.6 dB  noise rms 25.6 dB  attack 88 / ref 77 ms  pitch -7 c
+train 055-G   score 681.9  harmonics rms 23.7 dB  noise rms 15.3 dB  attack 201 / ref 103 ms  pitch -16 c
+train 067-G   score 296.7  harmonics rms 11.4 dB  noise rms 15.9 dB  attack 405 / ref 51 ms  pitch +105 c
+HOLD  042-F#  score 674.0  harmonics rms 13.7 dB  noise rms 31.1 dB  attack 62 / ref 36 ms  pitch -15 c
+HOLD  054-F#  score 784.0  harmonics rms 16.8 dB  noise rms 31.7 dB  attack 72 / ref 71 ms  pitch -10 c
+HOLD  066-F#  score 1723.3  harmonics rms 23.9 dB  noise rms 45.2 dB  attack 1 / ref 43 ms  pitch -28 c
+HOLD  079-G   score 365.0  harmonics rms 16.4 dB  noise rms 13.5 dB  attack 24 / ref 51 ms  pitch -15 c
+bottom C speaks on fundamental: True
+ALLDONE

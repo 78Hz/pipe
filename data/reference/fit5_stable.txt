@@ -1,0 +1,44 @@
+=== stopped
+BEST -0.07774 10 0.9587 0.3 0.02315 0.2748 cost 232.0
+train 043-G   score 366.0  harmonics rms 18.3 dB  noise rms 5.3 dB  attack 443 / ref 116 ms  pitch -9 c
+train 055-G   score 171.1  harmonics rms 11.9 dB  noise rms 6.9 dB  attack 132 / ref 67 ms  pitch -13 c
+train 067-G   score 158.9  harmonics rms 11.6 dB  noise rms 6.0 dB  attack 46 / ref 111 ms  pitch -19 c
+HOLD  042-F#  score 236.5  harmonics rms 14.9 dB  noise rms 5.4 dB  attack 415 / ref 293 ms  pitch -7 c
+HOLD  054-F#  score 179.5  harmonics rms 12.0 dB  noise rms 6.4 dB  attack 110 / ref 407 ms  pitch -17 c
+HOLD  066-F#  score 162.0  harmonics rms 11.9 dB  noise rms 6.4 dB  attack 55 / ref 50 ms  pitch -26 c
+HOLD  079-G   score 290.8  harmonics rms 13.1 dB  noise rms 7.5 dB  attack 22 / ref 1 ms  pitch -25 c
+bottom C speaks on fundamental: True
+unstable key strikes (of 20): 0
+=== string
+BEST 1.189 1.898 1.392 1.38 0.02454 0.3906 cost 1450.4
+train 043-G   score 1142.8  harmonics rms 25.0 dB  noise rms 31.7 dB  attack 364 / ref 104 ms  pitch -17 c
+train 055-G   score 533.0  harmonics rms 12.6 dB  noise rms 27.3 dB  attack 95 / ref 132 ms  pitch -16 c
+train 067-G   score 1415.5  harmonics rms 15.0 dB  noise rms 48.8 dB  attack 47 / ref 33 ms  pitch -19 c
+HOLD  042-F#  score 1358.9  harmonics rms 28.3 dB  noise rms 33.3 dB  attack 305 / ref 139 ms  pitch -15 c
+HOLD  054-F#  score 879.2  harmonics rms 14.8 dB  noise rms 36.3 dB  attack 136 / ref 125 ms  pitch -15 c
+HOLD  066-F#  score 1256.6  harmonics rms 18.1 dB  noise rms 42.9 dB  attack 48 / ref 122 ms  pitch -18 c
+HOLD  079-G   score 1804.3  harmonics rms 22.5 dB  noise rms 50.8 dB  attack 20 / ref 44 ms  pitch -19 c
+bottom C speaks on fundamental: True
+unstable key strikes (of 20): 7
+=== openflute
+BEST 0.5962 3.489 1.215 0.9113 0.04023 0.8471 cost 945.0
+train 043-G   score 554.1  harmonics rms 13.7 dB  noise rms 26.9 dB  attack 286 / ref 148 ms  pitch -20 c
+train 055-G   score 1283.8  harmonics rms 16.8 dB  noise rms 44.7 dB  attack 133 / ref 89 ms  pitch -37 c
+train 067-G   score 277.1  harmonics rms 16.4 dB  noise rms 3.7 dB  attack 30 / ref 46 ms  pitch -30 c
+HOLD  042-F#  score 1474.6  harmonics rms 29.5 dB  noise rms 33.7 dB  attack 443 / ref 60 ms  pitch -35 c
+HOLD  054-F#  score 2370.4  harmonics rms 36.8 dB  noise rms 45.0 dB  attack 146 / ref 191 ms  pitch -32 c
+HOLD  066-F#  score 455.4  harmonics rms 20.4 dB  noise rms 7.1 dB  attack 36 / ref 114 ms  pitch -29 c
+bottom C speaks on fundamental: True
+unstable key strikes (of 16): 4
+=== principal
+BEST 0.5812 2.682 0.9452 1.026 0.05908 0.9533 cost 145.3
+train 043-G   score 97.6  harmonics rms 7.7 dB  noise rms 7.0 dB  attack 297 / ref 86 ms  pitch -28 c
+train 055-G   score 110.2  harmonics rms 6.9 dB  noise rms 10.8 dB  attack 118 / ref 215 ms  pitch -32 c
+train 067-G   score 228.1  harmonics rms 10.7 dB  noise rms 15.0 dB  attack 47 / ref 36 ms  pitch -37 c
+HOLD  042-F#  score 108.8  harmonics rms 9.7 dB  noise rms 5.3 dB  attack 260 / ref 177 ms  pitch -35 c
+HOLD  054-F#  score 105.3  harmonics rms 10.0 dB  noise rms 3.4 dB  attack 97 / ref 117 ms  pitch -36 c
+HOLD  066-F#  score 260.0  harmonics rms 10.4 dB  noise rms 17.4 dB  attack 50 / ref 47 ms  pitch -37 c
+HOLD  079-G   score 293.4  harmonics rms 16.7 dB  noise rms 5.5 dB  attack 18 / ref 23 ms  pitch -40 c
+bottom C speaks on fundamental: True
+unstable key strikes (of 20): 0
+ALLDONE
