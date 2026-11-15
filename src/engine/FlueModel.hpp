@@ -494,7 +494,11 @@ struct FlueSim {
         return ((double)(rng >> 11) * (1.0 / 9007199254740992.0) - 0.5) * 3.4641016151377544;
     }
     void setupNoise(double U) {
-        const double fc = std::min(0.4 * fs, 0.05 * U / h), Q = 0.7, w0 = 2 * M_PI * fc / fs, al = std::sin(w0) / (2 * Q), a0 = 1 + al;
+        // Verge's St_h = f h / U ~ 0.05 was measured where the jet at the lip is ~h thick at speed U
+        // (recorder, W/h ~ 4). With the turbulent organ-pipe jet the same rule is applied to the jet
+        // at the lip: thickness b / 0.4, speed lipSpeed U (as for the source spacing).
+        const double Ln = jp.turbulent ? b / 0.4 : h, Un = jp.turbulent ? lipSpeed * U : U;
+        const double fc = std::min(0.4 * fs, 0.05 * Un / Ln), Q = 0.7, w0 = 2 * M_PI * fc / fs, al = std::sin(w0) / (2 * Q), a0 = 1 + al;
         nbp.b0 = al / a0; nbp.b2 = -al / a0; nbp.a1 = -2 * std::cos(w0) / a0; nbp.a2 = (1 - al) / a0;
         const double enbw = M_PI / 2.0 * fc / Q;
         nbp.norm = 1.0 / std::sqrt(2.0 * enbw / fs);
@@ -652,7 +656,8 @@ struct FlueSim {
             const double y = nbp.b0 * xw + nbp.z1;
             nbp.z1 = -nbp.a1 * y + nbp.z2;
             nbp.z2 = nbp.b2 * xw - nbp.a2 * y;
-            dpNoise = jp.noise * 0.5 * rho * Uj * Uj * gate * y;
+            const double Un = jp.turbulent ? lipSpeed * Uj : Uj;   // dynamic pressure of the jet at the lip
+            dpNoise = jp.noise * 0.5 * rho * Un * Un * gate * y;
         }
         // Distance between the two flow sources of the jet-drive dipole (Ernoult 2016, sec. 2.3):
         //   0: Verge et al. (1994), sources one jet thickness behind the labium, jet thickness = h:
