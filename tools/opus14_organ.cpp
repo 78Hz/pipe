@@ -595,7 +595,10 @@ int main(int argc, char** argv) {
                 // Pykett): the least that gives a band is kept. A bass Bourdon has no band at the family's gain:
                 // where it speaks in time it does not lock its upper resonances (quasi-periodic, Auvray et al.),
                 // where it locks it speaks too slowly; with a stronger jet it does both.
-                for (double gx : { 1.0, 1.6, 2.5, 4.0, 6.3 }) {
+                // weaker jets too (after the family's own): a large stopped pipe with a second, loud regime (the
+                // jet thrown fully across the lip; 15 - 20 dB up, sharp, unsteady) loses it when the jet's gain
+                // is lower, while the quiet regime still speaks (2026-11-17: Bourdon 16' c#0, Subbass 32')
+                for (double gx : { 1.0, 0.63, 1.6, 0.4, 2.5, 4.0, 6.3 }) {
                 if (getenv("SWEEPGX") && std::fabs(gx - atof(getenv("SWEEPGX"))) > 0.01) continue;
                 const double g = fam[jf].gain * gx;
                 for (double y : Ys) {
