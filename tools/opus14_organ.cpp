@@ -1115,7 +1115,7 @@ int main(int argc, char** argv) {
       const uint32_t nr = (uint32_t)reedRes.size(), szr = sizeof(ReedPipeSpec);
       long pos = ftell(f); while (pos % 16 != 8) { fputc(0, f); ++pos; }
       fwrite(&nr, 4, 1, f); fwrite(&szr, 4, 1, f);
-      for (auto& r : reedRes) fwrite(&r.spec, sizeof(ReedPipeSpec), 1, f);
+      for (auto& r : reedRes) { if (r.spec.passR < 0) r.spec.passR = (float)reedPassiveR(r.spec); fwrite(&r.spec, sizeof(ReedPipeSpec), 1, f); }   // older checkpoints: worked out here, not at each note
       fclose(f); }
     // header
     { FILE* f = fopen(outArgs[3], "w");
