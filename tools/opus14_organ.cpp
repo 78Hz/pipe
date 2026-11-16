@@ -285,6 +285,7 @@ static double limitFor(const opus14::Stop& s, double hz) { return (familyOf(s) =
 // over each tremulant period holds within 3 c and the mean is within 50 c. (Before 2026-11-16 the test
 // was a static 0.89 and 1.11: that holds the low point of the tremulant for seconds, which the
 // tremulant never does, and it failed bass pipes that warble only after ~1 s in the low wind.)
+static thread_local double gPallet = 0.012;   // pallet opening time the voicer hears a pipe with (s)
 template <class Spec, class Hear>
 static bool seedRobust(const Spec& sp, Hear hear, std::string& note) {
     // The voicer hears every pipe with one noise seed; the engine seeds each pipe its own way. A pipe that has
@@ -306,6 +307,22 @@ static bool seedRobust(const Spec& sp, Hear hear, std::string& note) {
                 note = buf; return false;
             }
         }
+        // The engine opens the pallet in 8 ms (a hard strike) to 60 ms (a soft one) by default; the voicer
+        // hears 12 ms. How fast the wind comes on can also pick the regime (2026-11-17: Praestant 16' C#
+        // through the engine at 60 ms wavered +-50 c for 12 s; at 10 ms it held within 1.6 c), so the pipe
+        // speaks the same at both ends of that range.
+        const double p0 = gPallet;
+        for (double pt : { 0.008, 0.060 }) {
+            gPallet = pt;
+            const Heard h = hear(sp, 1.0, 0.0);
+            gPallet = p0;
+            const double dc = (h.speaks && ref.speaks) ? 1200 * std::log2(h.f / ref.f) : 1e9;
+            const double dl = (h.rms > 0 && ref.rms > 0) ? 20 * std::log10(h.rms / ref.rms) : 1e9;
+            if (!h.speaks || std::fabs(dc) > 5 || h.spread > 3 || std::fabs(dl) > 2) {
+                char buf[160]; snprintf(buf, sizeof buf, "pallet %.0f ms: %s %+.0fc %+.1fdB spread %.1f", pt * 1000, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? dc : 0.0, dl, h.spread);
+                note = buf; return false;
+            }
+        }
     }
     return true;
 }
@@ -321,10 +338,10 @@ static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) 
         }
     }
     if (!seedRobust(sp, hear, note)) return false;
-    note = "wind x0.92, tremulant and 3 noise seeds: holds"; return true;
+    note = "wind x0.92, tremulant, 3 noise seeds and pallet 8 - 60 ms: holds"; return true;
 }
-static auto flueAt = [](const FluePipeSpec& q, double x, double tr) { return hearFlue(q, 0.012, x, tr); };
-static auto reedAt = [](const ReedPipeSpec& q, double x, double tr) { return hearReed(q, 0.012, x, tr); };
+static auto flueAt = [](const FluePipeSpec& q, double x, double tr) { return hearFlue(q, gPallet, x, tr); };
+static auto reedAt = [](const ReedPipeSpec& q, double x, double tr) { return hearReed(q, gPallet, x, tr); };
 // Tunes by scaling the whole pipe (trim), by the secant method: the pitch does not move exactly in
 // proportion (the boot, the shallot and the jet speed are not scaled), so the step learns the slope.
 template <class Spec, class Hear>
