@@ -212,8 +212,24 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     const int nF = fr4 > 0 ? 4 : std::max(2, std::min(8, (int)((double)L / 48000 * target / 20.0))), Lf = L / nF; double mn = 1e9, mx = -1e9;
     // followed on the strongest of the first four harmonics (the same cents, a cleaner reading)
     int hk = 1; { double ha = 0; for (int k = 1; k <= 4; ++k) { const double v = toneAt(x, N - L, L, k * f, 48000); if (k * f < 20000 && v > ha) { ha = v; hk = k; } } }
-    for (int k = 0; k < nF; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
-    h.spread = 1200 * std::log2(mx / mn);
+    std::vector<double> cf((size_t)nF);
+    for (int k = 0; k < nF; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); cf[(size_t)k] = 1200 * std::log2(ff / (hk * f)); mn = std::min(mn, ff); mx = std::max(mx, ff); }
+    // Holding one pitch: a drift (the straight line through the frame readings, its change over the segment)
+    // is held to 3 c. The rest is the frame-to-frame jitter of a turbulent jet, random, and is held to what
+    // can be heard at the pitch: the frequency difference limen, Wier, Jesteadt & Green 1977 (JASA 61,
+    // 178), log10 dF = 0.026 sqrt(F) - 0.533 at 40 dB SL (5.9 c at 200 Hz, 3.4 c at 1 kHz, 5.6 c at
+    // 4 kHz; their data start at 200 Hz and lower pipes are held to the 200 Hz value, though the ear is
+    // coarser there), and not less than 3 c. h.spread is reported on the 3 c scale: max(drift, jitter x 3 / limen), so <= 3 passes
+    // either way. (2026-11-16: the Subbass 16' F, F#, D# failed at 3.2 - 3.6 c of random jitter alone; the
+    // owner listened and found them steady.)
+    {
+        double sk = 0, sc = 0, skk = 0, skc = 0; for (int k = 0; k < nF; ++k) { sk += k; sc += cf[(size_t)k]; skk += (double)k * k; skc += k * cf[(size_t)k]; }
+        const double sl = (nF * skc - sk * sc) / std::max(1e-9, nF * skk - sk * sk), drift = std::fabs(sl) * (nF - 1);
+        double rmn = 1e9, rmx = -1e9; for (int k = 0; k < nF; ++k) { const double r = cf[(size_t)k] - (sc / nF + sl * (k - sk / nF)); rmn = std::min(rmn, r); rmx = std::max(rmx, r); }
+        const double fl = std::max(200.0, f);   // below their 200 Hz the limen is held at its 200 Hz value (5.9 c): not extrapolated
+        const double limen = std::max(3.0, 1200 * std::log2(1.0 + std::pow(10.0, 0.026 * std::sqrt(fl) - 0.533) / fl));
+        h.spread = std::max(drift, (rmx - rmn) * 3.0 / limen);
+    }
     return h;
 }
 static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
