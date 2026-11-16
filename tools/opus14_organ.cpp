@@ -845,6 +845,9 @@ int main(int argc, char** argv) {
                                                        std::min(0.5, 0.6 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)), 1.0,
                                                        std::min(1.0, 3.0 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)) });   // from a hole of 3 x the flue
                     if (had < want) lv.push_back({ "flue", [s0, withFlue](double k) { return withFlue(s0, k); }, 1.0, 3.0 });
+                    // too loud, and the toe has not brought it down (a starved foot made the pipe slow or unsteady):
+                    // the flue narrowed (the voicer sets the languid closer to the lower lip)
+                    else lv.push_back({ "flue", [s0, withFlue](double k) { return withFlue(s0, k); }, 0.4, 1.0 });
                     for (const Lever& L : lv) {
                         if (bestErr <= 1.0) break;
                         // secant on log(k) against dB, from k = 1 (or the lever's end nearest)
