@@ -94,7 +94,8 @@ int main(int argc, char** argv) {
     e->prepare(fs);
     silenceAllStops(*e); e->setParameter(stopById("ii_gedeckt_8"), 1.f);   // Gedeckt 8 (stopped, bend limit 200c)
     e->setParameter(kParamTuning, kTun12); e->setParameter(kParamRoom, kRoomDry); e->setParameter(kParamAgeDrift, 0.f);
-    e->setParameter(kParamZoneLoDiv, kGreat); e->setParameter(kParamPedalSplit, 0.f);
+    // the zone plays the Gedeckt's own division (II); on the Great the note had no pipe and the reading was of silence
+    e->setParameter(kParamZoneLoDiv, (float)kStops[(size_t)stopById("ii_gedeckt_8")].division); e->setParameter(kParamPedalSplit, 0.f);
     uint8_t on[3] = { 0x91, 60, 100 }; e->midi(on, 3);
     std::vector<float> L2(fs * 2), R2(fs * 2);
     for (int i = 0; i < fs * 2; i += 64) {
