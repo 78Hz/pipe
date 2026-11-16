@@ -205,7 +205,11 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     h.over = (onOvertone || subOct) && h.rms >= 0.02 && std::fabs(h.growth) <= 1.0;
     const int fr = 480; const double fin = e / L; h.tSpeech = T;
     for (int i = 0; i + fr < N; i += fr) { double ef = 0; for (int k = 0; k < fr; ++k) ef += x[i + k] * x[i + k]; if (ef / fr > 0.5 * fin) { h.tSpeech = (double)i / 48000; break; } }
-    const int nF = fr4 > 0 ? 4 : 8, Lf = L / nF; double mn = 1e9, mx = -1e9;
+    // Frames of at least 20 periods each (up to eight over the segment): a fixed 0.25 s frame is 1000 periods
+    // of a treble pipe but 8 of a 32 Hz bass, where the reading then follows the period-to-period jitter of a
+    // turbulent jet (+-2 c in 0.25 s, within 1 c over 1 s, on the Subbass 16' C, 2026-11-16), and every
+    // pipe is judged over the same number of its own periods.
+    const int nF = fr4 > 0 ? 4 : std::max(2, std::min(8, (int)((double)L / 48000 * target / 20.0))), Lf = L / nF; double mn = 1e9, mx = -1e9;
     // followed on the strongest of the first four harmonics (the same cents, a cleaner reading)
     int hk = 1; { double ha = 0; for (int k = 1; k <= 4; ++k) { const double v = toneAt(x, N - L, L, k * f, 48000); if (k * f < 20000 && v > ha) { ha = v; hk = k; } } }
     for (int k = 0; k < nF; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
