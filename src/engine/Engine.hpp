@@ -966,7 +966,7 @@ private:
         switch (id) {
         case kParamTremSpeed: wind.tremSpeed = v; break;
         case kParamTremDepth: wind.tremDepth = v; break;
-        case kParamTremTarget: wind.tremTarget = std::max(0, std::min(2, (int)v)); break;
+        case kParamTremTarget: wind.tremTarget = std::max(0, std::min(kNumDivisions - 1, (int)v)); break;
         case kParamStability: wind.flexibility = v; break;
         case kParamReservoir: wind.reservoirTarget = v; break;
         case kParamConcussion: wind.concussion = v; break;
