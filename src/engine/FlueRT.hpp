@@ -37,6 +37,11 @@ struct FluePipeSpec {
     float vortex = 1.f;        // vortex-shedding loss at the lip, x the sharp-edge value (contraction 0.6)
     int nModes = 0;
     float f[kRtMaxModes], Q[kRtMaxModes], pkRe[kRtMaxModes], pkIm[kRtMaxModes], topRe[kRtMaxModes], topIm[kRtMaxModes];
+    // A pipe on an offset chest of its own, fed straight from the blower (Opus 14: the 12 lowest notes of the
+    // Subbass 32', Vogt ch. 3), opens a valve made for that pipe instead of the note's pallet: its open area
+    // (discharge coefficient included) is valve x the flue area. 0 = the note's pallet. (Last in the record:
+    // a record written before it was added reads with 0.)
+    float valve = 0;
 };
 
 // tanh by its [9/8] continued-fraction (Lambert) approximant, limited to +-1: the approximant reaches
@@ -244,7 +249,7 @@ private:
         // inflow(dP) = (-bb + sqrt(bb^2 + 4 aa dP)) / (2 aa); outflow(P) = h Wm (sqrt(R^2 + 2 rho P) - R)/rho
         double aa = 0, bb = 0; const bool open = g > 1e-9;
         if (open) {
-            const double Ap = kCdd * kW * g;
+            const double Ap = sp.valve > 0 ? (double)sp.valve * sp.h * sp.Wm * palletPos : kCdd * kW * g;
             aa = rho / (2 * Ap * Ap);
             if (toeArea > 0) aa += rho / (2 * (kCdd * toeArea) * (kCdd * toeArea));
             bb = 12.0 * mu * kSeal / (kW * g * g * g);

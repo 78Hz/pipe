@@ -74,6 +74,7 @@ struct Design {
     double target = 0;          // Hz
     double ising = 0;
     bool wood = false;
+    double valve = 0;           // offset-chest valve, open area / flue area (0: the note's pallet; FluePipeSpec::valve)
     // resonator
     std::vector<Mode> modes;
     std::vector<cd> topRatio;
@@ -204,6 +205,12 @@ inline Design designAt(const opus14::Stop& s, double key, double targetHz, const
     d.target = targetHz;
     const int ob = overblowFrom(s);
     d.speakMode = key >= ob ? 2 : 1;
+    // "the 12 lowest notes of Subbass 32' and Trombone 32' stand on electric offset chests fed directly from
+    // the blower" (Vogt ch. 3). Such a valve is made for its pipe: it is taken to pass the pipe's wind as the
+    // open toe the pipe is voiced with assumes (foot = chest): open area 10 x the flue, a 1 % drop
+    // (P_foot / P_chest = 1 / (1 + 1/10^2)). The note's pallet (FlueRT, 150 x 8 mm) would pass about as
+    // much air as a 32' flue and halve its foot pressure. (ASSUMPTION: the valve's size is not published.)
+    if (std::strcmp(s.name, "Subbass 32'") == 0 && key < 36 + 12) d.valve = 10.0;
 
     // diameters
     const opus14::Row* dia = findRow(s, "Diameter");
@@ -969,7 +976,7 @@ inline FluePipeSpec specOf(const Design& d, const JetParams& jp) {
     s.target = (float)d.target; s.h = (float)d.flue; s.W = (float)d.cutup; s.Wm = (float)d.mouthWidth;
     s.languid = (float)d.languid; s.radius = (float)d.radius; s.toe = (float)d.toe; s.footPa = (float)d.footPa;
     s.b = (float)sim.b; s.transit = (float)sim.transit; s.lipSpeed = (float)sim.lipSpeed;
-    s.length = (float)d.g.body[0].L; s.shape = (float)d.shape; s.wood = d.wood ? 1.f : 0.f;
+    s.length = (float)d.g.body[0].L; s.shape = (float)d.shape; s.wood = d.wood ? 1.f : 0.f; s.valve = (float)d.valve;
     s.y0b = (float)jp.y0b; s.lpk = (float)jp.lpk; s.gscale = (float)(jp.gain < 0 ? -jp.gain : 1.0); s.kd = (float)jp.kd;
     s.noise = (float)jp.noise; s.sign = (float)jp.sign; s.vortex = (float)jp.vortex;
     s.nModes = (int)std::min<size_t>(kRtMaxModes, d.modes.size());

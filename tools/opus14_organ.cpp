@@ -136,8 +136,9 @@ static size_t ckRead(const std::string& path, Fn&& use) {
     size_t n = 0;
     for (;;) {
         uint32_t sz, j, len; uint8_t o; double a, b; int fam; Spec sp;
-        if (fread(&sz, 4, 1, f) != 1 || sz != sizeof(Spec) || fread(&j, 4, 1, f) != 1 || fread(&o, 1, 1, f) != 1 || fread(&a, 8, 1, f) != 1
-            || fread(&b, 8, 1, f) != 1 || fread(&fam, 4, 1, f) != 1 || fread(&sp, sizeof(Spec), 1, f) != 1 || fread(&len, 4, 1, f) != 1 || len > 100000) break;
+        // a record written before fields were added at the end of Spec is shorter: those fields keep their defaults
+        if (fread(&sz, 4, 1, f) != 1 || sz > sizeof(Spec) || sz < sizeof(Spec) - 64 || fread(&j, 4, 1, f) != 1 || fread(&o, 1, 1, f) != 1 || fread(&a, 8, 1, f) != 1
+            || fread(&b, 8, 1, f) != 1 || fread(&fam, 4, 1, f) != 1 || fread(&sp, sz, 1, f) != 1 || fread(&len, 4, 1, f) != 1 || len > 100000) break;
         std::string why(len, ' '); if (len && fread(&why[0], 1, len, f) != len) break;
         use(j, o != 0, a, b, fam, sp, why); ++n;
     }
@@ -378,7 +379,9 @@ int main(int argc, char** argv) {
     if (getenv("JOBLIST")) { for (size_t j = 0; j < jobs.size(); ++j) printf("%zu\t%s\t%d\t%.2f%s\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, jobs[j].hz, absent[j] ? "\tabsent" : ""); return 0; }
     // ONLY=<text>: a trial on the ranks whose name contains it (the others are skipped; nothing usable is written)
     const char* only = getenv("ONLY");
-    auto skip = [&](int rank) { return only && ranks[(size_t)rank].name.find(only) == std::string::npos; };
+    // SKIP=<text>: the ranks whose name contains it are left for a later run (their pipes are not voiced now)
+    const char* skipTxt = getenv("SKIP");
+    auto skip = [&](int rank) { return (only && ranks[(size_t)rank].name.find(only) == std::string::npos) || (skipTxt && ranks[(size_t)rank].name.find(skipTxt) != std::string::npos); };
 
     std::vector<Result> res(jobs.size());
     std::atomic<size_t> next{0}; std::mutex io; bool reused = false;
