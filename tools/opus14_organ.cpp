@@ -500,6 +500,18 @@ int main(int argc, char** argv) {
         fprintf(stderr, "seed check: %zu of %zu pipes do not hold\n", nbad.load(), list.size());
         return 0;
     }
+    // SEEDSCAN=N: the pipes chosen (ONLY, KEYS) are heard as voiced with noise seeds 1..N; prints each reading. Then stops.
+    if (getenv("SEEDSCAN")) {
+        const int N = std::max(1, atoi(getenv("SEEDSCAN")));
+        std::vector<std::pair<size_t, uint32_t>> list;
+        for (size_t j = 0; j < jobs.size(); ++j) if (doneF[j] && !absent[j] && !skip(jobs[j].rank)) for (int sd = 1; sd <= N; ++sd) list.push_back({ j, (uint32_t)sd });
+        std::atomic<size_t> nx{0};
+        auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i].first; gSeed = list[i].second;
+            const Heard h = hearFlue(res[j].spec, 0.012);
+            std::lock_guard<std::mutex> lk(io); printf("%zu\t%s\t%d\tseed %u\t%s\t%+.1fc\trms %.3f\tspread %.1f\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, list[i].second, h.speaks ? "speaks" : "NOT", h.speaks ? 1200 * std::log2(h.f / jobs[j].hz) : 0.0, h.rms, h.spread); fflush(stdout); } };
+        std::vector<std::thread> tv; for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) tv.emplace_back(w); for (auto& t : tv) t.join();
+        return 0;
+    }
     // VERIFY: every pipe already voiced is heard again under the current checks (a pipe voiced before a
     // check existed has not passed it); one that fails is voiced again. Pipes verified are listed in
     // <checkpoint>.fverify (job, 1/0, the reading) so that a resumed run does not hear them twice.
