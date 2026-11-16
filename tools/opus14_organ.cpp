@@ -331,6 +331,24 @@ static bool seedRobust(const Spec& sp, Hear hear, std::string& note) {
                 note = buf; return false;
             }
         }
+        // Struck as the engine strikes it, many times: a noise seed and a pallet ramp of 8 - 60 ms drawn at random
+        // (the same draw for a pipe every run). A bass pipe that has a second, louder regime falls into it on
+        // perhaps one strike in ten (ATTACKSCAN, 2026-11-17: 15 of the first 900 pipes, all bass); it is not
+        // voiced until it speaks the same on every strike. 16 strikes below 140 Hz, where it was found, 4 above.
+        const int nStrike = getenv("STRIKES") ? atoi(getenv("STRIKES")) : (sp.target < 140.f ? 16 : 4);
+        for (int a = 0; a < nStrike; ++a) {
+            const uint32_t hh = (uint32_t)((uint32_t)(sp.target * 1000.f) * 2654435761u + a * 40503u + 777u);
+            gSeed = (hh ^ (hh >> 13)) * 0x5bd1e995u; gReedSeed = gSeed; gPallet = -(0.008 + 0.052 * ((hh >> 8) & 1023) / 1023.0);
+            const Heard h = hear(sp, 1.0, 0.0);
+            const uint32_t usedSeed = gSeed; const double usedRamp = -gPallet;
+            gSeed = f0; gReedSeed = r0; gPallet = p0;
+            const double dc = (h.speaks && ref.speaks) ? 1200 * std::log2(h.f / ref.f) : 1e9;
+            const double dl = (h.rms > 0 && ref.rms > 0) ? 20 * std::log10(h.rms / ref.rms) : 1e9;
+            if (!h.speaks || std::fabs(dc) > 5 || h.spread > 3 || std::fabs(dl) > 2) {
+                char buf[180]; snprintf(buf, sizeof buf, "strike %d (seed %u, ramp %.0f ms): %s %+.0fc %+.1fdB spread %.1f", a + 1, usedSeed, usedRamp * 1000, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? dc : 0.0, dl, h.spread);
+                note = buf; return false;
+            }
+        }
     }
     return true;
 }
@@ -346,7 +364,7 @@ static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) 
         }
     }
     if (!seedRobust(sp, hear, note)) return false;
-    note = "wind x0.92, tremulant, 3 noise seeds and pallet 8 - 60 ms: holds"; return true;
+    note = "wind x0.92, tremulant, 3 noise seeds, pallet 8 - 60 ms and repeated strikes: holds"; return true;
 }
 static auto flueAt = [](const FluePipeSpec& q, double x, double tr) { return hearFlue(q, gPallet, x, tr); };
 static auto reedAt = [](const ReedPipeSpec& q, double x, double tr) { return hearReed(q, gPallet, x, tr); };
