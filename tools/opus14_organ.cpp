@@ -153,8 +153,10 @@ static size_t ckRead(const std::string& path, Fn&& use) {
 //   spread   pitch spread over eight frames of the last 40 % (cents): does it hold one pitch
 // over: it sounds (loud enough, settled) but on an overtone or with the octave below: overdriven, not faint
 struct Heard { double f = 0, rms = 0, tSpeech = 1e9, spread = 1e9, growth = 0; bool speaks = false, over = false; };
-static Heard analyse(const std::vector<double>& x, double target, double T) {
-    Heard h; const int N = (int)x.size(), L = (int)(0.4 * N);
+// fr > 0: judged over the last four frames of fr samples each (whole tremulant periods): the growth is
+// the last frame against the first and the spread is over the four
+static Heard analyse(const std::vector<double>& x, double target, double T, int fr4 = 0) {
+    Heard h; const int N = (int)x.size(), L = fr4 > 0 ? 4 * fr4 : (int)(0.4 * N);
     double e = 0; for (int i = N - L; i < N; ++i) e += x[i] * x[i];
     h.rms = std::sqrt(e / L);
     if (!(h.rms > 1e-6)) return h;
@@ -173,7 +175,7 @@ static Heard analyse(const std::vector<double>& x, double target, double T) {
     h.f = f;
     {
         auto rmsOf = [&](int a, int b) { double q = 0; for (int i = a; i < b; ++i) q += x[i] * x[i]; return std::sqrt(q / std::max(1, b - a)); };
-        const double r60 = rmsOf((int)(0.6 * N), (int)(0.7 * N)), rEnd = rmsOf((int)(0.9 * N), N);
+        const double r60 = fr4 > 0 ? rmsOf(N - 4 * fr4, N - 3 * fr4) : rmsOf((int)(0.6 * N), (int)(0.7 * N)), rEnd = fr4 > 0 ? rmsOf(N - fr4, N) : rmsOf((int)(0.9 * N), N);
         h.growth = 20 * std::log10((rEnd + 1e-12) / (r60 + 1e-12));
     }
     // a sound that has collapsed onto one overtone (harmonic k more than 6 dB above the fundamental and
@@ -195,50 +197,64 @@ static Heard analyse(const std::vector<double>& x, double target, double T) {
     h.over = (onOvertone || subOct) && h.rms >= 0.02 && std::fabs(h.growth) <= 1.0;
     const int fr = 480; const double fin = e / L; h.tSpeech = T;
     for (int i = 0; i + fr < N; i += fr) { double ef = 0; for (int k = 0; k < fr; ++k) ef += x[i + k] * x[i + k]; if (ef / fr > 0.5 * fin) { h.tSpeech = (double)i / 48000; break; } }
-    const int Lf = L / 8; double mn = 1e9, mx = -1e9;
+    const int nF = fr4 > 0 ? 4 : 8, Lf = L / nF; double mn = 1e9, mx = -1e9;
     // followed on the strongest of the first four harmonics (the same cents, a cleaner reading)
     int hk = 1; { double ha = 0; for (int k = 1; k <= 4; ++k) { const double v = toneAt(x, N - L, L, k * f, 48000); if (k * f < 20000 && v > ha) { ha = v; hk = k; } } }
-    for (int k = 0; k < 8; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
+    for (int k = 0; k < nF; ++k) { const double ff = peakFreq(x, N - L + k * Lf, Lf, hk * f, 0.03, 48000); mn = std::min(mn, ff); mx = std::max(mx, ff); }
     h.spread = 1200 * std::log2(mx / mn);
     return h;
 }
 static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
-static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0) {
+// trem > 0: the chest pulses +-11 % at trem Hz (the tremulant at its default depth), judged over the last
+// four of its periods after the pipe has spoken
+static constexpr double kTremDepth = 0.11;
+static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
     FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
-    const double T = renderTime(sp.target); const int N = (int)(T * 48000);
+    const double T = renderTime(sp.target) + (trem > 0 ? 4.0 / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float m, t;
-    for (int i = 0; i < N; ++i) { p.render(&m, &t, 1); x[i] = m + t; }
-    return analyse(x, sp.target, T);
+    for (int i = 0; i < N; ++i) {
+        if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
+        p.render(&m, &t, 1); x[i] = m + t;
+    }
+    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(48000 / trem) : 0);
 }
-static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0) {
+static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
     ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
-    const double T = renderTime(sp.target); const int N = (int)(T * 48000);
+    const double T = renderTime(sp.target) + (trem > 0 ? 4.0 / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float o;
-    for (int i = 0; i < N; ++i) { p.render(&o, 1); x[i] = o; }
-    return analyse(x, sp.target, T);
+    for (int i = 0; i < N; ++i) {
+        if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
+        p.render(&o, 1); x[i] = o;
+    }
+    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(48000 / trem) : 0);
 }
 static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
 // keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of organ
 // strings"); other pipes 30
 static double limitFor(const opus14::Stop& s, double hz) { return familyOf(s) == kString ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
-// The wind in the instrument is not constant: full chords sag the chest by up to ~8 % (Wind.hpp, default
-// flexibility) and the tremulant swings it +-11 % (depth 0.22). A pipe has to stay on its note there: at
-// 0.89 and 1.11 x the chest it speaks, settles, holds one pitch, within 50 c (the pitch of a flue pipe
-// rises with the wind; it must not change mode or break up).
+// The wind in the instrument is not constant, and a pipe has to stay on its note in the wind it will get
+// (Wind.hpp): full chords sag the chest by up to ~8 % (default flexibility; the lid's bounce back
+// overshoots by well under 1 %), and the tremulant pulses it +-11 % (default depth 0.22) at 3 - 9 Hz.
+// So: at 0.92 x the chest it speaks, settles and holds one pitch within 50 c; under the tremulant at
+// its slowest (3 Hz, the longest dwell in the low wind) it keeps speaking its note: the pitch averaged
+// over each tremulant period holds within 3 c and the mean is within 50 c. (Before 2026-11-16 the test
+// was a static 0.89 and 1.11: that holds the low point of the tremulant for seconds, which the
+// tremulant never does, and it failed bass pipes that warble only after ~1 s in the low wind.)
 template <class Spec, class Hear>
 static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) {
-    for (double x : { 0.89, 1.11 }) {
-        const Heard h = hear(sp, x);
+    struct C { double chest, trem; const char* what; };
+    for (const C& w : { C{ 0.92, 0.0, "wind x0.92" }, C{ 1.0, 3.0, "tremulant 3 Hz +-11%" } }) {
+        const Heard h = hear(sp, w.chest, w.trem);
         const double c = h.speaks ? 1200 * std::log2(h.f / hz) : 1e9;
         if (!h.speaks || std::fabs(c) > 50 || h.spread > 3) {
-            char buf[120]; snprintf(buf, sizeof buf, "wind x%.2f: %s %+.0fc spread %.1f", x, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? c : 0.0, h.spread);
+            char buf[140]; snprintf(buf, sizeof buf, "%s: %s %+.0fc spread %.1f", w.what, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? c : 0.0, h.spread);
             note = buf; return false;
         }
     }
-    note = "wind 0.89 - 1.11: holds"; return true;
+    note = "wind x0.92 and tremulant: holds"; return true;
 }
-static auto flueAt = [](const FluePipeSpec& q, double x) { return hearFlue(q, 0.012, x); };
-static auto reedAt = [](const ReedPipeSpec& q, double x) { return hearReed(q, 0.012, x); };
+static auto flueAt = [](const FluePipeSpec& q, double x, double tr) { return hearFlue(q, 0.012, x, tr); };
+static auto reedAt = [](const ReedPipeSpec& q, double x, double tr) { return hearReed(q, 0.012, x, tr); };
 // Tunes by scaling the whole pipe (trim), by the secant method: the pitch does not move exactly in
 // proportion (the boot, the shallot and the jet speed are not scaled), so the step learns the slope.
 template <class Spec, class Hear>
@@ -397,6 +413,28 @@ int main(int argc, char** argv) {
         fprintf(stderr, "checkpoint: %zu flue pipes already done\n", n);
     }
     FILE* ckF = ck ? fopen((std::string(ck) + ".flue").c_str(), "ab") : nullptr;
+    // VERIFY: every pipe already voiced is heard again under the current checks (a pipe voiced before a
+    // check existed has not passed it); one that fails is voiced again. Pipes verified are listed in
+    // <checkpoint>.fverify (job, 1/0, the reading) so that a resumed run does not hear them twice.
+    const bool verifyAll = getenv("VERIFY") && ck;
+    std::vector<char> verified(jobs.size(), 0);
+    FILE* vfF = nullptr;
+    if (verifyAll) {
+        if (FILE* f = fopen((std::string(ck) + ".fverify").c_str(), "r")) { unsigned jj; int okv; char line[600];
+            while (fgets(line, sizeof line, f)) if (sscanf(line, "%u %d", &jj, &okv) == 2 && jj < jobs.size() && okv) verified[jj] = 1; fclose(f); }
+        vfF = fopen((std::string(ck) + ".fverify").c_str(), "a");
+    }
+    auto checkFlue = [&](size_t j, std::string& why) {
+        const FluePipeSpec& sp = res[j].spec; const double hz = jobs[j].hz;
+        const Heard a = hearFlue(sp, 0.012), b = hearFlue(sp, 0.002);
+        const double c = a.speaks ? 1200 * std::log2(a.f / hz) : 1e9, cb = b.speaks ? 1200 * std::log2(b.f / hz) : 1e9;
+        const double lim = limitFor(*jobs[j].s, hz);
+        bool ok = a.speaks && b.speaks && a.tSpeech <= lim && b.tSpeech <= lim && a.spread <= 3 && b.spread <= 3 && std::fabs(cb) <= 2
+                  && std::fabs(c) < 0.5 && std::fabs(sp.trim - 1.f) < 0.06f;
+        std::string wn; if (ok) ok = windRobust(sp, hz, flueAt, wn);
+        char buf[300]; snprintf(buf, sizeof buf, "[verify: %s rms %.3f %+.2fc fast %+.2fc spread %.1f/%.1f speech %.2f/%.2fs trim %.3f %s]", a.speaks ? "speaks" : "NOT SPEAKING", a.rms, c, cb, a.spread, b.spread, a.tSpeech, b.tSpeech, sp.trim, wn.c_str());
+        why = buf; return ok;
+    };
     auto worker = [&] {
         for (;;) {
             const size_t j = next++;
@@ -404,6 +442,12 @@ int main(int argc, char** argv) {
             const Job& jb = jobs[j]; Result& out = res[j];
             if (skip(jb.rank) || getenv("REEDS_ONLY") || absent[j]) { out.ok = true; continue; }
             if (const char* ks = getenv("KEYS")) { int a = 0, b = 127; sscanf(ks, "%d-%d", &a, &b); if (jb.key < a || jb.key > b) { out.ok = true; continue; } }
+            if (doneF[j] && verifyAll && out.ok && !verified[j]) {
+                std::string vw; const bool vok = checkFlue(j, vw);
+                { std::lock_guard<std::mutex> lk(ckm); if (vfF) { fprintf(vfF, "%zu %d %s\n", j, vok ? 1 : 0, vw.c_str()); fflush(vfF); } }
+                if (vok) continue;
+                doneF[j] = 0; out.ok = false; out.why = vw + " ";   // voiced again below
+            }
             if (doneF[j]) continue;
             if (getenv("SURVEY")) {
                 out.ok = true;
@@ -448,7 +492,7 @@ int main(int argc, char** argv) {
             auto sweep = [&](int attempt) {
                 swept = true;
                 int bestA = -1, bestB = -1; double bestY = jpp.y0b, bestG = jpp.gain;
-                std::vector<double> Is; for (double I = 1.0; I <= 4.2; I *= 1.04) Is.push_back(I);
+                std::vector<double> Is; for (double I = 1.0; I <= 4.2; I *= 1.04) if (!getenv("SWEEPTRACE") || !getenv("ISTART") || (I >= atof(getenv("ISTART")) && I <= atof(getenv("IEND")))) Is.push_back(I);
                 // the languid (lip offset y0/b) as well: the family's own first, then from the jet thrown
                 // outside the mouth to the principal's setting (a beard keeps the sheet near the lip)
                 std::vector<double> Ys = { jpp.y0b };
@@ -458,6 +502,7 @@ int main(int argc, char** argv) {
                 // where it speaks in time it does not lock its upper resonances (quasi-periodic, Auvray et al.),
                 // where it locks it speaks too slowly; with a stronger jet it does both.
                 for (double gx : { 1.0, 1.6, 2.5, 4.0, 6.3 }) {
+                if (getenv("SWEEPGX") && std::fabs(gx - atof(getenv("SWEEPGX"))) > 0.01) continue;
                 const double g = fam[jf].gain * gx;
                 for (double y : Ys) {
                 int runA = -1, runB = -1;
@@ -473,8 +518,14 @@ int main(int argc, char** argv) {
                         // moves once the body is cut (the mode, the speech and the Ising number follow the length)
                         const Heard h0 = hearFlue(sq, 0.012);
                         good = ok1(h0, 300);
-                        if (good) { recut(dq, std::pow(h0.f / jb.hz, 1.5)); sq = specOf(dq, jq); good = ok1(hearFlue(sq, 0.012), 50) && ok1(hearFlue(sq, 0.002), 50); }
-                        if (good) { std::string wn; good = windRobust(sq, jb.hz, flueAt, wn); }
+                        Heard h1, h2; std::string wn;
+                        if (good) { recut(dq, std::pow(h0.f / jb.hz, 1.5)); sq = specOf(dq, jq); h1 = hearFlue(sq, 0.012); good = ok1(h1, 50); if (good) { h2 = hearFlue(sq, 0.002); good = ok1(h2, 50); } }
+                        if (good) good = windRobust(sq, jb.hz, flueAt, wn);
+                        if (getenv("SWEEPTRACE")) { std::lock_guard<std::mutex> lk(io);
+                            fprintf(stderr, "sweep %s %d g x%.1f y %.2f I %.2f | uncut %s %+.0fc %.2fs sp %.1f | cut %s %+.1fc %.2fs sp %.1f | fast %s %+.1fc %.2fs sp %.1f | %s\n", ranks[(size_t)jb.rank].name.c_str(), jb.key, gx, y, Is[q],
+                                h0.speaks ? "ok" : (h0.over ? "OVER" : "NO"), h0.speaks ? 1200 * std::log2(h0.f / jb.hz) : 0.0, h0.tSpeech, h0.spread,
+                                h1.speaks ? "ok" : (h1.over ? "OVER" : "NO"), h1.speaks ? 1200 * std::log2(h1.f / jb.hz) : 0.0, h1.tSpeech, h1.spread,
+                                h2.speaks ? "ok" : (h2.over ? "OVER" : "NO"), h2.speaks ? 1200 * std::log2(h2.f / jb.hz) : 0.0, h2.tSpeech, h2.spread, wn.c_str()); }
                     }
                     if (good) { if (runA < 0) runA = (int)q; runB = (int)q; }
                     else if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; bestY = y; bestG = g; } runA = runB = -1; }
@@ -512,6 +563,7 @@ int main(int argc, char** argv) {
                 }
                 out.ok = true; continue;
             }
+            if (getenv("SWEEPTRACE")) { sweep(0); out.ok = true; continue; }
             for (int attempt = 0; attempt < 14 && !out.ok; ++attempt) {
                 Design d = d0;
                 out.spec = specOf(d, jpp);
