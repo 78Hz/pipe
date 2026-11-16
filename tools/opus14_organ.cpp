@@ -556,7 +556,7 @@ int main(int argc, char** argv) {
             // a harmonic pipe has its hole at half the speaking length (Flynt); its size is not published:
             // opened from 10 % of the diameter, as at the voicing machine, until the pipe settles on its
             // second mode
-            double holeFrac = getenv("HOLE") ? 0.10 : 0.0;   // off: in this model the hole made the pipes worse (open point)
+            double holeFrac = getenv("HOLE") ? (atof(getenv("HOLE")) > 0 ? atof(getenv("HOLE")) : 0.10) : 0.0;   // off: in this model the hole made the pipes worse (open point)
             auto withHole = [&](Design dd) {
                 if (dd.speakMode == 2 && holeFrac > 0) { const double L = dd.g.body[0].L, dia = 2 * dd.radius;
                     dd.g.holes = { { 0.5 * L, M_PI * 0.25 * (holeFrac * dia) * (holeFrac * dia), dd.g.wall } }; recut(dd, 1.0); }
