@@ -582,7 +582,11 @@ int main(int argc, char** argv) {
             auto sweep = [&](int attempt) {
                 swept = true;
                 int bestA = -1, bestB = -1; double bestY = jpp.y0b, bestG = jpp.gain;
-                std::vector<double> Is; for (double I = 1.0; I <= 4.2; I *= 1.04) if (!getenv("SWEEPTRACE") || !getenv("ISTART") || (I >= atof(getenv("ISTART")) && I <= atof(getenv("IEND")))) Is.push_back(I);
+                // strings to 6: low cut-up, wide flue and (in the bass) a beard - a keen string speaks at an Ising number a
+                // flute would overblow at (the Gamba 8' C speaks steadily at 4.1 - 4.4 with a 0.35 - 0.48 mm flue, and
+                // only 15 dB quieter at 2: 2026-11-16)
+                const double iMax = familyOf(*jb.s) == kString ? 6.0 : 4.2;
+                std::vector<double> Is; for (double I = 1.0; I <= iMax; I *= 1.04) if (!getenv("SWEEPTRACE") || !getenv("ISTART") || (I >= atof(getenv("ISTART")) && I <= atof(getenv("IEND")))) Is.push_back(I);
                 // the languid (lip offset y0/b) as well: the family's own first, then from the jet thrown
                 // outside the mouth to the principal's setting (a beard keeps the sheet near the lip)
                 std::vector<double> Ys = { jpp.y0b };
@@ -967,6 +971,8 @@ int main(int argc, char** argv) {
                     const bool steady = h.speaks && h.spread <= 3 && h.tSpeech <= speechLimit(jb.hz);
                     const double cents = h.speaks ? 1200 * std::log2(h.f / jb.hz) : 1e9;
                     pts.push_back({ r, cents, h.rms, steady });
+                    if (getenv("REEDDBG")) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "REEDDBG %s key %d res f0 %.1f (pitch %.1f) curve x%.2f tongue %.2f x %.1f Hz: %s %+.0fc rms %.3f spread %.1f speech %.2fs growth %+.1f\n",
+                        ranks[(size_t)jb.rank].name.c_str(), jb.key, base.nModes > 0 ? base.f[0] : 0.f, jb.hz, gs, r, r * ref, h.speaks ? "speaks" : (h.over ? "OVER" : "no"), h.speaks ? cents : 0.0, h.rms, h.spread, h.tSpeech, h.growth); }
                     if (!steady || std::fabs(cents) > 100) continue;
                     const double score = h.rms / (1.0 + std::fabs(cents) / 50.0);
                     if (score > bestScore) { bestScore = score; best = c; }
