@@ -940,7 +940,10 @@ int main(int argc, char** argv) {
             // that lies below the octave takes the pipe over as it is tuned down to its note).
             const int hn = (base.nModes > 0 && base.f[0] > 0.8f * jb.hz && base.f[0] < 1.3f * jb.hz) ? 1
                          : (base.nModes > 0 && base.f[0] > 1.6f * jb.hz && base.f[0] < 2.6f * jb.hz) ? 2 : 0;
-            if (hn > 0) {
+            // not the Vox Humana's: its short resonator only colours the tone, and cut to the octave it took the
+            // pipe up to the octave when the wind fell (2026-11-17: keys 65 - 71 at 0.92 x and under the tremulant;
+            // at the printed length 70 and 71 hold)
+            if (hn > 0 && !getenv("NOSLOT") && !std::strstr(ranks[(size_t)jb.rank].name.c_str(), "Vox Humana")) {
                 const double want = hn * jb.hz * std::pow(2.0, 37.0 / 1200.0);
                 if (base.f[0] < want) {
                     slot = std::min(want / base.f[0], 1.0 / 0.85);
