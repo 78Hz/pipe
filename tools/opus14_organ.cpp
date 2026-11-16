@@ -271,7 +271,10 @@ static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0,
 static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
 // keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of organ
 // strings"); other pipes 30
-static double limitFor(const opus14::Stop& s, double hz) { return familyOf(s) == kString ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
+// a Subbass (large stopped wood) builds up slowly: 50 cycles, as the strings (the owner, 2026-11-16: "it is
+// normal for sub basses to take longer to sound"; at 30 cycles the Subbass 32' below A had no voicing that
+// spoke in time and held its note with every noise seed)
+static double limitFor(const opus14::Stop& s, double hz) { return (familyOf(s) == kString || std::strstr(s.name, "Subbass")) ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
 // The wind in the instrument is not constant, and a pipe has to stay on its note in the wind it will get
 // (Wind.hpp): full chords sag the chest by up to ~8 % (default flexibility; the lid's bounce back
 // overshoots by well under 1 %), and the tremulant pulses it +-11 % (default depth 0.22) at 3 - 9 Hz.
@@ -548,7 +551,7 @@ int main(int argc, char** argv) {
             out.why.clear();
             // keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of
             // organ strings"); other flue pipes 30
-            const double limitF = familyOf(*jb.s) == kString ? std::max(0.3, 50.0 / jb.hz) : speechLimit(jb.hz);
+            const double limitF = limitFor(*jb.s, jb.hz);
             Voicing v; v.ising = familyOf(*jb.s) == kString ? 2.8 : 2.0;
             // a harmonic pipe has its hole at half the speaking length (Flynt); its size is not published:
             // opened from 10 % of the diameter, as at the voicing machine, until the pipe settles on its
