@@ -525,6 +525,10 @@ int main(int argc, char** argv) {
                     if (q < Is.size()) {
                         Voicing vq = v; vq.ising = Is[q];
                         Design dq = withHole(designAt(*jb.s, jb.scaleKey, jb.hz, vq));
+                        // above the most its toe hole passes (applyIsing then voices at that limit) every Ising
+                        // number gives the same pipe: those are not a band (2026-11-16: a Celeste "band" 2.03 -
+                        // 4.10 was one capped pipe tried 19 times, which then failed the tremulant)
+                        if (dq.ising < Is[q] * 0.99) { if (runA >= 0) { if (bestA < 0 || runB - runA > bestB - bestA) { bestA = runA; bestB = runB; bestY = y; bestG = g; } runA = runB = -1; } break; }
                         JetParams jq = jpp; jq.y0b = y; jq.gain = g;
                         FluePipeSpec sq = specOf(dq, jq);
                         auto ok1 = [&](const Heard& h, double lim) { return h.speaks && std::fabs(1200 * std::log2(h.f / jb.hz)) < lim && h.tSpeech <= limitF && h.spread <= 3; };
