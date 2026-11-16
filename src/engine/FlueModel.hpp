@@ -772,8 +772,10 @@ inline double toneAt(const std::vector<double>& x, size_t from, size_t len, doub
 inline double peakFreq(const std::vector<double>& x, size_t from, size_t len, double f0, double span, double fs, double* mag = nullptr) {
     // coarse scan, then golden section
     double best = 0, bf = f0;
-    for (int i = -20; i <= 20; ++i) { const double f = f0 * (1 + span * i / 20.0); const double m = toneAt(x, from, len, f, fs); if (m > best) { best = m; bf = f; } }
-    double a = bf * (1 - span / 20), b = bf * (1 + span / 20);
+    // steps of at most one bin (the Hann main lobe is +-2 bins): coarser, a peak between two steps is missed
+    const int n = std::max(20, (int)std::ceil(span * f0 * (double)len / fs));
+    for (int i = -n; i <= n; ++i) { const double f = f0 * (1 + span * i / n); const double m = toneAt(x, from, len, f, fs); if (m > best) { best = m; bf = f; } }
+    double a = bf * (1 - span / n), b = bf * (1 + span / n);
     for (int it = 0; it < 30; ++it) {
         const double m1 = b - (b - a) * 0.618, m2 = a + (b - a) * 0.618;
         if (toneAt(x, from, len, m1, fs) > toneAt(x, from, len, m2, fs)) b = m2; else a = m1;

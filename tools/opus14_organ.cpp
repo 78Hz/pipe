@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <functional>
+#include <algorithm>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -161,7 +163,12 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     h.rms = std::sqrt(e / L);
     if (!(h.rms > 1e-6)) return h;
     double best = 0, bf = 0;
-    for (double c = -1200; c <= 1200; c += 10) { const double ft = target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - L, L, ft, 48000); if (a > best) { best = a; bf = ft; } }
+    // the coarse search on a window short enough that its main lobe (+-2 bins) spans the 10 c grid even at
+    // twice the target: on the whole segment a treble pipe's lobe is a few Hz wide, a pitch between two
+    // grid points was missed and a weak overtone read instead (2026-11-16: trebles at 0.92 wind read
+    // +1100 c while speaking 5 c flat)
+    const int Lc = std::min(L, std::max(256, (int)(2.0 * 48000 / (2 * target * (std::pow(2.0, 10 / 1200.0) - 1)))));
+    for (double c = -1200; c <= 1200; c += 10) { const double ft = target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - Lc, Lc, ft, 48000); if (a > best) { best = a; bf = ft; } }
     double f = peakFreq(x, N - L, L, bf, 0.02, 48000);
     // the pitch heard is the repetition period: f/2 is the note when the sound has the odd harmonics of
     // f/2 (f/2 itself or 3f/2); a sound of f's harmonics only repeats at 1/f. (A half-length resonator
@@ -654,6 +661,115 @@ int main(int argc, char** argv) {
     std::vector<std::thread> th; const unsigned nt = std::max(1u, std::thread::hardware_concurrency());
     for (unsigned i = 0; i < nt; ++i) th.emplace_back(worker);
     for (auto& t : th) t.join();
+    // REGULATE: the rank made even, as the voicer regulates it on the voicing machine. Each pipe's loudness
+    // (rms at the slow pallet) is compared with the median of its three neighbours either side in the rank;
+    // one more than 3 dB away is brought to that median (within 1.5 dB): too loud, its toe is closed; too
+    // quiet, its toe is opened (when it has one) and then its flue widened (the jet at the lip, its width
+    // and its transit follow the flue as in FlueSim::init). Every setting is tuned and must pass every
+    // check of the pipe (speech, one pitch with both pallets, in tune, the wind) to be kept.
+    if (getenv("REGULATE") && !getenv("REEDS_ONLY")) {
+        auto rmsDb = [](const FluePipeSpec& q) { const Heard h = hearFlue(q, 0.012); return h.rms > 1e-9 ? 20 * std::log10(h.rms) : -200.0; };
+        auto withFlue = [](FluePipeSpec q, double k) {
+            // the flue widened by k: the jet at the lip as FlueSim::init makes it; the transit scaled by the
+            // ratio of the formula at the new and the old flue (the pipe's own transit kept at k = 1)
+            const resonator::Air air;
+            auto jet = [&](double h, double& b, double& lipSpeed) {
+                const double W = q.W, x0 = 6.1 * h;
+                if (W <= x0) { lipSpeed = 1.0; b = 0.4 * h; } else { lipSpeed = 2.47 * std::sqrt(h / W); b = std::max(0.4 * h, 0.10 * W / 0.8814); }
+                const double wR = 12.0 * air.eta() * q.languid / (h * h), V = (std::sqrt(wR * wR + 2.0 * air.rho() * q.footPa) - wR) / air.rho();
+                const double C = M_PI / std::pow(1.78, 1.5), u = std::cbrt(V * V * C * C * 2 * M_PI * q.target * h);
+                return W / u * V;
+            };
+            double b0, l0, b1, l1; const double t0 = jet(q.h, b0, l0), t1 = jet(q.h * k, b1, l1);
+            q.h = (float)(q.h * k); q.b = (float)b1; q.lipSpeed = (float)l1; q.transit = (float)(q.transit * t1 / t0);
+            return q;
+        };
+        auto passes = [&](size_t j, const FluePipeSpec& sp) {
+            const double hz = jobs[j].hz; const Heard a = hearFlue(sp, 0.012), b = hearFlue(sp, 0.002);
+            const double c = a.speaks ? 1200 * std::log2(a.f / hz) : 1e9, cb = b.speaks ? 1200 * std::log2(b.f / hz) : 1e9;
+            const double lim = limitFor(*jobs[j].s, hz); std::string wn;
+            return a.speaks && b.speaks && a.tSpeech <= lim && b.tSpeech <= lim && a.spread <= 3 && b.spread <= 3 && std::fabs(cb) <= 2
+                   && std::fabs(c) < 0.5 && std::fabs(sp.trim - 1.f) < 0.06f && windRobust(sp, hz, flueAt, wn);
+        };
+        for (int round = 0; round < 3; ++round) {
+            std::vector<double> db(jobs.size(), -200); std::atomic<size_t> nx{0};
+            auto hearAll = [&] { for (;;) { const size_t j = nx++; if (j >= jobs.size()) return; if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank) && (!getenv("REGRANK") || ranks[(size_t)jobs[j].rank].name.find(getenv("REGRANK")) != std::string::npos)) db[j] = rmsDb(res[j].spec); } };
+            { std::vector<std::thread> tv; for (unsigned i = 0; i < nt; ++i) tv.emplace_back(hearAll); for (auto& t : tv) t.join(); }
+            std::map<int, std::vector<size_t>> byRank; for (size_t j = 0; j < jobs.size(); ++j) if (db[j] > -199) byRank[jobs[j].rank].push_back(j);
+            std::vector<std::pair<size_t, double>> todo;   // pipe, target dB
+            // The rank's loudness should change smoothly from pipe to pipe along the compass (a regulated rank):
+            // a step of more than 1.5 dB a semitone is a fault. Over each stretch between breaks (a mixture
+            // rank that breaks back starts a new stretch: its pipes are a different size) the longest run
+            // without such a step is taken as the rank's voice, and the line is carried outward from it pipe by
+            // pipe (the straight line through the last five pipes on it, its slope within 1 dB a semitone); a
+            // pipe more than 2 dB off the line is brought to it (and the line goes on from its new place).
+            for (auto& [rk, v] : byRank) {
+                std::sort(v.begin(), v.end(), [&](size_t a, size_t b) { return jobs[a].key < jobs[b].key; });
+                std::vector<std::vector<size_t>> segs(1);
+                for (size_t i = 0; i < v.size(); ++i) {
+                    if (i > 0) { const double r = 1200 * std::log2(jobs[v[i]].hz / jobs[v[i - 1]].hz) / std::max(1, jobs[v[i]].key - jobs[v[i - 1]].key); if (std::fabs(r - 100) > 5) segs.emplace_back(); }
+                    segs.back().push_back(v[i]);
+                }
+                for (const auto& sg : segs) {
+                    const int n = (int)sg.size(); if (n < 4) continue;
+                    std::vector<double> k(n), d(n); for (int i = 0; i < n; ++i) { k[i] = jobs[sg[i]].key; d[i] = db[sg[i]]; }
+                    int ra = 0, rb = 1, a = 0;   // the longest run [ra, rb)
+                    for (int i = 1; i <= n; ++i) if (i == n || std::fabs(d[i] - d[i - 1]) > 1.5 * std::max(1.0, k[i] - k[i - 1])) { if (i - a > rb - ra) { ra = a; rb = i; } a = i; }
+                    std::vector<double> t = d;
+                    auto extra = [&](const std::vector<int>& idx, int i) {
+                        if (idx.size() < 2) return t[(size_t)idx.back()];
+                        double sx = 0, sy = 0, sxx = 0, sxy = 0; const double m = (double)idx.size();
+                        for (int q : idx) { sx += k[q]; sy += t[q]; sxx += k[q] * k[q]; sxy += k[q] * t[q]; }
+                        double sl = (m * sxy - sx * sy) / std::max(1e-9, m * sxx - sx * sx); sl = std::clamp(sl, -1.0, 1.0);
+                        return t[(size_t)idx.back()] + sl * (k[i] - k[idx.back()]);
+                    };
+                    for (int i = rb; i < n; ++i) { std::vector<int> idx; for (int q = std::max(ra, i - 5); q < i; ++q) idx.push_back(q);
+                        const double e = extra(idx, i); if (std::fabs(d[i] - e) > 2.0) { t[i] = e; todo.push_back({ sg[i], e }); } }
+                    for (int i = ra - 1; i >= 0; --i) { std::vector<int> idx; for (int q = std::min(rb, i + 6) - 1; q > i; --q) idx.push_back(q);
+                        const double e = extra(idx, i); if (std::fabs(d[i] - e) > 2.0) { t[i] = e; todo.push_back({ sg[i], e }); } }
+                }
+            }
+            fprintf(stderr, "regulation round %d: %zu pipes off the line of their rank\n", round, todo.size());
+            if (todo.empty()) break;
+            std::atomic<size_t> nt2{0};
+            auto reg = [&] {
+                for (;;) {
+                    const size_t t = nt2++; if (t >= todo.size()) return;
+                    const size_t j = todo[t].first; const double want = todo[t].second, had = db[j];
+                    FluePipeSpec best = res[j].spec; double bestErr = std::fabs(had - want); std::string how = "unchanged";
+                    // the levers, in the voicer's order: the toe (its area), then the flue
+                    struct Lever { const char* name; std::function<FluePipeSpec(double)> at; double lo, hi; };
+                    const FluePipeSpec s0 = res[j].spec;
+                    std::vector<Lever> lv;
+                    if (s0.toe > 0) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(s0.toe * std::sqrt(k)); return q; }, 0.15, 4.0 });
+                    else if (had > want) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(2.0 * s0.radius * std::sqrt(k)); return q; }, 0.02, 1.0 });
+                    if (had < want) lv.push_back({ "flue", [s0, withFlue](double k) { return withFlue(s0, k); }, 1.0, 3.0 });
+                    for (const Lever& L : lv) {
+                        if (bestErr <= 1.0) break;
+                        // secant on log(k) against dB, from k = 1 (or the lever's end nearest)
+                        double k0 = std::clamp(1.0, L.lo, L.hi), d0 = rmsDb(L.at(k0)), k1 = had < want ? std::min(L.hi, k0 * 1.5) : std::max(L.lo, k0 / 1.5);
+                        for (int it = 0; it < 8; ++it) {
+                            FluePipeSpec q = L.at(k1);
+                            tuneTrim(q, jobs[j].hz, [](const FluePipeSpec& z) { return hearFlue(z, 0.012); });
+                            const double d1 = rmsDb(q);
+                            if (std::fabs(d1 - want) < bestErr && passes(j, q)) { best = q; bestErr = std::fabs(d1 - want); char b2[80]; snprintf(b2, sizeof b2, "%s x%.2f", L.name, k1); how = b2; }
+                            if (bestErr <= 1.0) break;
+                            const double sl = (d1 - d0) / (std::log(k1) - std::log(k0) + 1e-12);
+                            double kn = std::fabs(sl) > 0.3 ? std::exp(std::log(k1) + (want - d1) / sl) : (d1 < want ? k1 * 1.5 : k1 / 1.5);
+                            kn = std::clamp(kn, L.lo, L.hi); if (std::fabs(std::log(kn / k1)) < 0.01) break;
+                            k0 = k1; d0 = d1; k1 = kn;
+                        }
+                    }
+                    const double got = bestErr <= std::fabs(had - want) ? (had < want ? want - bestErr : want + bestErr) : had;
+                    char buf[200]; snprintf(buf, sizeof buf, "[regulated: %.1f dB, the line of the rank %.1f dB: %s, now within %.1f dB] ", had, want, how.c_str(), bestErr);
+                    std::lock_guard<std::mutex> lk(io);
+                    fprintf(stderr, "  %s key %d: %+.1f dB off the line of its rank -> %s, %.1f dB\n", ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, had - want, how.c_str(), bestErr); (void)got;
+                    if (how != "unchanged") { res[j].spec = best; res[j].why += buf; ckWrite(ckF, ckm, (uint32_t)j, true, res[j].cents0, res[j].centsEnd, res[j].fam, best, res[j].why); }
+                }
+            };
+            std::vector<std::thread> tv; for (unsigned i = 0; i < nt; ++i) tv.emplace_back(reg); for (auto& t : tv) t.join();
+        }
+    }
     // reeds: designed from the Pasi resonators and tongues, tuned by wire and scroll
     struct ReedResult { ReedPipeSpec spec; double cents = 0; bool ok = false; std::string why; };
     std::vector<ReedResult> reedRes(reedJobs.size());
@@ -674,7 +790,8 @@ int main(int argc, char** argv) {
         if (!(e / L > 1e-8)) return 0.0;
         // the pitch it actually speaks, searched widely (0.55 - 1.8 x the target), and its fundamental
         double best = 0, bf = 0;
-        for (double c = -1000; c <= 1000; c += 10) { const double ft = sp.target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - L, L, ft, 48000); if (a > best) { best = a; bf = ft; } }
+        const int Lc = std::min(L, std::max(256, (int)(2.0 * 48000 / (1.8 * sp.target * (std::pow(2.0, 10 / 1200.0) - 1)))));   // as in analyse
+        for (double c = -1000; c <= 1000; c += 10) { const double ft = sp.target * std::pow(2.0, c / 1200.0); const double a = toneAt(x, N - Lc, Lc, ft, 48000); if (a > best) { best = a; bf = ft; } }
         if (bf <= 0) return 0.0;
         double f = peakFreq(x, N - L, L, bf, 0.02, 48000);
         while (f / 2 > sp.target * 0.5 && toneAt(x, N - L, L, f / 2, 48000) > 0.3 * toneAt(x, N - L, L, f, 48000)) f = peakFreq(x, N - L, L, f / 2, 0.02, 48000);
