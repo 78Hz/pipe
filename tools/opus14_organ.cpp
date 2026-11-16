@@ -217,28 +217,32 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     return h;
 }
 static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
-// trem > 0: the chest pulses +-11 % at trem Hz (the tremulant at its default depth), judged over the last
-// four of its periods after the pipe has spoken
+// trem > 0: the chest pulses +-11 % at trem Hz (the tremulant at its default depth), judged over the last four frames of whole periods (tremPeriods)
+// after the pipe has spoken
 static constexpr double kTremDepth = 0.11;
+// each of the four frames is a whole number of tremulant periods and at least 20 periods of the pipe (as the
+// steady spread, analyse): at 3 Hz one tremulant period is 14 periods of a 44 Hz bass, whose reading then
+// follows its jet's period-to-period jitter (Subbass 16' F: 3.1 - 3.4 c, 2026-11-16)
+static int tremPeriods(double f, double trem) { return trem > 0 ? std::max(1, (int)std::ceil(20.0 * trem / f)) : 1; }
 static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
     FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
-    const double T = renderTime(sp.target) + (trem > 0 ? 4.0 / trem : 0.0); const int N = (int)(T * 48000);
+    const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float m, t;
     for (int i = 0; i < N; ++i) {
         if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
         p.render(&m, &t, 1); x[i] = m + t;
     }
-    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(48000 / trem) : 0);
+    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(kt * 48000 / trem) : 0);
 }
 static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
     ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
-    const double T = renderTime(sp.target) + (trem > 0 ? 4.0 / trem : 0.0); const int N = (int)(T * 48000);
+    const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float o;
     for (int i = 0; i < N; ++i) {
         if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
         p.render(&o, 1); x[i] = o;
     }
-    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(48000 / trem) : 0);
+    return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(kt * 48000 / trem) : 0);
 }
 static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
 // keen strings take about 50 cycles of the fundamental to speak (Pykett, "The tonal structure of organ
