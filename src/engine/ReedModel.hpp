@@ -41,7 +41,30 @@ struct ReedPipeSpec {
     float hfFrom = 0;              // above the last mode the resonator is a horn: from this frequency (Hz)
     int nModes = 0;
     float f[kReedMaxModes], Q[kReedMaxModes], pkRe[kReedMaxModes], pkIm[kReedMaxModes], topRe[kReedMaxModes], topIm[kReedMaxModes];
+    float passR = -1;              // resistance that makes the modal impedance passive (reedPassiveR), -1 = not yet worked out
 };
+
+// The resonator's input impedance as the sum of its modes, each fitted to the complex peak of the
+// bore's impedance, is not passive: away from the peaks the complex residues give Re Z < 0 (for the
+// Trumpet 8' C, -1.2e5 Pa s/m^3 at 53 Hz). A real bore's impedance is positive real. Fed by the reed,
+// the negative part was a source of energy: with the pallet shut the pipe went on sounding at
+// -16 dB below its speech, at the frequency where Re Z was lowest. The smallest series resistance
+// that makes Re Z >= 0 at every frequency (1 Hz - 20 kHz) puts back the part between the modes
+// that the modal sum leaves out, and keeps each mode's peak as fitted.
+inline double reedPassiveR(const ReedPipeSpec& s) {
+    double mn = 0;
+    for (double fr = 1.0; fr < 20000.0; fr *= 1.001) {
+        const double w = 2 * M_PI * fr;
+        double re = 0;
+        for (int i = 0; i < s.nModes; ++i) {
+            const double wn = 2 * M_PI * s.f[i], Q = s.Q[i], A = s.pkRe[i] * wn / Q, B = -s.pkIm[i] * wn * wn / Q;
+            const double dr = wn * wn - w * w, di = w * wn / Q;
+            re += (B * dr + A * w * w * wn / Q) / (dr * dr + di * di);
+        }
+        mn = std::min(mn, re);
+    }
+    return -mn;
+}
 
 class ReedPipeRT {
 public:
@@ -64,6 +87,7 @@ public:
         Sr = 0.39 * (double)s.w * s.L;
         // shallot inertance in series with the resonator (Rucz 2015 sec. 8.4): rho l / S of the shallot bore
         Ls = s.shallotL > 0 ? kRho * s.shallotL / (M_PI * (double)s.lowerR * s.lowerR) : 0.0;
+        R0 = s.passR >= 0 ? s.passR : reedPassiveR(s);
         pitch = 0; setPitch(1.0);
         reset();
     }
@@ -112,21 +136,28 @@ public:
                                                      : std::max(palletTarget, palletPhase - dt / tClose);
             palletPos = 0.5 - 0.5 * std::cos(M_PI * palletPhase);
         }
+        // The boot's outflow is this sample's reed flow, so the boot is solved with the flow below
+        // (as the resonator is): boot = Pb - kb U. Pb is the boot with the pallet's inflow and none
+        // out, kb its compliance relieved by the pallet's conductance. Updated from the flow of the
+        // last sample, the closed boot and the tongue formed a stiff loop one sample late, which fed
+        // energy in: shut off, a reed went on sounding at -16 dB.
+        double Pb, kb;
         {
             const double g = 0.008 * palletPos;
             const double k1 = dt * c2rho / sp.bootVolume, P0 = boot;
-            double P = P0;
+            double P = P0, dq = 0;
             if (g > 1e-9) {
                 const double Ap = 0.61 * 0.150 * g, aa = rho / (2 * Ap * Ap), bb = 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
                 for (int it = 0; it < 3; ++it) {
                     const double dP = chest - P;
-                    double qi = 0, dq = 0;
+                    double qi = 0; dq = 0;
                     if (dP > 0) { const double r = std::sqrt(bb * bb + 4 * aa * dP); qi = (-bb + r) / (2 * aa); dq = 1.0 / r; }
                     const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq;
                     P = std::max(0.0, std::min(std::max(chest, P0), P - F / dF));
                 }
-            } else P = std::max(0.0, P0 + k1 * (-U));
-            boot = P;
+            } else P = P0 - k1 * U;
+            kb = k1 / (1.0 + k1 * dq);
+            Pb = P + kb * U;   // the outflow taken back out; it is put in again at this sample's flow
         }
         // tongue (velocity implicit in the stiff terms)
         const double dP = boot - p;
@@ -165,9 +196,10 @@ public:
         // the shallot: p at the tongue = p in the resonator + Ls dU/dt (backward difference, part of the solve)
         Pz -= Ls * fs * U; Zd += Ls * fs;
         for (int i = 0; i < nPad; ++i) { Pz += z1[i]; Zd += b0[i]; }
-        const double Ur = Sr * vx;
+        const double Ur = -Sr * vx;   // the tongue closing (vx < 0) pushes air from the boot into the shallot
         const double A = sp.w * open * std::sqrt(2.0 / rho);
-        const double D0 = boot - Pz - Zd * Ur;
+        Zd += R0 + kb;   // the passive part (reedPassiveR); the boot gives way to the flow as the resonator does
+        const double D0 = Pb - Pz - Zd * Ur;
         const double a2 = A * A, q = a2 * Zd;
         double X;
         if (sp.channel > 0) {
@@ -184,6 +216,7 @@ public:
             X = D0 >= 0 ? 0.5 * (-q + std::sqrt(q * q + 4 * a2 * D0)) : -0.5 * (-q + std::sqrt(q * q - 4 * a2 * D0));
         const double Uold = U;
         U = Ur + X;
+        boot = Pb - kb * U;
         // resonator
         double pp = 0, top = 0;
         for (int i = 0; i < nPad; ++i) {
@@ -202,7 +235,7 @@ public:
         horn[hpos] = uh;
         top += topGain * horn[(hpos - hornDelay) & (kHorn - 1)];
         hpos = (hpos + 1) & (kHorn - 1);
-        p = pp + Ls * fs * (U - Uold);   // pressure under the tongue (resonator + shallot)
+        p = pp + Ls * fs * (U - Uold) + R0 * U;   // pressure under the tongue (resonator + shallot + the passive part)
         const double out = kRho / (4 * M_PI) * (top - topPrev) * fs;
         topPrev = top;
         return out;
@@ -213,7 +246,7 @@ private:
     ReedPipeSpec sp;
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
-    double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
+    double R0 = 0, wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;
     double Zc = 0, topGain = 1, hb0 = 0, hb1 = 0, hb2 = 0, ha1 = 0, ha2 = 0, hz1 = 0, hz2 = 0, uhPrev = 0;
@@ -387,6 +420,7 @@ inline ReedPipeSpec design(const opus14::Stop& s, double key, double targetHz, c
         const cd T = topFlowRatio(2 * M_PI * modes[i].f, g, air) / modes[i].peak;
         r.topRe[i] = (float)T.real(); r.topIm[i] = (float)T.imag();
     }
+    r.passR = (float)reedPassiveR(r);
     return r;
 }
 } // namespace reed
