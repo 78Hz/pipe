@@ -257,8 +257,9 @@ static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0,
     }
     return analyse(x, sp.target, T, trem > 0 ? (int)std::lround(kt * 48000 / trem) : 0);
 }
+static thread_local uint32_t gReedSeed = 3;
 static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
-    ReedPipeRT p; p.init(sp, 48000, 3); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
+    ReedPipeRT p; p.init(sp, 48000, gReedSeed); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
     const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float o;
     for (int i = 0; i < N; ++i) {
@@ -280,6 +281,30 @@ static double limitFor(const opus14::Stop& s, double hz) { return familyOf(s) ==
 // was a static 0.89 and 1.11: that holds the low point of the tremulant for seconds, which the
 // tremulant never does, and it failed bass pipes that warble only after ~1 s in the low wind.)
 template <class Spec, class Hear>
+static bool seedRobust(const Spec& sp, Hear hear, std::string& note) {
+    // The voicer hears every pipe with one noise seed; the engine seeds each pipe its own way. A pipe that has
+    // two regimes - a large stopped pipe can settle quietly on its note or 15 - 20 dB louder, even on its 5th
+    // harmonic, and the jet noise of the attack picks which (2026-11-16: Bourdon 16' D, E; Gedeckt 8' C;
+    // Praestant 16' C) - is not voiced: with three more seeds it speaks its note within 5 c of the voiced
+    // pitch, steadily, and within 2 dB of the voiced level.
+    {
+        const uint32_t f0 = gSeed, r0 = gReedSeed;
+        const Heard ref = hear(sp, 1.0, 0.0);
+        for (uint32_t sd : { 101u, 202u, 303u }) {
+            gSeed = sd; gReedSeed = sd;
+            const Heard h = hear(sp, 1.0, 0.0);
+            gSeed = f0; gReedSeed = r0;
+            const double dc = (h.speaks && ref.speaks) ? 1200 * std::log2(h.f / ref.f) : 1e9;
+            const double dl = (h.rms > 0 && ref.rms > 0) ? 20 * std::log10(h.rms / ref.rms) : 1e9;
+            if (!h.speaks || std::fabs(dc) > 5 || h.spread > 3 || std::fabs(dl) > 2) {
+                char buf[160]; snprintf(buf, sizeof buf, "noise seed %u: %s %+.0fc %+.1fdB spread %.1f", sd, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? dc : 0.0, dl, h.spread);
+                note = buf; return false;
+            }
+        }
+    }
+    return true;
+}
+template <class Spec, class Hear>
 static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) {
     struct C { double chest, trem; const char* what; };
     for (const C& w : { C{ 0.92, 0.0, "wind x0.92" }, C{ 1.0, 3.0, "tremulant 3 Hz +-11%" } }) {
@@ -290,7 +315,8 @@ static bool windRobust(const Spec& sp, double hz, Hear hear, std::string& note) 
             note = buf; return false;
         }
     }
-    note = "wind x0.92 and tremulant: holds"; return true;
+    if (!seedRobust(sp, hear, note)) return false;
+    note = "wind x0.92, tremulant and 3 noise seeds: holds"; return true;
 }
 static auto flueAt = [](const FluePipeSpec& q, double x, double tr) { return hearFlue(q, 0.012, x, tr); };
 static auto reedAt = [](const ReedPipeSpec& q, double x, double tr) { return hearReed(q, 0.012, x, tr); };
@@ -454,18 +480,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "checkpoint: %zu flue pipes already done\n", n);
     }
     FILE* ckF = ck ? fopen((std::string(ck) + ".flue").c_str(), "ab") : nullptr;
-    // SEEDSCAN=<step>: every step-th voiced pipe heard with the jet noise seeded 1 - 4 (the voicer hears seed 7;
-    // the engine seeds each pipe by its rank and key): job, rank, key, seed, speaks, cents, rms. Then stops.
-    if (const char* ss = getenv("SEEDSCAN")) {
-        const size_t step = (size_t)std::max(1, atoi(ss)); std::vector<size_t> list;
-        for (size_t j = 0; j < jobs.size(); j += step) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
-        std::atomic<size_t> nx{0};
+    // SEEDCHECK=1: every voiced pipe is heard with three more noise seeds (seedRobust); one that does not hold is
+    // written to the checkpoint as failed (REDO_FAILED then voices it again) and listed. Then stops.
+    if (getenv("SEEDCHECK")) {
+        std::vector<size_t> list; for (size_t j = 0; j < jobs.size(); ++j) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
+        std::atomic<size_t> nx{0}, nbad{0}, ndone{0};
         auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i];
-            std::string line; char b[200];
-            for (uint32_t sd : { 7u, 1u, 2u, 3u, 4u }) { gSeed = sd; const Heard h = hearFlue(res[j].spec, 0.012);
-                snprintf(b, sizeof b, " | s%u %s %+.1fc rms %.3f sp %.1f", sd, h.speaks ? "ok" : (h.over ? "OVER" : "NO"), h.speaks ? 1200 * std::log2(h.f / jobs[j].hz) : 0.0, h.rms, h.spread); line += b; }
-            std::lock_guard<std::mutex> lk(io); printf("%zu\t%s\t%d%s\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, line.c_str()); fflush(stdout); } };
+            std::string note; const bool ok = seedRobust(res[j].spec, flueAt, note);
+            if (!ok) { ++nbad; res[j].ok = false; res[j].why += "[seed check: " + note + "]";
+                ckWrite(ckF, ckm, (uint32_t)j, false, res[j].cents0, res[j].centsEnd, res[j].fam, res[j].spec, res[j].why);
+                std::lock_guard<std::mutex> lk(io); printf("%zu\t%s\t%d\t%s\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, note.c_str()); fflush(stdout); }
+            const size_t d = ++ndone; if (d % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu heard, %zu do not hold\n", d, list.size(), nbad.load()); } } };
         std::vector<std::thread> tv; for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) tv.emplace_back(w); for (auto& t : tv) t.join();
+        fprintf(stderr, "seed check: %zu of %zu pipes do not hold\n", nbad.load(), list.size());
         return 0;
     }
     // VERIFY: every pipe already voiced is heard again under the current checks (a pipe voiced before a
