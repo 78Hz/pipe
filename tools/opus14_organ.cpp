@@ -247,11 +247,16 @@ static constexpr double kTremDepth = 0.11;
 // follows its jet's period-to-period jitter (Subbass 16' F: 3.1 - 3.4 c, 2026-11-16)
 static int tremPeriods(double f, double trem) { return trem > 0 ? std::max(1, (int)std::ceil(20.0 * trem / f)) : 1; }
 static thread_local uint32_t gSeed = 7;   // the jet-noise seed the voicer hears a flue pipe with
+// pallet < 0: the engine's key action - the pallet opened in a straight ramp over -pallet seconds, set every
+// control block (32 samples), the valve following in 2 ms (Engine.hpp, Pallet::aperture)
 static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
-    FluePipeRT p; p.init(sp, 48000, gSeed); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
+    FluePipeRT p; p.init(sp, 48000, gSeed); p.setChestPa(kChestPa * chest);
+    const double ramp = pallet < 0 ? -pallet : 0.0;
+    if (ramp > 0) p.setPallet(0.002, 0.002); else { p.setPallet(pallet, pallet); p.key(true); }
     const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float m, t;
     for (int i = 0; i < N; ++i) {
+        if (ramp > 0 && i % 32 == 0) p.setPalletTarget(std::min(1.0, (i / 48000.0 + 32.0 / 48000.0) / ramp));
         if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
         p.render(&m, &t, 1); x[i] = m + t;
     }
@@ -259,10 +264,13 @@ static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0,
 }
 static thread_local uint32_t gReedSeed = 3;
 static Heard hearReed(const ReedPipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
-    ReedPipeRT p; p.init(sp, 48000, gReedSeed); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
+    ReedPipeRT p; p.init(sp, 48000, gReedSeed); p.setChestPa(kChestPa * chest);
+    const double ramp = pallet < 0 ? -pallet : 0.0;
+    if (ramp > 0) p.setPallet(0.002, 0.002); else { p.setPallet(pallet, pallet); p.key(true); }
     const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float o;
     for (int i = 0; i < N; ++i) {
+        if (ramp > 0 && i % 32 == 0) p.setPalletTarget(std::min(1.0, (i / 48000.0 + 32.0 / 48000.0) / ramp));
         if (trem > 0 && i % 16 == 0) p.setChestPa(kChestPa * chest * (1.0 + kTremDepth * std::sin(2 * M_PI * trem * i / 48000.0)));
         p.render(&o, 1); x[i] = o;
     }
@@ -312,14 +320,14 @@ static bool seedRobust(const Spec& sp, Hear hear, std::string& note) {
         // through the engine at 60 ms wavered +-50 c for 12 s; at 10 ms it held within 1.6 c), so the pipe
         // speaks the same at both ends of that range.
         const double p0 = gPallet;
-        for (double pt : { 0.008, 0.060 }) {
+        for (double pt : { -0.008, -0.021, -0.060 }) {   // the engine's ramps: hard strike, the default velocity, soft strike
             gPallet = pt;
             const Heard h = hear(sp, 1.0, 0.0);
             gPallet = p0;
             const double dc = (h.speaks && ref.speaks) ? 1200 * std::log2(h.f / ref.f) : 1e9;
             const double dl = (h.rms > 0 && ref.rms > 0) ? 20 * std::log10(h.rms / ref.rms) : 1e9;
             if (!h.speaks || std::fabs(dc) > 5 || h.spread > 3 || std::fabs(dl) > 2) {
-                char buf[160]; snprintf(buf, sizeof buf, "pallet %.0f ms: %s %+.0fc %+.1fdB spread %.1f", pt * 1000, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? dc : 0.0, dl, h.spread);
+                char buf[160]; snprintf(buf, sizeof buf, "pallet ramp %.0f ms: %s %+.0fc %+.1fdB spread %.1f", -pt * 1000, h.speaks ? "speaks" : "NOT SPEAKING", h.speaks ? dc : 0.0, dl, h.spread);
                 note = buf; return false;
             }
         }
@@ -515,6 +523,34 @@ int main(int argc, char** argv) {
             const size_t d = ++ndone; if (d % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu heard, %zu do not hold\n", d, list.size(), nbad.load()); } } };
         std::vector<std::thread> tv; for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) tv.emplace_back(w); for (auto& t : tv) t.join();
         fprintf(stderr, "seed check: %zu of %zu pipes do not hold\n", nbad.load(), list.size());
+        return 0;
+    }
+    // ATTACKSCAN=N: every voiced flue pipe chosen (ONLY) is struck N times as the engine strikes it - a noise seed
+    // and a pallet ramp of 8 - 60 ms drawn at random - and judged against its voiced speech (as seedRobust).
+    // Prints the pipes that do not always speak the same, with how often. Then stops.
+    if (getenv("ATTACKSCAN")) {
+        const int N = std::max(1, atoi(getenv("ATTACKSCAN")));
+        std::vector<size_t> list; for (size_t j = 0; j < jobs.size(); ++j) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
+        std::atomic<size_t> nx{0}, nbad{0}, ndone{0};
+        auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i];
+            gSeed = 7; const Heard ref = hearFlue(res[j].spec, 0.012);
+            int bad = 0; std::string first;
+            for (int a = 0; a < N; ++a) {
+                const uint32_t h = (uint32_t)(j * 2654435761u + a * 40503u + 12345u);
+                gSeed = (h ^ (h >> 13)) * 0x5bd1e995u; const double ramp = 0.008 + 0.052 * ((h >> 8) & 1023) / 1023.0;
+                const Heard x = hearFlue(res[j].spec, -ramp);
+                const double dc = (x.speaks && ref.speaks) ? 1200 * std::log2(x.f / ref.f) : 1e9;
+                const double dl = (x.rms > 0 && ref.rms > 0) ? 20 * std::log10(x.rms / ref.rms) : 1e9;
+                if (!x.speaks || std::fabs(dc) > 5 || x.spread > 3 || std::fabs(dl) > 2) {
+                    if (!bad) { char b[160]; snprintf(b, sizeof b, "seed %u ramp %.0f ms: %s %+.0fc %+.1fdB spread %.1f", gSeed, ramp * 1000, x.speaks ? "speaks" : "NOT", x.speaks ? dc : 0.0, dl, x.spread); first = b; }
+                    ++bad;
+                }
+            }
+            gSeed = 7;
+            if (bad) { ++nbad; std::lock_guard<std::mutex> lk(io); printf("%zu\t%s\t%d\t%d/%d\t%s\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, bad, N, first.c_str()); fflush(stdout); }
+            const size_t d = ++ndone; if (d % 100 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu struck, %zu not always the same\n", d, list.size(), nbad.load()); } } };
+        std::vector<std::thread> tv; for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) tv.emplace_back(w); for (auto& t : tv) t.join();
+        fprintf(stderr, "attack scan: %zu of %zu pipes do not always speak the same\n", nbad.load(), list.size());
         return 0;
     }
     // SEEDSCAN=N: the pipes chosen (ONLY, KEYS) are heard as voiced with noise seeds 1..N; prints each reading. Then stops.
