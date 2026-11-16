@@ -921,7 +921,7 @@ int main(int argc, char** argv) {
             const Job& jb = reedJobs[j];
             if (skip(jb.rank) || getenv("REEDS_SKIP")) { reedRes[j].ok = true; reedRes[j].cents = 0; continue; }
             if (const char* ks = getenv("KEYS")) { int a = 0, b = 127; sscanf(ks, "%d-%d", &a, &b); if (jb.key < a || jb.key > b) { reedRes[j].ok = true; continue; } }
-            if (doneR[j]) continue;
+            if (doneR[j] && !(getenv("REDO_FAILED") && !reedRes[j].ok)) continue;   // REDO_FAILED: a reed that failed is voiced again
             const bool oboe = detailOboe(ranks[(size_t)jb.rank].name);
             ReedResult& out = reedRes[j];
             const reed::ReedConstants& kk = reedK[oboe ? 1 : 0];
@@ -953,7 +953,10 @@ int main(int argc, char** argv) {
             const double ref = resonatorLed ? base.f[0] : jb.hz;
             // down to 0.7: a short treble resonator speaks below its resonance, the tongue leading
             static const double kTongue[] = { 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.03, 1.06, 1.1, 1.15, 1.2, 1.3 };
-            static const double kCurve[] = { 1.0, 0.8, 1.25, 0.65, 1.5 };   // gamma scaled: more curve (lower), less
+            // gamma scaled: more curve (lower), less; 0.5 and 0.35 last: a regal's short resonator gives the tongue little
+            // help, and its tongue needs more curve (a wider rest opening) to start (Vox Humana 8' from c0, 2026-11-16:
+            // silent at every setting with x0 0.7 mm, speaking with 1.4 - 2.8 mm)
+            static const double kCurve[] = { 1.0, 0.8, 1.25, 0.65, 1.5, 0.5, 0.35 };
             // each curve is voiced, tuned and checked in turn; the first that passes is kept, else the best
             bool anySpeaks = false; double bestErr = 1e18; ReedResult bestOut;
             auto make = [&](double r, double gs) {
