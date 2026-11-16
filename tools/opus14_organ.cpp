@@ -274,7 +274,9 @@ static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
 // a Subbass (large stopped wood) builds up slowly: 50 cycles, as the strings (the owner, 2026-11-16: "it is
 // normal for sub basses to take longer to sound"; at 30 cycles the Subbass 32' below A had no voicing that
 // spoke in time and held its note with every noise seed)
-static double limitFor(const opus14::Stop& s, double hz) { return (familyOf(s) == kString || std::strstr(s.name, "Subbass")) ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
+// the Bourdon 16' (stopped wood, the manual's sub-bass) likewise: its c#0 has no voicing that is steady and speaks
+// within 30 cycles, and a band that speaks in 0.86 - 1.07 s (2026-11-16; the owner: "do whatever is necessary")
+static double limitFor(const opus14::Stop& s, double hz) { return (familyOf(s) == kString || std::strstr(s.name, "Subbass") || std::strcmp(s.name, "Bourdon 16'") == 0) ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
 // The wind in the instrument is not constant, and a pipe has to stay on its note in the wind it will get
 // (Wind.hpp): full chords sag the chest by up to ~8 % (default flexibility; the lid's bounce back
 // overshoots by well under 1 %), and the tremulant pulses it +-11 % (default depth 0.22) at 3 - 9 Hz.
