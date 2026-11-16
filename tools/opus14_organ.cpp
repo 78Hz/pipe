@@ -834,16 +834,21 @@ int main(int argc, char** argv) {
                     const size_t j = todo[t].first; const double want = todo[t].second, had = db[j];
                     FluePipeSpec best = res[j].spec; double bestErr = std::fabs(had - want); std::string how = "unchanged";
                     // the levers, in the voicer's order: the toe (its area), then the flue
-                    struct Lever { const char* name; std::function<FluePipeSpec(double)> at; double lo, hi; };
+                    struct Lever { const char* name; std::function<FluePipeSpec(double)> at; double lo, hi, start = 1.0; };
                     const FluePipeSpec s0 = res[j].spec;
                     std::vector<Lever> lv;
                     if (s0.toe > 0) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(s0.toe * std::sqrt(k)); return q; }, 0.15, 4.0 });
-                    else if (had > want) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(2.0 * s0.radius * std::sqrt(k)); return q; }, 0.02, 1.0 });
+                    // an open toe is given a hole, from the body's bore down to 0.6 x the flue's area (k = hole / bore area):
+                    // a hole of 2 % of the bore (the first bound) is still several times the flue of a large pipe and
+                    // took 0.1 dB off (2026-11-16, Praestant 16' c#0 and d0, 3.5 dB too loud)
+                    else if (had > want) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(2.0 * s0.radius * std::sqrt(k)); return q; },
+                                                       std::min(0.5, 0.6 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)), 1.0,
+                                                       std::min(1.0, 3.0 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)) });   // from a hole of 3 x the flue
                     if (had < want) lv.push_back({ "flue", [s0, withFlue](double k) { return withFlue(s0, k); }, 1.0, 3.0 });
                     for (const Lever& L : lv) {
                         if (bestErr <= 1.0) break;
                         // secant on log(k) against dB, from k = 1 (or the lever's end nearest)
-                        double k0 = std::clamp(1.0, L.lo, L.hi), d0 = rmsDb(L.at(k0)), k1 = had < want ? std::min(L.hi, k0 * 1.5) : std::max(L.lo, k0 / 1.5);
+                        double k0 = std::clamp(L.start, L.lo, L.hi), d0 = rmsDb(L.at(k0)), k1 = had < want ? std::min(L.hi, k0 * 1.5) : std::max(L.lo, k0 / 1.5);
                         for (int it = 0; it < 8; ++it) {
                             FluePipeSpec q = L.at(k1);
                             tuneTrim(q, jobs[j].hz, [](const FluePipeSpec& z) { return hearFlue(z, 0.012); });
