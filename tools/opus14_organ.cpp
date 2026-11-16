@@ -246,8 +246,9 @@ static constexpr double kTremDepth = 0.11;
 // steady spread, analyse): at 3 Hz one tremulant period is 14 periods of a 44 Hz bass, whose reading then
 // follows its jet's period-to-period jitter (Subbass 16' F: 3.1 - 3.4 c, 2026-11-16)
 static int tremPeriods(double f, double trem) { return trem > 0 ? std::max(1, (int)std::ceil(20.0 * trem / f)) : 1; }
+static thread_local uint32_t gSeed = 7;   // the jet-noise seed the voicer hears a flue pipe with
 static Heard hearFlue(const FluePipeSpec& sp, double pallet, double chest = 1.0, double trem = 0) {
-    FluePipeRT p; p.init(sp, 48000, 7); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
+    FluePipeRT p; p.init(sp, 48000, gSeed); p.setChestPa(kChestPa * chest); p.setPallet(pallet, pallet); p.key(true);
     const int kt = tremPeriods(sp.target, trem); const double T = renderTime(sp.target) + (trem > 0 ? 4.0 * kt / trem : 0.0); const int N = (int)(T * 48000);
     std::vector<double> x(N); float m, t;
     for (int i = 0; i < N; ++i) {
@@ -453,6 +454,20 @@ int main(int argc, char** argv) {
         fprintf(stderr, "checkpoint: %zu flue pipes already done\n", n);
     }
     FILE* ckF = ck ? fopen((std::string(ck) + ".flue").c_str(), "ab") : nullptr;
+    // SEEDSCAN=<step>: every step-th voiced pipe heard with the jet noise seeded 1 - 4 (the voicer hears seed 7;
+    // the engine seeds each pipe by its rank and key): job, rank, key, seed, speaks, cents, rms. Then stops.
+    if (const char* ss = getenv("SEEDSCAN")) {
+        const size_t step = (size_t)std::max(1, atoi(ss)); std::vector<size_t> list;
+        for (size_t j = 0; j < jobs.size(); j += step) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
+        std::atomic<size_t> nx{0};
+        auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i];
+            std::string line; char b[200];
+            for (uint32_t sd : { 7u, 1u, 2u, 3u, 4u }) { gSeed = sd; const Heard h = hearFlue(res[j].spec, 0.012);
+                snprintf(b, sizeof b, " | s%u %s %+.1fc rms %.3f sp %.1f", sd, h.speaks ? "ok" : (h.over ? "OVER" : "NO"), h.speaks ? 1200 * std::log2(h.f / jobs[j].hz) : 0.0, h.rms, h.spread); line += b; }
+            std::lock_guard<std::mutex> lk(io); printf("%zu\t%s\t%d%s\n", j, ranks[(size_t)jobs[j].rank].name.c_str(), jobs[j].key, line.c_str()); fflush(stdout); } };
+        std::vector<std::thread> tv; for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) tv.emplace_back(w); for (auto& t : tv) t.join();
+        return 0;
+    }
     // VERIFY: every pipe already voiced is heard again under the current checks (a pipe voiced before a
     // check existed has not passed it); one that fails is voiced again. Pipes verified are listed in
     // <checkpoint>.fverify (job, 1/0, the reading) so that a resumed run does not hear them twice.
