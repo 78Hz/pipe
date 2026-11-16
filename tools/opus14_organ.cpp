@@ -556,7 +556,10 @@ int main(int argc, char** argv) {
             // a harmonic pipe has its hole at half the speaking length (Flynt); its size is not published:
             // opened from 10 % of the diameter, as at the voicing machine, until the pipe settles on its
             // second mode
-            double holeFrac = getenv("HOLE") ? (atof(getenv("HOLE")) > 0 ? atof(getenv("HOLE")) : 0.10) : 0.0;   // off: in this model the hole made the pipes worse (open point)
+            // the harmonic hole, at half the pipe's length: its diameter a quarter of the pipe's. 10 % changed nothing and
+            // 40 % drew the note down half an octave; at 25 % the octave-below resonance is held off and the jet can
+            // be made strong enough to bring the overblown treble up (Harmonic Flute 8' c2, 2026-11-16). HOLE=<fraction>.
+            double holeFrac = getenv("HOLE") ? atof(getenv("HOLE")) : 0.25;
             auto withHole = [&](Design dd) {
                 if (dd.speakMode == 2 && holeFrac > 0) { const double L = dd.g.body[0].L, dia = 2 * dd.radius;
                     dd.g.holes = { { 0.5 * L, M_PI * 0.25 * (holeFrac * dia) * (holeFrac * dia), dd.g.wall } }; recut(dd, 1.0); }
@@ -844,6 +847,10 @@ int main(int argc, char** argv) {
                     else if (had > want) lv.push_back({ "toe", [s0](double k) { FluePipeSpec q = s0; q.toe = (float)(2.0 * s0.radius * std::sqrt(k)); return q; },
                                                        std::min(0.5, 0.6 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)), 1.0,
                                                        std::min(1.0, 3.0 * (double)s0.h * s0.Wm / (M_PI * (double)s0.radius * s0.radius)) });   // from a hole of 3 x the flue
+                    // an overblown (harmonic) pipe too quiet: its jet made stronger (the beard and the nicking a voicer
+                    // gives it), up to 4 x - the octave-below resonance its hole holds off allows it
+                    if (had < want && overblowFrom(*jobs[j].s) <= jobs[j].key)
+                        lv.push_back({ "jet", [s0](double k) { FluePipeSpec q = s0; q.gscale = (float)(s0.gscale * k); return q; }, 1.0, 4.0 });
                     if (had < want) lv.push_back({ "flue", [s0, withFlue](double k) { return withFlue(s0, k); }, 1.0, 3.0 });
                     // too loud, and the toe has not brought it down (a starved foot made the pipe slow or unsteady):
                     // the flue narrowed (the voicer sets the languid closer to the lower lip)
