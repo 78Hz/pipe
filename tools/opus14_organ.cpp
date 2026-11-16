@@ -533,12 +533,13 @@ int main(int argc, char** argv) {
         std::vector<size_t> list; for (size_t j = 0; j < jobs.size(); ++j) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
         std::atomic<size_t> nx{0}, nbad{0}, ndone{0};
         auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i];
-            gSeed = 7; const Heard ref = hearFlue(res[j].spec, 0.012);
+            FluePipeSpec spx = res[j].spec; if (getenv("NOISEX")) spx.noise *= (float)atof(getenv("NOISEX"));   // NOISEX: the jet noise scaled (a study)
+            gSeed = 7; const Heard ref = hearFlue(spx, 0.012);
             int bad = 0; std::string first;
             for (int a = 0; a < N; ++a) {
                 const uint32_t h = (uint32_t)(j * 2654435761u + a * 40503u + 12345u);
                 gSeed = (h ^ (h >> 13)) * 0x5bd1e995u; const double ramp = 0.008 + 0.052 * ((h >> 8) & 1023) / 1023.0;
-                const Heard x = hearFlue(res[j].spec, -ramp);
+                const Heard x = hearFlue(spx, -ramp);
                 const double dc = (x.speaks && ref.speaks) ? 1200 * std::log2(x.f / ref.f) : 1e9;
                 const double dl = (x.rms > 0 && ref.rms > 0) ? 20 * std::log10(x.rms / ref.rms) : 1e9;
                 if (!x.speaks || std::fabs(dc) > 5 || x.spread > 3 || std::fabs(dl) > 2) {
