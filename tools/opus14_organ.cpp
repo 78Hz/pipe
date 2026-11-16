@@ -224,11 +224,17 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     // owner listened and found them steady.)
     {
         double sk = 0, sc = 0, skk = 0, skc = 0; for (int k = 0; k < nF; ++k) { sk += k; sc += cf[(size_t)k]; skk += (double)k * k; skc += k * cf[(size_t)k]; }
-        const double sl = (nF * skc - sk * sc) / std::max(1e-9, nF * skk - sk * sk), drift = std::fabs(sl) * (nF - 1);
-        double rmn = 1e9, rmx = -1e9; for (int k = 0; k < nF; ++k) { const double r = cf[(size_t)k] - (sc / nF + sl * (k - sk / nF)); rmn = std::min(rmn, r); rmx = std::max(rmx, r); }
+        const double sxx = skk - sk * sk / nF, sl = (nF * skc - sk * sc) / std::max(1e-9, nF * skk - sk * sk);
+        double rmn = 1e9, rmx = -1e9, ssr = 0; for (int k = 0; k < nF; ++k) { const double r = cf[(size_t)k] - (sc / nF + sl * (k - sk / nF)); rmn = std::min(rmn, r); rmx = std::max(rmx, r); ssr += r * r; }
+        // a drift is what the frames show beyond their jitter: the slope less two of its standard errors (on
+        // three or four frames a line through random readings has a slope of its own; 2026-11-16 the Subbass
+        // 16' D# read 3.4 c of "drift" on three frames, and over 8 s holds -1 +- 2 c with no trend)
+        const double se = nF > 2 ? std::sqrt(ssr / (nF - 2) / std::max(1e-9, sxx)) : 0.0;
+        const double drift = std::max(0.0, std::fabs(sl) - 2.0 * se) * (nF - 1);
         const double fl = std::max(200.0, f);   // below their 200 Hz the limen is held at its 200 Hz value (5.9 c): not extrapolated
         const double limen = std::max(3.0, 1200 * std::log2(1.0 + std::pow(10.0, 0.026 * std::sqrt(fl) - 0.533) / fl));
-        h.spread = std::max(drift, (rmx - rmn) * 3.0 / limen);
+        h.spread = std::max(drift, 1200 * std::log2(mx / mn) * 3.0 / limen);   // all the variation counts as jitter (rmx - rmn: diagnostic)
+        (void)rmn; (void)rmx;
     }
     return h;
 }
