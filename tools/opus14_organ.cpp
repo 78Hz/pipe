@@ -734,7 +734,21 @@ int main(int argc, char** argv) {
                 if (over) jpp.gain = gBase * std::pow(0.85, esc);
                 else if (slow) jpp.gain = gBase * std::pow(1.2, esc);
                 else if (unstable) jpp.gain = gBase * (esc % 2 == 1 ? std::pow(0.88, (esc + 1) / 2) : std::pow(1.15, esc / 2));
-                else break;
+                else {
+                    // it speaks well and is only out of tune (the tuning's secant can stall on a bass whose pitch
+                    // reading jitters by a cent): tuned again from where it is, and every check heard again
+                    for (int rt = 0; rt < 3 && !out.ok; ++rt) {
+                        tuneTrim(out.spec, jb.hz, [](const FluePipeSpec& q) { return hearFlue(q, 0.012); });
+                        const Heard a2 = hearFlue(out.spec, 0.012), b2 = hearFlue(out.spec, 0.002);
+                        out.centsEnd = a2.speaks ? 1200 * std::log2(a2.f / jb.hz) : 1e9;
+                        const bool sl2 = !a2.speaks || !b2.speaks || a2.tSpeech > limitF || b2.tSpeech > limitF;
+                        bool un2 = a2.spread > 3 || b2.spread > 3 || (b2.speaks && std::fabs(1200 * std::log2(b2.f / jb.hz)) > 2);
+                        std::string wn2; if (!sl2 && !un2 && !windRobust(out.spec, jb.hz, flueAt, wn2)) un2 = true;
+                        out.ok = !sl2 && !un2 && std::fabs(out.centsEnd) < 0.5 && std::fabs(out.spec.trim - 1.f) < 0.06f;
+                        char b3[200]; snprintf(b3, sizeof b3, "[retuned: %+.2fc trim %.4f %s] ", out.centsEnd, out.spec.trim, out.ok ? "holds" : wn2.c_str()); out.why += b3;
+                    }
+                    break;
+                }
             }
             ckWrite(ckF, ckm, (uint32_t)j, out.ok, out.cents0, out.centsEnd, out.fam, out.spec, out.why);
             if ((j + 1) % 200 == 0) { std::lock_guard<std::mutex> lk(io); fprintf(stderr, "  %zu / %zu\n", j + 1, jobs.size()); }
