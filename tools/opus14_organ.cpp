@@ -1052,10 +1052,19 @@ int main(int argc, char** argv) {
             static const double kCurve[] = { 1.0, 0.8, 1.25, 0.65, 1.5, 0.5, 0.35 };
             // each curve is voiced, tuned and checked in turn; the first that passes is kept, else the best
             bool anySpeaks = false; double bestErr = 1e18; ReedResult bestOut;
+            // the tongue's width is not on the Pasi sheets: the family's width first, then narrower ones if no curve
+            // holds (2026-11-17, corrected reed physics: the Trumpet 16' bass at full width is led by its tongue - the
+            // pitch follows the wire over 700 c - and at 0.92 x the wind it leaves the resonator for the tongue's own
+            // frequency, a fifth up)
+            static const double kWidth[] = { 1.0, 0.7, 0.5, 0.35 };
+            double gw = 1.0;
             auto make = [&](double r, double gs) {
                 ReedPipeSpec c = base; c.fr = (float)(r * ref); c.x0 = (float)reed::restOpening(c, c.fr, kk.gamma * gs); reed::applyZeta(c, kk, kk.gamma * gs); c.xs = (float)(kk.closure * c.x0);
+                c.w = (float)(c.w * gw);
                 return c;
             };
+            bool voiced = false;
+            for (double gwv : kWidth) { if (voiced) break; gw = gwv;
             for (double gs : kCurve) {
                 double bestScore = -1; ReedPipeSpec best = base;
                 // the curve follows the tongue: the same p / p_M (gamma) for any wire setting, times the scan
@@ -1106,8 +1115,8 @@ int main(int argc, char** argv) {
                 const Heard a = hearReed(rr.spec, 0.012), b = hearReed(rr.spec, 0.002);
                 rr.cents = a.speaks ? 1200 * std::log2(a.f / jb.hz) : 1e9;
                 const double cb = b.speaks ? 1200 * std::log2(b.f / jb.hz) : 1e9;
-                { char buf[260]; snprintf(buf, sizeof buf, "slot %.1f%% curve x%.2f | rms %.3f growth %+.1fdB | slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
-                      100.0 * (1.0 - 1.0 / slot), gs, a.rms, a.growth, a.speaks ? "speaks" : "NOT SPEAKING", rr.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? cb : 0.0, b.spread, rr.spec.trim); rr.why = buf; }
+                { char buf[260]; snprintf(buf, sizeof buf, "slot %.1f%% width x%.2f curve x%.2f | rms %.3f growth %+.1fdB | slow pallet %s %+.2fc spread %.1f speech %.2fs | fast pallet %s %+.1fc spread %.1f | trim %.3f",
+                      100.0 * (1.0 - 1.0 / slot), gw, gs, a.rms, a.growth, a.speaks ? "speaks" : "NOT SPEAKING", rr.cents, a.spread, a.tSpeech, b.speaks ? "speaks" : "SILENT", b.speaks ? cb : 0.0, b.spread, rr.spec.trim); rr.why = buf; }
                 std::string wnr;
                 const bool robustR = a.speaks && b.speaks && windRobust(rr.spec, jb.hz, reedAt, wnr);
                 rr.why += " | " + wnr;
@@ -1115,7 +1124,8 @@ int main(int argc, char** argv) {
                         && std::fabs(cb) < 2 && a.tSpeech <= speechLimit(jb.hz) && std::fabs(rr.spec.trim - 1.f) < 0.06f;
                 const double err = rr.ok ? -1.0 : (a.speaks && b.speaks ? std::fabs(rr.cents) + std::fabs(cb) + 10.0 * (std::max(0.0, a.spread - 3) + std::max(0.0, b.spread - 3)) : 1e9);
                 if (err < bestErr) { bestErr = err; bestOut = rr; }
-                if (rr.ok) break;
+                if (rr.ok) { voiced = true; break; }
+            }
             }
             out.cents = 1e9; out.ok = false;
             if (!anySpeaks) { out.spec = base; char buf[120]; snprintf(buf, sizeof buf, "slot %.1f%% | no tongue setting speaks steadily within 100 c of the pitch", 100.0 * (1.0 - 1.0 / slot)); out.why = buf; }
