@@ -1056,7 +1056,10 @@ int main(int argc, char** argv) {
             // holds (2026-11-17, corrected reed physics: the Trumpet 16' bass at full width is led by its tongue - the
             // pitch follows the wire over 700 c - and at 0.92 x the wind it leaves the resonator for the tongue's own
             // frequency, a fifth up)
-            static const double kWidth[] = { 1.0, 0.7, 0.5, 0.35 };
+            // and wider ones: at its family width the treble of the Trumpet 8' and Trompette 8' has no setting that speaks
+            // (the old treble widening, zetaMin, widened by up to 10x and held the regals flat; here the voicer takes the
+            // least change from the family width that holds)
+            static const double kWidth[] = { 1.0, 0.7, 1.5, 0.5, 2.0, 0.35, 3.0, 4.5, 6.5 };
             double gw = 1.0;
             auto make = [&](double r, double gs) {
                 ReedPipeSpec c = base; c.fr = (float)(r * ref); c.x0 = (float)reed::restOpening(c, c.fr, kk.gamma * gs); reed::applyZeta(c, kk, kk.gamma * gs); c.xs = (float)(kk.closure * c.x0);
