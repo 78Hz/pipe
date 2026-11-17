@@ -1042,7 +1042,10 @@ int main(int argc, char** argv) {
             const bool resonatorLed = base.nModes > 0 && base.f[0] > 0.7f * jb.hz && base.f[0] < 1.3f * jb.hz;
             const double ref = resonatorLed ? base.f[0] : jb.hz;
             // down to 0.7: a short treble resonator speaks below its resonance, the tongue leading
-            static const double kTongue[] = { 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.03, 1.06, 1.1, 1.15, 1.2, 1.3 };
+            // up to 2x: with the tongue's swept air flowing the right way (2026-11-17) the air in the shallot loads the
+            // tongue as mass and a treble regal speaks 250 - 700 c below its free tongue (Trichterregal 8' c#3 at
+            // 1.3x: -258 c); the tuning wire shortening the tongue by 30 % doubles its frequency
+            static const double kTongue[] = { 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.03, 1.06, 1.1, 1.15, 1.2, 1.3, 1.45, 1.6, 1.8, 2.0 };
             // gamma scaled: more curve (lower), less; 0.5 and 0.35 last: a regal's short resonator gives the tongue little
             // help, and its tongue needs more curve (a wider rest opening) to start (Vox Humana 8' from c0, 2026-11-16:
             // silent at every setting with x0 0.7 mm, speaking with 1.4 - 2.8 mm)
