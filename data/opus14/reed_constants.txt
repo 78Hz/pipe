@@ -5,6 +5,10 @@
 #           resonator, it is made wider (the treble). Both are the geometric means, over the training keys
 #           G2 G3 G4, of the values the matched rest opening and width gave there.
 # shallot = shallot length / tongue free length
+# zetaMin = 0 since 2026-11-17: the treble widening made up for the old model's tongue-swept flow, which ran the
+#           wrong way and drove the tongue; with it corrected, the widened tongues swept so much air that the shallot
+#           held the treble 200 - 700 c flat and no tuning brought it up (Trichterregal 8' c#3: widened, no setting
+#           speaks within 100 c; at the Pasi width it voices at -0.02 c and holds every check). Kept as a column.
 # family   width/lowerD  gamma    tongue-Q  boot-litres(8')  closure/x0  shallot  zetaMin
-trumpet    0.6266        0.529    61.38     0.5789           0.5777      2.0      0.718
-oboe       0.5655        0.685    95.75     0.8926           0.5278      2.0      0.439
+trumpet    0.6266        0.529    61.38     0.5789           0.5777      2.0      0
+oboe       0.5655        0.685    95.75     0.8926           0.5278      2.0      0
