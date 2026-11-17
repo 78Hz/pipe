@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
             if (div == kPedal && key > kPedalHigh) { printf("    ---"); continue; }
             e->prepare(fs);
             uint8_t on[3] = { 0x90, (uint8_t)key, 100 }; e->midi(on, 3);
-            int N = fs * 1; std::vector<float> L(N), R(N);
+            // a large bass pipe takes up to 50 cycles to speak (a 16' C: 1.5 s); it is heard after that
+            const int N = fs * (key < 60 ? 4 : 1); std::vector<float> L(N), R(N);
             for (int i = 0; i < N; i += 256) e->render(&L[i], &R[i], std::min(256, N - i));
             uint8_t off[3] = { 0x80, (uint8_t)key, 64 }; e->midi(off, 3);
             double ratio = kStops[c.stop].type == kStopRank ? kRanks[kStops[c.stop].rankFirst].ratio : 1.0;

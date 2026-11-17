@@ -26,7 +26,9 @@ constexpr RoomShape kRoomShapes[kNumLiteShapes] = {
     { 0.0f, 1.0f, 0.30f, 6.f, 5.f },      // dry
 };
 
-constexpr float kLiteWetNorm[kNumLiteShapes] = { 0.598f, 0.430f, 0.546f, 0.744f, 1.f };
+// recalibrated 2026-11-17 against dry on the voiced Opus 14 pipes (tests/render_test.cpp, section 7): village
+// -3.2 dB, abbey +3.0, cathedral -4.5, hall -4.1 at full mix with the earlier values 0.598 0.430 0.546 0.744
+constexpr float kLiteWetNorm[kNumLiteShapes] = { 0.859f, 0.304f, 0.917f, 1.193f, 1.f };
 
 struct DelayLine {
     std::vector<float> buf; int w = 0, mask = 0;

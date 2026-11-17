@@ -141,8 +141,11 @@ inline float levelMatch(std::vector<float>& L, std::vector<float>& R, double fs)
     }
     pffft_aligned_free(in); pffft_aligned_free(out); pffft_aligned_free(work);
     pffft_destroy_setup(setup);
-    // 1/3-octave bands from 31.5 Hz to 8 kHz
-    double sumMain = 0; int nMain = 0; double maxBand = 0;
+    // 1/3-octave bands from 31.5 Hz to 8 kHz, weighted by the organ's own long-term spectrum (tools/organ_ltas.cpp:
+    // the principal chorus through the engine, dry). Weighted flat over 60 Hz - 4 kHz, a room that is strong where
+    // the organ has little (or weak where it has much) came out 3 - 4.5 dB louder or softer than dry.
+    static const double kOrganBandWeight[25] = { 0.012459, 0.069924, 0.073977, 0.041176, 0.076287, 0.058123, 0.013379, 0.029803, 0.06366, 0.059191, 0.056875, 0.049576, 0.028907, 0.068125, 0.061462, 0.058332, 0.063188, 0.059222, 0.025385, 0.020239, 0.0068515, 0.00079722, 0.0012073, 0.0011032, 0.00074824 };
+    double sumMain = 0, nMain = 0; double maxBand = 0, sumFlat = 0; int nFlat = 0;
     for (int b = -15; b <= 9; ++b) {
         const double fc = 1000.0 * std::pow(2.0, b / 3.0);
         const int k0 = std::max(1, (int)(fc / std::pow(2.0, 1.0 / 6.0) / fs * N));
@@ -150,13 +153,15 @@ inline float levelMatch(std::vector<float>& L, std::vector<float>& R, double fs)
         if (k1 < k0) continue;
         double e = 0; for (int k = k0; k <= k1; ++k) e += pw[(size_t)k];
         e /= (k1 - k0 + 1);
-        if (fc >= 60.0 && fc <= 4100.0) { sumMain += e; ++nMain; }
+        sumMain += kOrganBandWeight[b + 15] * e; nMain += kOrganBandWeight[b + 15];
+        if (fc >= 60.0 && fc <= 4100.0) { sumFlat += e; ++nFlat; }
         if (fc >= 40.0) maxBand = std::max(maxBand, e);
     }
-    const double mean = nMain ? sumMain / nMain : 0.0;
+    const double mean = nMain > 0 ? sumMain / nMain : 0.0;
+    const double flat = nFlat ? sumFlat / nFlat : 0.0;
     if (!(mean > 1e-20)) return 0.f;
     double g = 1.0 / std::sqrt(mean);
-    if (maxBand > 4.0 * mean) g *= std::sqrt(4.0 * mean / maxBand);   // resonance cap: +6 dB
+    if (maxBand > 4.0 * flat) g *= std::sqrt(std::min(1.0, 4.0 * mean / maxBand));   // resonance cap
     for (auto& v : L) v = (float)(v * g);
     for (auto& v : R) v = (float)(v * g);
     // the low shelf is applied after measuring: it trims the boom at the bottom, not the room's loudness
@@ -371,6 +376,9 @@ private:
             status.store(lastStatus);
             return;
         }
+        // measured trim (tests/render_test.cpp, section 7, 2026-11-17): after the spectral match St Andrew's
+        // Lyndhurst still played a held chord 2.9 - 3.6 dB above dry (its long low-mid tail); -1 dB brings it within 3
+        if (r.room == 0) { const float t = std::pow(10.f, -1.0f / 20.f); for (auto& v : L) v *= t; for (auto& v : R) v *= t; }
         auto* conv = new StereoConvolver(L, R, r.block);
         delete incoming.exchange(conv);
         lastStatus = kRoomReady;
