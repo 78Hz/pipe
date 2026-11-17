@@ -173,8 +173,14 @@ public:
         auto step = [&](double h, bool contact, double& xx, double& vv) {
             double K = wrNow * wrNow, C = wrNow / sp.Qr;
             if (contact) { const double wc = 20.0 * wrNow; K += wc * wc; C += 2.0 * wc; }
-            vv = (vv + h * (force - K * xx)) / (1.0 + h * C + h * h * K);
-            xx += h * vv;
+            // trapezoidal (implicit midpoint): no numerical damping. The implicit-velocity step used before
+            // damped the tongue by about omega dt / 2 (a Q of 7 at 1.1 kHz at 48 kHz, far below the tongue's
+            // own 61): above about 600 Hz the reeds could not sound at all (2026-11-17: Trumpet 8' c#3 is
+            // silent at 48 and 96 kHz and speaks in tune at 384 kHz with the old step).
+            const double a = h * h * K / 4 + h * C / 2;
+            const double v1 = (vv * (1.0 - a) + h * (force - K * xx)) / (1.0 + a);
+            xx += 0.5 * h * (vv + v1);
+            vv = v1;
         };
         {
             const double x0s = x, v0s = vx;
