@@ -238,7 +238,8 @@ static Heard analyse(const std::vector<double>& x, double target, double T, int 
     }
     return h;
 }
-static double renderTime(double target) { return std::max(1.5, 0.4 + 150.0 / target); }
+// below 50 Hz the large stopped basses may take 80 cycles to speak (limitFor): heard for 220 cycles, so their steady part is still 140
+static double renderTime(double target) { return std::max(1.5, 0.4 + (target < 50.0 ? 220.0 : 150.0) / target); }
 // trem > 0: the chest pulses +-11 % at trem Hz (the tremulant at its default depth), judged over the last four frames of whole periods (tremPeriods)
 // after the pipe has spoken
 static constexpr double kTremDepth = 0.11;
@@ -284,7 +285,13 @@ static double speechLimit(double hz) { return std::max(0.3, 30.0 / hz); }
 // spoke in time and held its note with every noise seed)
 // the Bourdon 16' (stopped wood, the manual's sub-bass) likewise: its c#0 has no voicing that is steady and speaks
 // within 30 cycles, and a band that speaks in 0.86 - 1.07 s (2026-11-16; the owner: "do whatever is necessary")
-static double limitFor(const opus14::Stop& s, double hz) { return (familyOf(s) == kString || std::strstr(s.name, "Subbass") || std::strcmp(s.name, "Bourdon 16'") == 0) ? std::max(0.3, 50.0 / hz) : speechLimit(hz); }
+// strings, and the large stopped basses: 50 cycles; the stopped basses below 50 Hz 80 cycles (the owner: "It is normal for
+// sub basses to take longer to sound than other pipes"; a 32' C takes up to 4.9 s, a 16' C 2.4 s)
+static double limitFor(const opus14::Stop& s, double hz) {
+    const bool bass = std::strstr(s.name, "Subbass") || std::strcmp(s.name, "Bourdon 16'") == 0;
+    if (bass && hz < 50.0) return 80.0 / hz;
+    return (familyOf(s) == kString || bass) ? std::max(0.3, 50.0 / hz) : speechLimit(hz);
+}
 // The wind in the instrument is not constant, and a pipe has to stay on its note in the wind it will get
 // (Wind.hpp): full chords sag the chest by up to ~8 % (default flexibility; the lid's bounce back
 // overshoots by well under 1 %), and the tremulant pulses it +-11 % (default depth 0.22) at 3 - 9 Hz.
