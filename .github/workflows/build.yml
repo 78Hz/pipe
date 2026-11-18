@@ -228,7 +228,7 @@ jobs:
           TAG="v${VER}"
           NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README and in OpusXIV-User-Manual.pdf. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-          gh release create "$TAG" $(find artifacts -name "OpusXIV-*.zip" -o -name "*.pdf") \
+          gh release create "$TAG" $(find artifacts -type f \( -name "OpusXIV-*.zip" -o -name "*.pdf" \)) \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "OpusXIV $TAG" \
@@ -249,7 +249,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FILES=$(find artifacts -name "OpusXIV-*.zip" -o -name "*.pdf")
+          FILES=$(find artifacts -type f \( -name "OpusXIV-*.zip" -o -name "*.pdf" \))
           test -n "$FILES"
           NOTES="Preview build from ${GITHUB_SHA::7} for listening and testing; not a release: some checks still fail (see the run's log). Download the zip for your system: CLAP, VST3, LV2, and AU on macOS."
           gh release delete preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
