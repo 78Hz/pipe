@@ -558,7 +558,7 @@ int main(int argc, char** argv) {
         std::vector<size_t> list; for (size_t j = 0; j < jobs.size(); ++j) if (doneF[j] && res[j].ok && !absent[j] && !skip(jobs[j].rank)) list.push_back(j);
         std::atomic<size_t> nx{0}, nbad{0}, ndone{0};
         auto w = [&] { for (;;) { const size_t i = nx++; if (i >= list.size()) return; const size_t j = list[i];
-            FluePipeSpec spx = res[j].spec; if (getenv("NOISEX")) spx.noise *= (float)atof(getenv("NOISEX"));   // NOISEX: the jet noise scaled (a study)
+            FluePipeSpec spx = res[j].spec; if (getenv("NOISEX")) spx.noise *= (float)atof(getenv("NOISEX")); if (getenv("BEARD")) spx.beard = (float)atof(getenv("BEARD"));   // BEARD: a beard on every pipe scanned (a study)   // NOISEX: the jet noise scaled (a study)
             gSeed = 7; const Heard ref = hearFlue(spx, 0.012);
             int bad = 0; std::string first;
             for (int a = 0; a < N; ++a) {

@@ -42,6 +42,10 @@ struct FluePipeSpec {
     // (discharge coefficient included) is valve x the flue area. 0 = the note's pallet. (Last in the record:
     // a record written before it was added reads with 0.)
     float valve = 0;
+    // A beard (a bar across the front of a string pipe's mouth, between its ears) stops the jet straying outward
+    // from the upper lip and turns it back into the mouth (Pykett, "The physics of voicing organ flue pipes"):
+    // the jet's outward excursion at the lip is limited to beard x the cut-up. 0 = no beard (the cut-up itself).
+    float beard = 0;
 };
 
 // tanh by its [9/8] continued-fraction (Lambert) approximant, limited to +-1: the approximant reaches
@@ -161,7 +165,7 @@ public:
             const double fr = p - i0;
             const double va = hist[i0 & (kHist - 1)], vb = hist[(i0 + 1) & (kHist - 1)];
             double eta = ghU * (va + (vb - va) * fr);
-            eta = std::max(-(double)sp.W, std::min((double)sp.W, eta));
+            eta = std::max(-(double)sp.W * (sp.beard > 0 ? (double)sp.beard : 1.0), std::min((double)sp.W, eta));
             etaLP += lpc * (eta - etaLP);
             t = fastTanh((etaLP - sp.y0b * sp.b) * invB);
             qin = sp.Wm * sp.b * Vj * (1.0 + t);
