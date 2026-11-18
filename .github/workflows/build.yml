@@ -233,3 +233,25 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "OpusXIV $TAG" \
             --notes "$NOTES"
+
+  preview:
+    name: Publish preview build
+    needs: build
+    # every push to main puts its build on the "preview" pre-release, whether or not every check passed, so it
+    # can always be downloaded from the Releases page (the numbered release above still needs every check)
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Create or refresh the preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILES=$(find artifacts -name "OpusXIV-*.zip" -o -name "*.pdf")
+          test -n "$FILES"
+          NOTES="Preview build from ${GITHUB_SHA::7} for listening and testing; not a release: some checks still fail (see the run's log). Download the zip for your system: CLAP, VST3, LV2, and AU on macOS."
+          gh release delete preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create preview $FILES --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "OpusXIV preview (${GITHUB_SHA::7})" --notes "$NOTES"
