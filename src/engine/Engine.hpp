@@ -12,6 +12,7 @@
 #include "Matrix.hpp"
 #include "MpeInput.hpp"
 #include "OrganPipes.hpp"
+#include "PipeEdit.hpp"
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -187,6 +188,13 @@ public:
         std::lock_guard<std::mutex> lk(stateMutex);
         pendingVoicing->parseTuning(text);
         tuningDirty = true;
+    }
+    // Pipes edited in the Workshop (PipeEdit.hpp): rebuilt here, off the audio thread, then handed over.
+    void setPipeEditsText(const std::string& text) {
+        std::unique_ptr<PipeEditSet> set = buildPipeEdits(text);
+        std::lock_guard<std::mutex> lk(stateMutex);
+        pendingEdits = std::move(set);   // a set handed back by the audio thread (the previous one) is freed here
+        editsDirty = true;
     }
     void setMatrixText(const std::string& text) {
         std::lock_guard<std::mutex> lk(stateMutex);
@@ -473,7 +481,8 @@ private:
 
         if (!isReed) {
             // An Opus 14 flue pipe, as built from the Pasi scales and cut to pitch (OrganPipes.hpp).
-            const FluePipeSpec* sp = organFlueSpec(rank, k);
+            const FluePipeSpec* sp = pipeEdits ? pipeEdits->flueAt(rank, k) : nullptr;
+            if (!sp) sp = organFlueSpec(rank, k);
             if (!sp) { v.active = false; return; }
             v.family = rd.family;
             FluePipeRT& core = *flues[(size_t)v.slot];
@@ -494,7 +503,8 @@ private:
             v.twice = false;
         } else {
             // An Opus 14 reed pipe: Pasi resonator and tongue, tuned by wire and scroll (OrganPipes.hpp).
-            const ReedPipeSpec* sp = organReedSpec(rank, k);
+            const ReedPipeSpec* sp = pipeEdits ? pipeEdits->reedAt(rank, k) : nullptr;
+            if (!sp) sp = organReedSpec(rank, k);
             if (!sp) { v.active = false; return; }
             v.family = rd.family;
             ReedPipeRT& core = *reeds[(size_t)v.slot];
@@ -580,11 +590,16 @@ private:
     // --------------------------------------------------------- control block
     void controlUpdate() {
         // pick up state from the host/UI thread without blocking
-        if ((voicingDirty || tuningDirty || scalaDirty || matrixDirty) && stateMutex.try_lock()) {
+        if ((voicingDirty || tuningDirty || scalaDirty || matrixDirty || editsDirty) && stateMutex.try_lock()) {
             if (voicingDirty) { std::memcpy(voicing->rank, pendingVoicing->rank, sizeof(voicing->rank)); voicingDirty = false; }
             if (tuningDirty) { std::memcpy(voicing->pipeTune, pendingVoicing->pipeTune, sizeof(voicing->pipeTune)); tuningDirty = false; }
             if (scalaDirty) { std::swap(tuning.scl, pendingScl); std::swap(tuning.kbm, pendingKbm); scalaDirty = false; }
             if (matrixDirty) { matrix = pendingMatrix; matrixDirty = false; }
+            if (editsDirty) {
+                std::swap(pipeEdits, pendingEdits); editsDirty = false;
+                // an edited pipe sounds at a new pitch: the tuner listens to every pipe again
+                std::memset(trimValid, 0, sizeof(trimValid));
+            }
             stateMutex.unlock();
         }
         const float dt = kControlBlock / fs;
@@ -1017,6 +1032,8 @@ private:
     uint32_t orderCounter = 0, ageCounter = 0;
     Tuning tuning;
     std::unique_ptr<Voicing> voicing, pendingVoicing;
+    std::unique_ptr<PipeEditSet> pipeEdits, pendingEdits;
+    std::atomic<bool> editsDirty{false};
     ScalaScale pendingScl; ScalaKbm pendingKbm;
     std::mutex stateMutex;
     int silentKey = 0; float silentTimer = 0.f;

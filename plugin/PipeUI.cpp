@@ -12,6 +12,7 @@
 #include "../src/engine/MpeInput.hpp"
 #include "../src/engine/Wav.hpp"
 #include "IrMeta.hpp"
+#include "../src/engine/PipeEdit.hpp"
 #include "FontPlex.hpp"
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <filesystem>
+#include <future>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -31,8 +33,8 @@ namespace fs = std::filesystem;
 
 static constexpr float kW = 1280.f, kH = 800.f;
 
-enum Screen { kScrConsole = 0, kScrExpression, kScrWind, kScrVoicing, kScrTuning, kScrRoom, kScrPresets, kNumScreens };
-static const char* const kScreenNames[kNumScreens] = { "CONSOLE", "EXPRESSION", "WIND", "VOICING", "TUNING", "ROOM", "PRESETS" };
+enum Screen { kScrConsole = 0, kScrExpression, kScrWind, kScrVoicing, kScrTuning, kScrRoom, kScrPresets, kScrWorkshop, kNumScreens };
+static const char* const kScreenNames[kNumScreens] = { "CONSOLE", "EXPRESSION", "WIND", "VOICING", "TUNING", "ROOM", "PRESETS", "WORKSHOP" };
 
 static std::string userPresetDir()
 {
@@ -118,6 +120,7 @@ protected:
             if (i == kStatePipeTune) voicing->parseTuning(st[i]);
             if (i == kStateScalaScl || i == kStateScalaKbm) syncTuning();
             if (i == kStatePresetName && !st[i].empty()) presetLabel = st[i];
+            if (i == kStatePipeEdits) { pipeEdits = parsePipeEdits(st[i]); wsKey = -1; }
             if (i == kStateMatrix) matrix.parse(st[i]);
         }
         repaint();
@@ -126,6 +129,7 @@ protected:
     void uiIdle() override
     {
         learnPoll();
+        if (wsFuture.valid() && wsFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) { wsResult = wsFuture.get(); repaint(); }
         // wind history for the pressure graph: 4 s for sag and bounce, 2 min for the wind running out
         const auto now = std::chrono::steady_clock::now();
         if (now - histShortT >= std::chrono::milliseconds(33))
@@ -175,6 +179,7 @@ protected:
             case kScrTuning: drawTuning(); break;
             case kScrRoom: drawRoom(); break;
             case kScrPresets: drawPresets(); break;
+            case kScrWorkshop: drawWorkshop(); break;
             default: break;
             }
             restore();
@@ -339,6 +344,7 @@ private:
     void fontSize(float size) { NanoVG::fontSize(size * kFontScale); }
     void text(float x, float y, const std::string& s, float size = 20.f, Color c = Color(0, 0, 0, 0.f), int align = ALIGN_LEFT | ALIGN_MIDDLE)
     {
+        if (s.empty()) return;
         if (c.alpha == 0.f) c = ink;
         fontSize(size); fillColor(c); textAlign(align); NanoVG::text(x, y, s.c_str(), nullptr);
     }
@@ -471,7 +477,7 @@ private:
         const float y = kDrawerBottom + 6;
         hline(9, kDrawerBottom, kW - 18);
         text(22, y + 19, screen == kScrConsole ? "DRAWER ^" : "DRAWER v", 18, ink2);
-        static const int order[6] = { kScrWind, kScrTuning, kScrRoom, kScrExpression, kScrVoicing, kScrPresets };
+        static const int order[7] = { kScrWind, kScrTuning, kScrRoom, kScrExpression, kScrVoicing, kScrWorkshop, kScrPresets };
         float x = 112;
         for (int i : order)
         {
@@ -627,6 +633,22 @@ private:
             text(wx, y + 64, fmt("RESERVOIR %.0f MM", pv[kOutReservoir]), 18, ink2);
             addHit(wx, y, cw, 80, [this] { toggle(kParamBlowerOn); });
         }
+        // the notes sounding: key, where it came from, its foot pressure and its pitch
+        {
+            const float ny = 540, nw = w / (float)kNumShownNotes;
+            for (int i = 0; i < kNumShownNotes; ++i)
+            {
+                const float* n = &pv[kOutNote0 + i * 4];
+                const float nx = x + i * nw;
+                if (n[0] < 0) { text(nx, ny, "--", 18, ghost); continue; }
+                const int k = (int)n[0], src = (int)n[1];
+                const int dd = (src % 1000) / 100, rest = src % 100, zone = rest >= 16 ? 1 : 0, ch = rest - zone * 16;
+                const KeyPitch nk = tuning.keyPitch(k, (int)(zone ? pv[kParamMapHi] : pv[kParamMapLo]), on(kParamEnharmonic));
+                const std::string from = src >= 1000 ? std::string("CPL ") + divisionShort(dd) : std::string(zone ? "HI" : "LO") + fmt(" CH%.0f", ch);
+                text(nx, ny - 8, std::string(nk.name) + std::to_string(k / 12 - 1) + " " + from, 17);
+                text(nx, ny + 10, fmt("%.0f MM ", n[2]) + fmt("%+.0f C", n[3]) + (n[2] > 100 ? " OVBL" : ""), 17, ink2);
+            }
+        }
         // couplers
         y = 568;
         text(x, y, "COUPLERS", 18, ink2);
@@ -674,6 +696,237 @@ private:
             const int key = sk % 1000;
             text(x, kDrawerBottom - 12, std::string("KEY ") + noteName12(key) + (sk >= 2000 ? ": NO STOP DRAWN ON ITS DIVISION" : ": OUTSIDE THE COMPASS"), 18, ink);
         }
+    }
+
+    // ============================================================ workshop
+    // The pipe as built: its drawing and dimensions. Every dimension can be changed; the pipe is then
+    // rebuilt from its geometry with the voicer's own models (PipeEdit.hpp) and sounds as built that way.
+    struct WsResult { bool ok = false, reed = false; std::string why; FluePipeSpec flue{}; ReedPipeSpec rd{}; int rank = -1, key = -1; std::string text; };
+    WsResult rebuildSelected(int rank, int key, PipeEdit e, std::string text)
+    {
+        WsResult r; r.rank = rank; r.key = key; r.text = std::move(text);
+        if (const FluePipeSpec* b = organFlueSpec(rank, key)) { r.ok = edit::editFlue(rank, key, *b, e, r.flue, r.why); }
+        else if (const ReedPipeSpec* b = organReedSpec(rank, key)) { r.reed = true; r.ok = edit::editReed(rank, key, *b, e, r.rd, r.why); }
+        else r.why = "no pipe at this key";
+        return r;
+    }
+    void setEdit(int field, float value)
+    {
+        PipeEdit& e = pipeEdits[selRank * 128 + selKey];
+        e.v[field] = value;
+        if (!e.any()) pipeEdits.erase(selRank * 128 + selKey);
+        setStateValue(kStatePipeEdits, writePipeEdits(pipeEdits));
+        wsKey = -1;
+    }
+    void drawWorkshop()
+    {
+        const float top = 84;
+        // rank list, one division at a time
+        static const int tabDiv[4] = { kPedal, kGreat, kPositive, kSwell };
+        for (int t = 0; t < 4; ++t) {
+            const int dv = tabDiv[t];
+            button(20 + t * 56, top, 52, 26, divisionShort(dv), kRanks[selRank].division == dv, [this, dv] {
+                for (int r = 0; r < kNumRanks; ++r) if (kRanks[r].division == dv) { selRank = r; break; }
+            }, 19);
+        }
+        float y = top + 32;
+        for (int r = 0; r < kNumRanks; ++r)
+        {
+            if (kRanks[r].division != kRanks[selRank].division) continue;
+            const bool sel = r == selRank;
+            int nEd = 0; for (const auto& e : pipeEdits) if (e.first / 128 == r) ++nEd;
+            if (sel) fill(20, y, 220, 21, ink);
+            std::string nm = kRanks[r].name; if (nm.size() > 22) nm = nm.substr(0, 22);
+            text(26, y + 11, nm, 19, sel ? lcd : ink);
+            if (nEd) text(234, y + 11, fmt("%.0f*", nEd), 17, sel ? lcd : ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            addHit(20, y, 220, 21, [this, r] { selRank = r; });
+            y += 21;
+        }
+        vline(250, 76, kH - 90);
+
+        // key: chosen here, or following the keys played
+        const int d = kRanks[selRank].division;
+        const int lo = d == kPedal ? kPedalLow : kManualLow, hi = d == kPedal ? kPedalHigh : kManualHigh;
+        if (wsFollow && pv[kOutLiveKey] > 0) selKey = (int)pv[kOutLiveKey];
+        selKey = std::max(lo, std::min(hi, selKey));
+        const float mx = 266, mw = 360;
+        const FluePipeSpec* bf = organFlueSpec(selRank, selKey);
+        const ReedPipeSpec* br = organReedSpec(selRank, selKey);
+        titleBar(mx, top, mw, std::string(kRanks[selRank].name), noteName12(selKey));
+        button(mx, top + 34, 40, 34, "<", false, [this, lo] { wsFollow = false; selKey = std::max(lo, selKey - 1); }, 22);
+        text(mx + 150, top + 52, std::string("KEY ") + noteName12(selKey) + (bf ? fmt("  %.1f HZ", bf->target) : br ? fmt("  %.1f HZ", br->target) : std::string("")), 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+        button(mx + 256, top + 34, 40, 34, ">", false, [this, hi] { wsFollow = false; selKey = std::min(hi, selKey + 1); }, 22);
+        button(mx + 302, top + 34, 58, 34, "FOLLOW", wsFollow, [this] { wsFollow = !wsFollow; }, 17);
+
+        // the edited pipe, rebuilt when the pipe or its edit changes (in the background: a harmonic pipe
+        // takes a few seconds to match)
+        const auto it = pipeEdits.find(selRank * 128 + selKey);
+        const PipeEdit e = it == pipeEdits.end() ? PipeEdit() : it->second;
+        const std::string etext = it == pipeEdits.end() ? std::string() : writePipeEdits({ { it->first, it->second } });
+        const bool edited = it != pipeEdits.end();
+        if (edited && (wsResult.rank != selRank || wsResult.key != selKey || wsResult.text != etext) && !wsFuture.valid())
+        {
+            const int r = selRank, k = selKey;
+            wsFuture = std::async(std::launch::async, [this, r, k, e, etext] { return rebuildSelected(r, k, e, etext); });
+        }
+        const bool have = edited && wsResult.ok && wsResult.rank == selRank && wsResult.key == selKey && wsResult.text == etext;
+        const bool waiting = edited && !have && wsFuture.valid();
+
+        // drawing
+        const float dx = mx, dy = top + 84, dw = mw, dh = 560;
+        frame(dx, dy, dw, dh, 1.f);
+        if (!bf && !br) text(dx + dw / 2, dy + dh / 2, "NO PIPE AT THIS KEY", 21, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
+        else if (bf) drawFluePipe(dx, dy, dw, dh, have ? wsResult.flue : *bf);
+        else drawReedPipe(dx, dy, dw, dh, have ? wsResult.rd : *br);
+
+        // dimensions
+        const float x = 644, w = 616;
+        titleBar(x, top, w, "DIMENSIONS", edited ? "EDITED" : "AS VOICED");
+        text(x + 250, top + 44, "AS VOICED", 17, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(x + 452, top + 44, "NOW", 17, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
+        text(x + w, top + 44, "CHANGE", 17, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        float ry = top + 58;
+        auto row = [&](const char* label, double base, int field, const char* unit, double mul, const char* f) {
+            const double ratio = field == kEdBeard ? 1.0 : e.v[field];
+            text(x, ry + 17, label, 19);
+            text(x + 250, ry + 17, fmt(f, base * mul) + unit, 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            std::string now;
+            if (field == kEdBeard) now = e.v[kEdBeard] < 0 ? (base > 0 ? fmt("%.2f", base) : std::string("NONE")) : (e.v[kEdBeard] == 0 ? std::string("NONE") : fmt("%.2f", e.v[kEdBeard]));
+            else now = fmt(f, base * mul * ratio) + unit;
+            stepper(x + 270, ry, 346 - 92, "", now,
+                    [this, field, ratio, base] { if (field == kEdBeard) { const float c = pipeEdits.count(selRank * 128 + selKey) && pipeEdits[selRank * 128 + selKey].v[kEdBeard] >= 0 ? pipeEdits[selRank * 128 + selKey].v[kEdBeard] : (float)base; setEdit(kEdBeard, std::max(0.f, c - 0.05f)); } else setEdit(field, (float)(ratio / 1.01)); },
+                    [this, field, ratio, base] { if (field == kEdBeard) { const float c = pipeEdits.count(selRank * 128 + selKey) && pipeEdits[selRank * 128 + selKey].v[kEdBeard] >= 0 ? pipeEdits[selRank * 128 + selKey].v[kEdBeard] : (float)base; setEdit(kEdBeard, std::min(2.f, c + 0.05f)); } else setEdit(field, (float)(ratio * 1.01)); }, 120.f);
+            if (field != kEdBeard) text(x + w, ry + 17, std::fabs(ratio - 1.0) < 1e-6 ? std::string("-") : fmt("%+.1f%%", 100.0 * (ratio - 1.0)), 19, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+            ry += 44;
+        };
+        if (bf)
+        {
+            row("BODY LENGTH", bf->length, kEdBodyLength, " MM", 1000, "%.1f");
+            row("BODY DIAMETER", 2 * bf->radius, kEdBodyDiameter, " MM", 1000, "%.1f");
+            row("MOUTH WIDTH", bf->Wm, kEdMouthWidth, " MM", 1000, "%.1f");
+            row("CUT-UP", bf->W, kEdCutup, " MM", 1000, "%.2f");
+            row("FLUE", bf->h, kEdFlue, " MM", 1000, "%.3f");
+            row("WINDWAY LENGTH", bf->languid, kEdLanguid, " MM", 1000, "%.1f");
+            row("FOOT PRESSURE", bf->footPa / 9.80665, kEdFootPressure, " MM", 1, "%.1f");
+            row("BEARD (X CUT-UP)", bf->beard, kEdBeard, "", 1, "%.2f");
+        }
+        else if (br)
+        {
+            row("TONGUE THICKNESS", br->t, kEdTongueThick, " MM", 1000, "%.3f");
+            row("TONGUE LENGTH", br->L, kEdTongueLength, " MM", 1000, "%.1f");
+            row("TONGUE WIDTH", br->w, kEdTongueWidth, " MM", 1000, "%.2f");
+            row("TONGUE CURVE (OPENING)", br->x0, kEdTongueCurve, " MM", 1000, "%.3f");
+            row("RESONATOR LENGTH", br->length, kEdResLength, " MM", 1000, "%.1f");
+            row("RESONATOR DIAMETER", 2 * br->lowerR, kEdResDiameter, " MM", 1000, "%.1f");
+            row("BOOT PRESSURE", br->footPa / 9.80665, kEdBootPressure, " MM", 1, "%.1f");
+        }
+        // what follows from them
+        ry += 6;
+        hline(x, ry, w, true);
+        ry += 10;
+        auto info = [&](const std::string& k, const std::string& v) { text(x, ry + 10, k, 19, ink2); text(x + w, ry + 10, v, 19, ink, ALIGN_RIGHT | ALIGN_MIDDLE); ry += 24; };
+        if (bf)
+        {
+            const FluePipeSpec& sp = have ? wsResult.flue : *bf;
+            static const char* const shapes[4] = { "OPEN", "STOPPED", "CHIMNEY", "CONICAL" };
+            info("SHAPE · MATERIAL", std::string(shapes[std::max(0, std::min(3, (int)sp.shape))]) + " · " + (sp.wood > 0.5f ? std::string("WOOD") : kRanks[selRank].metalTin > 0 ? fmt("%.0f%% TIN", kRanks[selRank].metalTin) : std::string("METAL")));
+            info("TOE HOLE", sp.toe > 0 ? fmt("%.1f MM", sp.toe * 1000) : std::string("OPEN"));
+            std::string res; for (int i = 0; i < std::min(3, sp.nModes); ++i) res += (i ? " · " : "") + fmt("%.1f", sp.f[i]);
+            info("RESONANCES (HZ)", res);
+            const double u = std::sqrt(2.0 * sp.footPa / 1.2);
+            info("JET SPEED · TRANSIT", fmt("%.1f M/S · ", u) + fmt("%.2f MS", 1000.0 * sp.transit / u));
+            const PipeGeometry g = pipeGeometry(*voicing, selRank, selKey, sp.target);
+            const BuildCheck bc = checkPipe(g);
+            const bool ok = bc.mouthOk && bc.cutupOk && bc.sizeOk && bc.pressureOk;
+            info("BUILD CHECK", ok ? "BUILDABLE" : (!bc.cutupOk ? "CUT-UP WON'T SPEAK" : !bc.mouthOk ? "MOUTH TOO WIDE" : !bc.sizeOk ? "SIZE NOT BUILDABLE" : "WIND OUT OF RANGE"));
+        }
+        else if (br)
+        {
+            const ReedPipeSpec& sp = have ? wsResult.rd : *br;
+            info("TONGUE FREQUENCY", fmt("%.1f HZ", sp.fr));
+            std::string res; for (int i = 0; i < std::min(3, sp.nModes); ++i) res += (i ? " · " : "") + fmt("%.1f", sp.f[i]);
+            info("RESONATOR RESONANCES (HZ)", res);
+            info("RESONATOR TOP DIAMETER", fmt("%.1f MM", 2000.0 * sp.upperR));
+            info("BOOT", fmt("%.2f L", sp.bootVolume * 1000.0) + (sp.shallotL > 0 ? fmt(" · SHALLOT %.0f MM", sp.shallotL * 1000) : std::string("")));
+        }
+        // state of the edit
+        ry += 8;
+        frame(x, ry, w, 56, 1.5f);
+        std::string status = !edited ? "AS VOICED: THE PIPE THAT PASSED THE VOICER'S CHECKS"
+                           : waiting ? "REBUILDING THE PIPE FROM ITS GEOMETRY..."
+                           : have ? "EDITED: REBUILT FROM ITS GEOMETRY; NOT CHECKED BY THE VOICER"
+                           : "CANNOT EDIT THIS PIPE: " + upper(wsResult.why);
+        text(x + 10, ry + 18, status, 18);
+        text(x + 10, ry + 40, "DRAW THE STOP AND PLAY THE KEY TO HEAR IT; THE TUNER BRINGS IT TO PITCH", 17, ink2);
+        ry += 66;
+        button(x, ry, 200, 38, "RESET THIS PIPE", false, [this] { pipeEdits.erase(selRank * 128 + selKey); setStateValue(kStatePipeEdits, writePipeEdits(pipeEdits)); wsKey = -1; }, 18);
+        button(x + 208, ry, 200, 38, "RESET THIS RANK", false, [this] {
+            for (auto i = pipeEdits.begin(); i != pipeEdits.end();) i = (i->first / 128 == selRank) ? pipeEdits.erase(i) : std::next(i);
+            setStateValue(kStatePipeEdits, writePipeEdits(pipeEdits)); wsKey = -1; }, 18);
+        button(x + 416, ry, 200, 38, fmt("RESET ALL (%.0f)", (double)pipeEdits.size()), false, [this] { pipeEdits.clear(); setStateValue(kStatePipeEdits, ""); wsKey = -1; }, 18);
+    }
+
+    // a flue pipe drawn to scale (the width exaggerated when a tall pipe would be a line, and said so)
+    void drawFluePipe(float x, float y, float w, float h, const FluePipeSpec& sp)
+    {
+        const double L = sp.length, D = 2 * sp.radius, foot = std::min(0.35, std::max(0.08, 0.25 * L));
+        const double total = L + foot;
+        double sc = (h - 70) / total;
+        double wx = 1.0;
+        if (D * sc < 22) wx = 22.0 / (D * sc);
+        if (D * sc * wx > w * 0.5) sc = w * 0.5 / (D * wx);
+        const float cx = x + w * 0.42f, by = y + h - 30;                  // toe at the bottom
+        const float bodyW = (float)(D * sc * wx), footH = (float)(foot * sc), bodyH = (float)(L * sc);
+        const float mouthY = by - footH;                                  // mouth at the top of the foot
+        strokeColor(ink); strokeWidth(1.5f);
+        // foot: a cone from the toe up to the body
+        beginPath(); moveTo(cx - 3, by); lineTo(cx - bodyW / 2, mouthY); moveTo(cx + 3, by); lineTo(cx + bodyW / 2, mouthY); stroke();
+        // body (conical: narrower at the top)
+        const float topW = sp.shape == 3.f ? bodyW * 0.5f : bodyW;
+        beginPath(); moveTo(cx - bodyW / 2, mouthY); lineTo(cx - topW / 2, mouthY - bodyH); moveTo(cx + bodyW / 2, mouthY); lineTo(cx + topW / 2, mouthY - bodyH); stroke();
+        if (sp.shape == 1.f || sp.shape == 2.f) { fill(cx - topW / 2 - 2, mouthY - bodyH - 4, topW + 4, 6, ink); }
+        if (sp.shape == 2.f) { beginPath(); rect(cx - topW * 0.12f, mouthY - bodyH - 26, topW * 0.24f, 22); stroke(); }
+        // mouth: its width across the front, the cut-up above the lower lip
+        const float mwid = (float)std::min((double)bodyW, sp.Wm / (M_PI * D) * bodyW * M_PI / 2.0);
+        const float cut = std::max(3.f, (float)(sp.W * sc));
+        beginPath(); rect(cx - mwid / 2, mouthY - cut, mwid, cut); stroke();
+        // dimension lines
+        auto dim = [&](float x1, float y1, float x2, float y2, const std::string& t, bool vertical) {
+            beginPath(); moveTo(x1, y1); lineTo(x2, y2); strokeColor(ink2); strokeWidth(1.f); stroke();
+            if (vertical) text(x1 + 6, (y1 + y2) / 2, t, 17, ink2); else text((x1 + x2) / 2, y1 - 10, t, 17, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
+        };
+        const float rx = cx + std::max(bodyW, topW) / 2 + 18;
+        dim(rx, mouthY, rx, mouthY - bodyH, fmt(L >= 1 ? "%.3f M" : "%.0f MM", L >= 1 ? L : L * 1000), true);
+        dim(cx - bodyW / 2, mouthY - bodyH - 36, cx + bodyW / 2, mouthY - bodyH - 36, fmt("D %.0f MM", D * 1000), false);
+        text(cx - bodyW / 2 - 8, mouthY - cut / 2, fmt("MOUTH %.0f", sp.Wm * 1000) + fmt(" x %.1f MM", sp.W * 1000), 17, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(x + 8, y + h - 14, wx > 1.01 ? fmt("TO SCALE; WIDTH x%.1f", wx) : std::string("TO SCALE"), 16, ink2);
+    }
+
+    // a reed pipe: the boot (with the tongue on its shallot inside), the resonator above
+    void drawReedPipe(float x, float y, float w, float h, const ReedPipeSpec& sp)
+    {
+        const double L = sp.length, bootH = std::max(0.12, 3.0 * sp.L), total = L + bootH;
+        double sc = (h - 70) / total, wx = 1.0;
+        const double Dmax = 2 * std::max(sp.lowerR, sp.upperR);
+        if (Dmax * sc < 22) wx = 22.0 / (Dmax * sc);
+        if (Dmax * sc * wx > w * 0.5) sc = w * 0.5 / (Dmax * wx);
+        const float cx = x + w * 0.42f, by = y + h - 30;
+        const float bh = (float)(bootH * sc), bw = std::max(30.f, (float)(2 * sp.lowerR * sc * wx) + 16);
+        strokeColor(ink); strokeWidth(1.5f);
+        beginPath(); moveTo(cx - 3, by); lineTo(cx - bw / 2, by - bh * 0.35f); lineTo(cx - bw / 2, by - bh); lineTo(cx + bw / 2, by - bh); lineTo(cx + bw / 2, by - bh * 0.35f); lineTo(cx + 3, by); stroke();
+        // shallot and tongue inside the boot
+        const float tl = (float)(sp.L * sc);
+        beginPath(); rect(cx - 4, by - bh, 8, std::min(bh * 0.9f, tl + 6)); strokeColor(ink2); strokeWidth(1.f); stroke();
+        beginPath(); moveTo(cx + 5, by - bh); lineTo(cx + 5 + 3, by - bh + std::min(bh * 0.9f, tl)); stroke();
+        // resonator
+        const float lw = (float)(2 * sp.lowerR * sc * wx), uw = (float)(2 * sp.upperR * sc * wx), rh = (float)(L * sc);
+        beginPath(); moveTo(cx - lw / 2, by - bh); lineTo(cx - uw / 2, by - bh - rh); lineTo(cx + uw / 2, by - bh - rh); lineTo(cx + lw / 2, by - bh); strokeColor(ink); strokeWidth(1.5f); stroke();
+        const float rx = cx + std::max(lw, uw) / 2 + 18;
+        beginPath(); moveTo(rx, by - bh); lineTo(rx, by - bh - rh); strokeColor(ink2); strokeWidth(1.f); stroke();
+        text(rx + 6, by - bh - rh / 2, fmt(L >= 1 ? "%.3f M" : "%.0f MM", L >= 1 ? L : L * 1000), 17, ink2);
+        text(cx, by - bh - rh - 14, fmt("TOP D %.0f MM", 2000 * sp.upperR), 17, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
+        text(cx - bw / 2 - 8, by - bh * 0.6f, fmt("TONGUE %.0f MM", sp.L * 1000), 17, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(x + 8, y + h - 14, wx > 1.01 ? fmt("TO SCALE; WIDTH x%.1f", wx) : std::string("TO SCALE"), 16, ink2);
     }
 
     // ========================================================== expression
@@ -1901,6 +2154,11 @@ private:
     int selRow = 0;
     float dragBase = 0.f;
     bool learnArmed = false;
+    std::map<int, PipeEdit> pipeEdits;
+    std::future<WsResult> wsFuture;
+    WsResult wsResult;
+    bool wsFollow = false;
+    int wsKey = -1;
     int learnLast = 0, learnFirst = -1, learnBest = -1;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PipeUI)

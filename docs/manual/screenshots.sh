@@ -21,5 +21,5 @@ shot() { xdotool mousemove "$1" "${3:-773}" click 1; sleep 1.2; import -window r
 # (see drawDrawerTabs in plugin/PipeUI.cpp); a tab clicked while another drawer is open switches to it
 shot 700 console 40
 shot ${TAB_WIND:-150} wind; shot ${TAB_TUNING:-240} tuning; shot ${TAB_ROOM:-325} room
-shot ${TAB_EXPR:-430} expression; shot ${TAB_VOICING:-545} voicing; shot ${TAB_PRESETS:-650} presets
+shot ${TAB_EXPR:-405} expression; shot ${TAB_VOICING:-510} voicing; shot ${TAB_WORKSHOP:-615} workshop; shot ${TAB_PRESETS:-722} presets
 kill $HOSTPID 2>/dev/null || true

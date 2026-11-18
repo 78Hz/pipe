@@ -379,6 +379,39 @@ int main(int argc, char** argv) {
         if (!ok) { printf("  <-- FAIL\n"); ++failures; }
     }
 
+    // ---- Workshop: an edited pipe is rebuilt from its geometry and sounds as built that way; with no
+    // edit it is the pipe as voiced, sample for sample.
+    printf("workshop edits (Octave 8' c1):\n");
+    {
+        auto play = [&](const std::string& edits, double& rms, double& h2, double& h3) {
+            auto en = std::make_unique<Engine>(); en->prepare(fs);
+            for (int i = 0; i < kOutFirst; ++i) en->setParameter(i, paramInfo(i).def);
+            en->setParameter(kParamRoom, kRoomDry); silenceAllStops(*en);
+            en->setParameter(stopById("i_octave_8"), 1.f);
+            en->setPipeEditsText(edits);
+            float l[128], r[128];
+            en->render(l, r, 128);   // the edits are picked up at the first control block
+            uint8_t on[3] = { 0x90, 60, 100 }; en->midi(on, 3);
+            std::vector<float> x;
+            for (int i = 0; i < fs * 2; i += 128) { en->render(l, r, 128); for (int j = 0; j < 128; ++j) x.push_back(0.5f * (l[j] + r[j])); }
+            rms = 0; for (size_t i = x.size() / 2; i < x.size(); ++i) rms += (double)x[i] * x[i]; rms = 10 * std::log10(rms / (x.size() / 2) + 1e-20);
+            // second harmonic against the fundamental (a wider mouth / cut-up changes the tone)
+            auto mag = [&](double f) { std::complex<double> a = 0; const size_t n0 = x.size() / 2, n = x.size() - n0; for (size_t i = 0; i < n; ++i) a += (double)x[n0 + i] * std::polar(1.0, -2 * M_PI * f * i / fs); return std::abs(a); };
+            h2 = 20 * std::log10(mag(2 * 261.6) / (mag(261.6) + 1e-20) + 1e-20);
+            h3 = 20 * std::log10(mag(3 * 261.6) / (mag(261.6) + 1e-20) + 1e-20);
+        };
+        const int rank = kStops[(size_t)stopById("i_octave_8")].rankFirst;
+        double r0, h0, t0, rE, hE, tE, rN, hN, tN;
+        play("", r0, h0, t0);
+        play(std::to_string(rank) + " 60 cutup 1.000001\n", rN, hN, tN);   // rebuilt, unchanged
+        play(std::to_string(rank) + " 60 diameter 1.2\n", rE, hE, tE);
+        printf("  as voiced: %.2f dB, h2 %+.2f, h3 %+.2f dB; rebuilt unedited: %.2f, %+.2f, %+.2f; diameter x1.2: %.2f, %+.2f, %+.2f\n", r0, h0, t0, rN, hN, tN, rE, hE, tE);
+        // the rebuilt pipe is the voiced one; the wider one still speaks (within 6 dB) with another tone
+        const bool ok = std::fabs(rN - r0) < 0.05 && std::fabs(hN - h0) < 0.05 && std::fabs(tN - t0) < 0.05
+                        && std::fabs(rE - r0) < 6 && std::fabs(hE - h0) + std::fabs(tE - t0) > 1.0;
+        if (!ok) { printf("  <-- FAIL (the edit did not reach the sound, or the pipe fell silent)\n"); ++failures; }
+    }
+
     printf("%s\n", failures ? "FAILURES" : "ALL CHECKS PASSED");
     return failures ? 1 : 0;
 }

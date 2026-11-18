@@ -19,9 +19,9 @@ static const char* const kGroupLabels[kNumGroups] = { "STOPS & COUPLERS", "VOICI
 
 // State keys (non-parameter data)
 enum StateKey { kStateVoicing = 0, kStatePipeTune, kStateScalaScl, kStateScalaKbm, kStateScalaName, kStateCombos, kStatePresetName,
-                kStateMatrix, kStateCustomIr, kNumStates };
+                kStateMatrix, kStateCustomIr, kStatePipeEdits, kNumStates };
 static const char* const kStateKeys[kNumStates] = { "voicing", "pipetune", "scala_scl", "scala_kbm", "scala_name", "combos", "preset_name",
-                "matrix", "custom_ir" };
+                "matrix", "custom_ir", "pipe_edits" };
 
 inline int paramGroup(int id) {
     if (id < kNumStops) return kGroupStops;
@@ -42,7 +42,7 @@ inline int paramGroup(int id) {
 }
 inline int stateGroup(int s) {
     switch (s) {
-    case kStateVoicing: return kGroupVoicing;
+    case kStateVoicing: case kStatePipeEdits: return kGroupVoicing;
     case kStatePipeTune: case kStateScalaScl: case kStateScalaKbm: case kStateScalaName: return kGroupTuning;
     case kStateCombos: return kGroupStops;
     case kStateMatrix: return kGroupExpression;
@@ -153,6 +153,7 @@ inline PresetData factoryPreset(int index) {
     p.states[kStateCombos] = "";
     p.states[kStateMatrix] = "";
     p.states[kStateCustomIr] = "";
+    p.states[kStatePipeEdits] = "";
     switch (kFactoryRecipe[index]) {
     case 0:
         on({ "i_praestant_16", "i_octave_8", "i_octave_4", "i_quinte_223", "i_superoctave_2", "i_mixture_v_113",

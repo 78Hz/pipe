@@ -106,7 +106,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li><span class="n">04</span><span class="t">Playing with expression</span><span class="d">Ordinary keyboards, MPE, aftertouch</span></li>
     <li><span class="n">05</span><span class="t">The Expression screen</span><span class="d">The modulation matrix, step by step</span></li>
     <li><span class="n">06</span><span class="t">The Wind screen</span><span class="d">Blower, reservoir, tremulant</span></li>
-    <li><span class="n">07</span><span class="t">The Voicing screen</span><span class="d">Shaping individual pipes</span></li>
+    <li><span class="n">07</span><span class="t">The Voicing screen</span><span class="d">Shaping pipes; the Workshop</span></li>
     <li><span class="n">08</span><span class="t">The Tuning screen</span><span class="d">Temperaments, EDOs, Scala, per-pipe tuning</span></li>
     <li><span class="n">09</span><span class="t">The Room screen</span><span class="d">Real churches, lite rooms, your own impulse responses</span></li>
     <li><span class="n">10</span><span class="t">The Presets screen</span><span class="d">Saving, loading, combinations</span></li>
@@ -368,6 +368,12 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <tr><td>CHIFF</td><td>The little puff of air at the start of each note.</td></tr>
   </table>
   <p>The <span class="ui">BUILD CHECK</span> box tests your pipe against real-world limits, such as a mouth too wide for the pipe. Each line says <span class="ui">OK</span> or tells you what's wrong. The <span class="ui">SCALE</span> graph compares your rank's widths with a normal rank. If you get lost, <span class="ui">RESET RANK TO FACTORY</span> undoes your changes to the whole rank.</p>
+
+  <h2>The Workshop: the pipe itself</h2>
+  <p>The <span class="ui">WORKSHOP</span> drawer shows one pipe as it is built: a drawing to scale (when a tall pipe would be a thin line its width is drawn wider, and the drawing says by how much) and its dimensions. Choose a rank on the left and a key with the arrows, or press <span class="ui">FOLLOW</span> to follow the keys you play.</p>
+  <p>Every dimension can be changed with its <span class="ui">-</span> and <span class="ui">+</span> buttons, 1 % a step. For a flue pipe: body length and diameter, mouth width, cut-up, flue, windway length, foot pressure and a beard. For a reed: tongue thickness, length, width and curve, resonator length and diameter, and the boot pressure. The pipe is then rebuilt from its geometry with the same models the voicer used: its resonances are found again from the body, the jet from the mouth and wind, the tongue's frequency from its thickness and length. What you hear is the pipe built that way, not a tone control. The tuner then brings the pipe to its pitch, as an organ tuner would.</p>
+  <div class="note"><span class="label">Edited pipes</span>An edited pipe has not been through the voicer's checks (prompt speech, one pitch, wind and tremulant). It may speak slowly, on another mode, or not at all, as a real pipe would if it were cut that way. <span class="ui">RESET THIS PIPE</span>, <span class="ui">RESET THIS RANK</span> and <span class="ui">RESET ALL</span> return pipes to as voiced. Edits are saved with your project and in presets (with the voicing).</div>
+  <figure><img src="img/workshop.png"><figcaption>The Workshop: the Octave 8' c1 as voiced.</figcaption></figure>
 </section>
 
 <!-- ============================================================ 8 TUNING -->
