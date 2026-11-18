@@ -110,13 +110,15 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: Engine checks (tuning, stability, MPE)
-        # a pull request builds for listening even when a check fails (the failure stays in the log); main never does
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # every build is packaged for listening even when a check fails; the release gate at the end stops a release
+        id: engine
+        continue-on-error: true
         run: ./build/pipe_render_test build/chord.wav
 
       - name: Resonators and Opus 14 tables (generated header up to date)
-        # a pull request builds for listening even when a check fails (the failure stays in the log); main never does
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # every build is packaged for listening even when a check fails; the release gate at the end stops a release
+        id: tables
+        continue-on-error: true
         run: |
           ./build/pipe_resonator_test
           ./build/pipe_opus14_data_test
@@ -126,15 +128,17 @@ jobs:
         run: python3 tools/opus14_gen.py && git diff --exit-code src/engine/Opus14Data.hpp
 
       - name: Every pipe speaks and is in tune (measured on the sound, 48 and 44.1 kHz)
-        # a pull request builds for listening even when a check fails (the failure stays in the log); main never does
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # every build is packaged for listening even when a check fails; the release gate at the end stops a release
+        id: pipes
+        continue-on-error: true
         run: |
           ./build/pipe_pipes_test
           PIPE_TEST_FS=44100 ./build/pipe_pipes_test
 
       - name: Load the built CLAP and play it (Linux)
-        # a pull request builds for listening even when a check fails (the failure stays in the log); main never does
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # every build is packaged for listening even when a check fails; the release gate at the end stops a release
+        id: clap
+        continue-on-error: true
         if: runner.os == 'Linux'
         run: |
           g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_host_test.cpp -o clap_host_test -ldl
@@ -197,6 +201,13 @@ jobs:
         with:
           path: Opus-IV-${{ matrix.slug }}.zip
           archive: false
+
+      # Release gate: a check that failed above fails the job here, after the packages are uploaded, so
+      # the build can be downloaded and listened to but no release is published from it
+      - name: Release gate (all checks passed)
+        run: |
+          echo "engine ${{ steps.engine.outcome }}, tables ${{ steps.tables.outcome }}, pipes ${{ steps.pipes.outcome }}, clap ${{ steps.clap.outcome }}"
+          test "${{ steps.engine.outcome }}" != failure && test "${{ steps.tables.outcome }}" != failure && test "${{ steps.pipes.outcome }}" != failure && test "${{ steps.clap.outcome }}" != failure
 
   release:
     name: Publish release
