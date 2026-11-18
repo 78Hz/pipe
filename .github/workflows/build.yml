@@ -176,6 +176,14 @@ jobs:
           path: OpusXIV-User-Manual.pdf
           archive: false
 
+      - name: Manual - on the preview pre-release (main only)
+        if: runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create preview --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "OpusXIV preview" --notes "Preview builds" || true
+          gh release upload preview OpusXIV-User-Manual.pdf --repo "$GITHUB_REPOSITORY" --clobber
+
       - name: Sign (macOS, ad-hoc)
         if: runner.os == 'macOS'
         run: |
@@ -202,6 +210,19 @@ jobs:
           path: OpusXIV-${{ matrix.slug }}.zip
           archive: false
 
+      # every main build goes on the "preview" pre-release (Releases page) as it is made, whether or not every
+      # check passed, named with its commit so a platform that did not build this time is plain to see
+      - name: On the preview pre-release (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create preview --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "OpusXIV preview" --notes "Preview builds" || true
+          F="OpusXIV-${{ matrix.slug }}-${GITHUB_SHA::7}.zip"
+          cp "OpusXIV-${{ matrix.slug }}.zip" "$F"
+          gh release upload preview "$F" --repo "$GITHUB_REPOSITORY" --clobber
+
       # Release gate: a check that failed above fails the job here, after the packages are uploaded, so
       # the build can be downloaded and listened to but no release is published from it
       - name: Release gate (all checks passed)
@@ -217,9 +238,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
+      - name: The files of this build (from the preview pre-release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artifacts && cd artifacts
+          gh release download preview --repo "$GITHUB_REPOSITORY" --pattern "*${GITHUB_SHA::7}.zip" --pattern "*.pdf"
+          for f in *-${GITHUB_SHA::7}.zip; do mv "$f" "${f%-${GITHUB_SHA::7}.zip}.zip"; done
+          ls -la
       - name: Create or refresh the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -235,23 +261,23 @@ jobs:
             --notes "$NOTES"
 
   preview:
-    name: Publish preview build
+    name: Tidy the preview build
     needs: build
-    # every push to main puts its build on the "preview" pre-release, whether or not every check passed, so it
-    # can always be downloaded from the Releases page (the numbered release above still needs every check)
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-      - name: Create or refresh the preview
+      - name: Drop older builds, say which commit this is
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FILES=$(find artifacts -type f \( -name "OpusXIV-*.zip" -o -name "*.pdf" \))
-          test -n "$FILES"
-          NOTES="Preview build from ${GITHUB_SHA::7} for listening and testing; not a release: some checks still fail (see the run's log). Download the zip for your system: CLAP, VST3, LV2, and AU on macOS."
-          gh release delete preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-          gh release create preview $FILES --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "OpusXIV preview (${GITHUB_SHA::7})" --notes "$NOTES"
+          SHA7=${GITHUB_SHA::7}
+          # a platform built this time replaces its older zip; one that did not build keeps its last (named by its commit)
+          LIST=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/preview" -q '.assets[] | "\(.id) \(.name)"')
+          echo "$LIST" | while read id name; do
+            case "$name" in *"$SHA7"*|*.pdf|"") continue ;; esac
+            plat="${name%-*.zip}"
+            if echo "$LIST" | grep -q " ${plat}-${SHA7}.zip"; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"; fi
+          done
+          HAVE=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/preview" -q '[.assets[].name] | join(", ")')
+          gh release edit preview --repo "$GITHUB_REPOSITORY" --prerelease --title "OpusXIV preview ($SHA7)" \
+            --notes "Preview build from $SHA7 for listening and testing; not a release (some checks still fail: see the run). Download the zip for your system: CLAP, VST3, LV2, and AU on macOS. In this build: $HAVE"
