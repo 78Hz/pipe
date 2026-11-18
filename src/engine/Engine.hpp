@@ -46,6 +46,32 @@ constexpr float kMmToPa = 9.80665f;
 // output scale of the physical flue pipes: radiated pressure at 1 m (Pa) to the mix
 constexpr float kFlueGain = 1.0f;
 constexpr float kReedGain = 1.0f;
+// Provisional balance between ranks (2026-11-18). The voicer regulates each rank only against itself; nothing
+// set one rank against another, and every reed came out 7 - 28 dB under the principals (measured dry, each
+// stop alone at C2 - C5, median of C3 - C5 manuals / C2 - C4 pedal, against the Octave 8' c1). Until the
+// ranks are balanced properly, each is lifted to a target: chorus reeds level with the Octave 8', Dulzian and
+// Clairons 2 dB under, colour reeds (Vox Humana, Oboe, Trichterregal, pedal Cornet) 6 dB under, Gamba 4 and
+// Celeste 6 dB under. A trim of the output only: the pipe's physics and wind are unchanged. (The Octavin and
+// the Harmonic Flutes are uneven within the rank and are not trimmed: a rank trim would make their loud
+// notes louder still.)
+inline float rankBalanceDb(int rank) {
+    static float t[kNumRanks];
+    static bool init = false;
+    if (!init) {
+        struct B { const char* stop; float db; };
+        static const B b[] = {
+            { "i_trumpet_16", 10.9f }, { "i_trumpet_8", 14.2f }, { "i_trompette_8", 14.8f }, { "i_vox_humana_8", 19.4f },
+            { "ii_dulzian_16", 16.2f }, { "ii_trichterregal_8", 17.4f },
+            { "iii_gamba_8", 3.6f }, { "iii_celeste_8", 4.2f }, { "iii_bassoon_16", 16.1f }, { "iii_trompette_8", 17.6f },
+            { "iii_oboe_8", 21.9f }, { "iii_clairon_4", 19.0f },
+            { "p_trombone_32", 6.3f }, { "p_posaune_16", 8.1f }, { "p_trumpet_8", 10.5f }, { "p_trompette_8", 7.1f },
+            { "p_clairon_4", 12.9f }, { "p_cornet_2", 20.1f } };
+        for (float& v : t) v = 0.f;
+        for (const B& x : b) for (int s = 0; s < kNumStops; ++s) if (std::strcmp(kStops[(size_t)s].id, x.stop) == 0) t[kStops[(size_t)s].rankFirst] = x.db;
+        init = true;
+    }
+    return rank >= 0 && rank < kNumRanks ? t[rank] : 0.f;
+}
 // wind of the Octave 8' c1 (flue area x jet speed), the unit of the wind system's demand
 constexpr double kRefFlow = 4.5e-4;
 constexpr int kMaxFlueVoices = 448;
@@ -476,7 +502,7 @@ private:
         const PipeGeometry g = pipeGeometry(*voicing, rank, k, f);
         v.voicedRatio = (float)(g.toeMM / kChestNominal[d]);
         v.flowWeight = (float)g.flowWeight;
-        const float reg = std::pow(10.f, voicing->rank[rank].key[kVRegulation][k] / 20.f);
+        const float reg = std::pow(10.f, (voicing->rank[rank].key[kVRegulation][k] + rankBalanceDb(rank)) / 20.f);
         const uint32_t seed = hash32((uint32_t)(rank * 131071 + key * 31 + d));
 
         if (!isReed) {
