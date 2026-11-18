@@ -1,4 +1,4 @@
-// Loads the built Pipe.clap, plays a chord through the real plugin binary and
+// Loads the built OpusIV.clap, plays a chord through the real plugin binary and
 // checks audio, parameters and state save/restore.
 #include "entry.h"
 #include "plugin-factory.h"
@@ -29,7 +29,7 @@ static int64_t sWrite(const clap_ostream_t* s, const void* b, uint64_t n) { ((St
 static int64_t sRead(const clap_istream_t* s, void* b, uint64_t n) { Stream* st = (Stream*)s->ctx; uint64_t k = std::min<uint64_t>(n, st->data.size() - st->pos); memcpy(b, st->data.data() + st->pos, k); st->pos += k; return (int64_t)k; }
 
 int main(int argc, char** argv) {
-    const char* path = argc > 1 ? argv[1] : "build/bin/Pipe.clap";
+    const char* path = argc > 1 ? argv[1] : "build/bin/OpusIV.clap";
     void* lib = dlopen(path, RTLD_NOW);
     if (!lib) { printf("dlopen failed: %s\n", dlerror()); return 1; }
     auto entry = (const clap_plugin_entry_t*)dlsym(lib, "clap_entry");

@@ -426,7 +426,7 @@ private:
     // ============================================================== header
     void drawHeader()
     {
-        text(26, 40, "PIPE", 48);
+        text(26, 40, "OPUS IV", 48);
         float x = 132;
         for (int i = 0; i < kNumScreens; ++i)
         {

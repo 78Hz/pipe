@@ -1,4 +1,4 @@
-// Loads the built Pipe.clap and checks, through the real binary, how CLAP note events and note
+// Loads the built OpusIV.clap and checks, through the real binary, how CLAP note events and note
 // expressions reach the notes (CLAP events.h: voices by note_id or port/channel/key, -1 = wildcard).
 #include "entry.h"
 #include "plugin-factory.h"
@@ -97,7 +97,7 @@ struct Instance {
 };
 
 int main(int argc, char** argv) {
-    const char* path = argc > 1 ? argv[1] : "build/bin/Pipe.clap";
+    const char* path = argc > 1 ? argv[1] : "build/bin/OpusIV.clap";
     void* lib = dlopen(path, RTLD_NOW);
     if (!lib) { printf("dlopen failed: %s\n", dlerror()); return 1; }
     auto entry = (const clap_plugin_entry_t*)dlsym(lib, "clap_entry");

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Opens the built CLAP's interface on a virtual display and saves one picture of each screen
 # into docs/manual/img. Needs Xvfb, xdotool and ImageMagick (Linux).
-#   docs/manual/screenshots.sh build/bin/Pipe.clap
+#   docs/manual/screenshots.sh build/bin/OpusIV.clap
 set -euo pipefail
 CLAP="$(realpath "$1")"
 HERE="$(cd "$(dirname "$0")" && pwd)"
