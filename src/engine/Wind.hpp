@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Stoplist.hpp"
+#include "Tremulant.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -25,6 +26,9 @@ namespace pipe {
 
 constexpr float kChestNominal[kNumDivisions] = { 79.f, 79.f, 79.f, 79.f };   // mm water: Opus 14 is voiced on 79 mm throughout (Vogt ch. 3)
 constexpr float kBlowerCapacity = 260.f;   // flow units (Principal 8' C4 = 1)
+// The tremulated division's trunk: its flow at the nominal pressure drop, in flow units (ASSUMPTION: about
+// what a division's full chorus draws, so full organ on it loads the tremulant about 1.5 x)
+constexpr float kTrunkUnitFlow = 80.f;
 
 enum ReservoirLoad { kLoadWeights = 0, kLoadSprings, kNumReservoirLoads };
 static const char* const kReservoirLoadLabels[kNumReservoirLoads] = { "WEIGHTS", "SPRINGS" };
@@ -41,6 +45,7 @@ struct WindSystem {
     float spinUp = 2.5f;            // blower run-up time constant, s
     float leak = 0.004f;            // leakage at working pressure, fraction of blower output
     float tremSpeed = 5.8f, tremDepth = 0.22f;
+    Tremulant trem;
     int tremTarget = kSwell;
     bool tremOn = false;
 
@@ -56,8 +61,6 @@ struct WindSystem {
     float reservoir = 0.f;      // pressure under the lid (with sag), mm
     float sag = 0.f, sagVel = 0.f;
     float chest[kNumDivisions] = {};
-    float tremPhase = 0.f;
-    float tremAmt = 0.f;        // smoothed on/off
     float demand = 0.f;         // last demand, relative to blower capacity
     float secondsLeft = -1.f;   // how long the stored wind lasts at today's use (-1: blower keeping up)
 
@@ -74,12 +77,13 @@ struct WindSystem {
         reservoir = lidPressure(lid);
         sag = sagVel = 0.f;
         for (int d = 0; d < kNumDivisions; ++d) chest[d] = blowerOn ? std::min(kChestNominal[d], reservoir) : 0.f;
-        tremPhase = tremAmt = 0.f;
+        trem.reset();
         secondsLeft = -1.f;
     }
 
     // Advance by dt seconds given total flow demand (pipe flow units).
-    void update(float dt, float flowDemand) {
+    // divFlow: each division's share of it (for the tremulant's load), or null.
+    void update(float dt, float flowDemand, const float* divFlow = nullptr) {
         demand = flowDemand / kBlowerCapacity;
         // blower runs up or coasts down
         fan += ((blowerOn ? 1.f : 0.f) - fan) * std::min(1.f, dt / (blowerOn ? spinUp : spinDown));
@@ -114,19 +118,22 @@ struct WindSystem {
         sag += sagVel * dt;
 
         reservoir = lidPressure(lid) * (1.f - sag);
-        // tremulant: a beating valve that pulses the chest pressure
-        tremAmt += ((tremOn ? 1.f : 0.f) - tremAmt) * std::min(1.f, 6.f * dt);
-        tremPhase += tremSpeed * dt;
-        if (tremPhase >= 1.f) tremPhase -= 1.f;
-        const float trem = tremAmt * tremDepth * 0.5f * std::sin(2.f * (float)M_PI * tremPhase);
 
         for (int d = 0; d < kNumDivisions; ++d) {
             // the regulator holds its set pressure while the reservoir is above it (less a
             // small drop through the trunk), and passes the reservoir through below that
             float p = std::min(kChestNominal[d], reservoir * 0.985f);
             p *= 1.f - 0.6f * sag;      // flexible wind: part of the lid's bounce comes through
-            if (d == tremTarget) p *= 1.f + trem;
-            chest[d] += (std::max(0.f, p) - chest[d]) * std::min(1.f, 60.f * dt);
+            if (d == tremTarget) {
+                // the tremulant's valve, the trunk and the chest (Tremulant.hpp): the pipes speaking on the
+                // chest load it
+                trem.rate = tremSpeed; trem.depth = tremDepth;
+                const float load = divFlow ? divFlow[d] / kTrunkUnitFlow : 0.f;
+                const float pr = std::max(1e-3f, p / kChestNominal[d]);
+                p = kChestNominal[d] * trem.step(dt, pr, load / std::sqrt(pr), tremOn);
+            }
+            if (d == tremTarget) chest[d] = std::max(0.f, p);   // the tremulant's model holds this chest's own dynamics
+            else chest[d] += (std::max(0.f, p) - chest[d]) * std::min(1.f, 60.f * dt);
         }
     }
 };

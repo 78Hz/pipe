@@ -940,7 +940,9 @@ private:
         static const int td[3] = { kGreat, kSwell, kPedal };
         for (int i = 0; i < 3; ++i)
             button(x + i * 108, ky + 262, 104, 40, divisionName(td[i]), (int)pv[kParamTremTarget] == td[i], [this, i] { setParam(kParamTremTarget, (float)td[i]); });
-        const float sy = ky + 316;
+        for (int i = 0; i < kNumTremKinds; ++i)
+            button(x + i * 162, ky + 308, 158, 40, kTremKindLabels[i], (int)pv[kParamTremKind] == i, [this, i] { setParam(kParamTremKind, (float)i); });
+        const float sy = ky + 362;
         frame(x, sy, w, 110);
         text(x + 10, sy + 18, fmt("BLOWER CAPACITY %.0f UNITS", kBlowerCapacity), 20);
         text(x + 10, sy + 42, fmt("DEMAND NOW %.0f%%", pv[kOutDemand] * 100), 20);

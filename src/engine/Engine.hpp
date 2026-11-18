@@ -592,14 +592,14 @@ private:
         outputs[kOutSilentKey - kOutFirst] = silentTimer > 0.f ? (float)silentKey : 0.f;
 
         // wind
-        float flow = 0.f; int speaking = 0;
+        float flow = 0.f, divFlow[kNumDivisions] = {}; int speaking = 0;
         for (const auto& v : voices) {
             if (!v.active) continue;
             ++speaking;
             const Pallet& p = pallets[v.division][v.key];
-            if (!v.stopClosed) flow += v.flowWeight * p.aperture * std::sqrt(std::max(0.f, p.footRatio));
+            if (!v.stopClosed) { const float f = v.flowWeight * p.aperture * std::sqrt(std::max(0.f, p.footRatio)); flow += f; divFlow[v.division] += f; }
         }
-        wind.update(dt, flow);
+        wind.update(dt, flow, divFlow);
         windLive = true;
 
         // pallets: the expression matrix decides how each key's mechanisms move
@@ -978,6 +978,7 @@ private:
         case kParamResSize: wind.sizeSeconds = v; break;
         case kParamSpinDown: wind.spinDown = v; break;
         case kParamWindLeak: wind.leak = v * 0.01f; break;
+        case kParamTremKind: wind.trem.kind = std::max(0, std::min(kNumTremKinds - 1, (int)v)); break;
         case kParamTuning: tuning.system = (int)v; break;
         case kParamEdoN: tuning.customN = (int)v; break;
         case kParamAnchorKey: tuning.anchor = (int)v; break;

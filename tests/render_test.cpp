@@ -349,6 +349,36 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ---- tremulant: the valve, trunk and chest (Tremulant.hpp). Pykett ("Tremulant simulation in digital
+    // organs"): a gentle Bedos (doux) tremulant weakens as stops are drawn; a spilled-wind one keeps working and
+    // goes deeper (up to ~75 % peak to peak); its rate is the valve's own.
+    printf("tremulant (Swell chest, 4-note chord, default speed 5.8 Hz and depth):\n");
+    {
+        auto chest = [&](int kind, bool full, double& pp, double& hz) {
+            auto en = std::make_unique<Engine>(); en->prepare(fs);
+            for (int i = 0; i < kOutFirst; ++i) en->setParameter(i, paramInfo(i).def);
+            en->setParameter(kParamRoom, kRoomDry); silenceAllStops(*en);
+            for (int s = 0; s < kNumStops; ++s) { const StopDef& sd = kStops[(size_t)s];
+                if (full ? (sd.division == kSwell && (sd.type == kStopRank || sd.type == kStopMixture)) : s == stopById("iii_gamba_8")) en->setParameter(s, 1.f); }
+            en->setParameter(kParamZoneLoDiv, (float)kSwell); en->setParameter(kParamZoneHiDiv, (float)kSwell);
+            en->setParameter(kParamTremTarget, (float)kSwell); en->setParameter(kParamTremKind, (float)kind); en->setParameter(kNumStops - 1, 1.f);
+            for (int k : { 60, 64, 67, 72 }) { uint8_t on[3] = { 0x90, (uint8_t)k, 96 }; en->midi(on, 3); }
+            std::vector<float> pc; float l[128], r[128];
+            for (int i = 0; i < fs * 4; i += 128) { en->render(l, r, 128); if (i > fs * 2) pc.push_back(en->getParameter(kOutChestSw)); }
+            double mn = 1e9, mx = -1e9, mean = 0; for (float p : pc) { mn = std::min(mn, (double)p); mx = std::max(mx, (double)p); mean += p; } mean /= pc.size();
+            int cross = 0; for (size_t i = 1; i < pc.size(); ++i) if (pc[i - 1] < mean && pc[i] >= mean) ++cross;
+            pp = 100 * (mx - mn) / mean; hz = cross / (pc.size() * 128.0 / fs);
+        };
+        double ppDL, hzDL, ppDF, hzDF, ppVL, hzVL, ppVF, hzVF;
+        chest(kTremDoux, false, ppDL, hzDL); chest(kTremDoux, true, ppDF, hzDF);
+        chest(kTremVentPerdu, false, ppVL, hzVL); chest(kTremVentPerdu, true, ppVF, hzVF);
+        printf("  DOUX       one stop %3.0f %% p-p %.2f Hz, full swell %3.0f %% p-p %.2f Hz\n", ppDL, hzDL, ppDF, hzDF);
+        printf("  VENT PERDU one stop %3.0f %% p-p %.2f Hz, full swell %3.0f %% p-p %.2f Hz\n", ppVL, hzVL, ppVF, hzVF);
+        const bool ok = ppDL > 12 && ppDL < 40 && ppDF < 0.6 * ppDL && ppVF > 0.7 * ppVL && ppVL > 12 && ppVL < 75
+                        && std::fabs(hzDL - 5.8) < 0.8 && std::fabs(hzVL - 5.8) < 0.8 && std::fabs(hzDF - 5.8) < 1.0 && std::fabs(hzVF - 5.8) < 1.0;
+        if (!ok) { printf("  <-- FAIL\n"); ++failures; }
+    }
+
     printf("%s\n", failures ? "FAILURES" : "ALL CHECKS PASSED");
     return failures ? 1 : 0;
 }

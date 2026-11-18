@@ -56,6 +56,7 @@ enum ParamId {
     kParamZoneLoDiv, kParamZoneHiDiv, kParamPedalSplit,
     kParamAnchorKey,                 // sequential map: the key that plays C4 (added last so older parameter numbers stay put)
     kParamResLoad, kParamResSize, kParamSpinDown, kParamWindLeak,   // reservoir load and size, blower coast-down, leakage
+    kParamTremKind,                  // tremulant: doux (retained wind) or a vent perdu (spilled wind)
     // ---- outputs (DSP -> UI meters) ----
     kOutFirst,
     kOutReservoir = kOutFirst, kOutChestPd, kOutChestGt, kOutChestSw, kOutDemand, kOutPipes, kOutCpu,
@@ -107,6 +108,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamResLoad,     { "res_load", "Reservoir Load", 0.f, 1.f, 1.f, kPEnum, "", kNumReservoirLoads, kReservoirLoadLabels });
         set(kParamResSize,     { "res_size", "Reservoir Size", 1.f, 60.f, 4.f, kPFloat, "s", 0, nullptr });
         set(kParamSpinDown,    { "spin_down", "Blower Coast-Down", 1.f, 30.f, 8.f, kPFloat, "s", 0, nullptr });
+        set(kParamTremKind,    { "trem_kind", "Tremulant Kind", 0.f, 1.f, 0.f, kPEnum, "", kNumTremKinds, kTremKindLabels });
         set(kParamWindLeak,    { "wind_leak", "Wind Leakage", 0.f, 3.f, 0.4f, kPFloat, "%", 0, nullptr });
         set(kParamBlowerOn,    { "blower", "Blower", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
         set(kParamStrict,      { "strict", "Strict Physical Limits", 0.f, 1.f, 1.f, kPBool, "", 0, nullptr });
