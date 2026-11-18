@@ -426,6 +426,8 @@ int main(int argc, char** argv) {
         if (!(ss >> n >> a >> b >> c >> d >> e)) continue;
         ss >> vx;
         for (int i = 0; i < kNumJetFam; ++i) if (n == kJetFamNames[i]) { fam[i].y0b = a; fam[i].lpk = b; fam[i].gain = -c; fam[i].kd = d; fam[i].noise = e; fam[i].vortex = vx; } } }
+    // VBEARD=<x>: every string pipe voiced with a beard limiting the sheet's outward swing to x cut-ups (a study)
+    if (getenv("VBEARD")) fam[jString].beard = atof(getenv("VBEARD"));
 
     // ranks
     struct RankOut { int stop; std::string name; int div; bool reed; int mixRow; float detune; int lowest; const opus14::Stop* s; const opus14::Mixture* mix; int first = 0; };
