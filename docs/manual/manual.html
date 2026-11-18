@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Opus IV User Manual</title>
+<title>OpusXIV User Manual</title>
 <style>
 @font-face { font-family: "VT323"; src: url("../../resources/VT323-Regular.ttf"); }
 :root {
@@ -79,7 +79,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 
 <!-- ============================================================ COVER -->
 <div class="cover"><div class="glass">
-  <p class="word">OPUS IV</p>
+  <p class="word">OPUS XIV</p>
   <div class="sub">A physically modelled pipe organ</div>
   <div class="bar">USER MANUAL · VERSION {{VERSION}}</div>
   <svg viewBox="0 0 520 230" aria-hidden="true">
@@ -100,7 +100,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <div class="kicker">Inside this manual</div>
   <h1>Contents</h1>
   <ul class="toc">
-    <li><span class="n">01</span><span class="t">Welcome to Opus IV</span><span class="d">What makes it different</span></li>
+    <li><span class="n">01</span><span class="t">Welcome to OpusXIV</span><span class="d">What makes it different</span></li>
     <li><span class="n">02</span><span class="t">Getting started</span><span class="d">Install, first sound, finding your way</span></li>
     <li><span class="n">03</span><span class="t">The Console</span><span class="d">Drawing stops and couplers</span></li>
     <li><span class="n">04</span><span class="t">Playing with expression</span><span class="d">Ordinary keyboards, MPE, aftertouch</span></li>
@@ -113,31 +113,31 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li><span class="n">11</span><span class="t">Questions and answers</span><span class="d">When something isn't right</span></li>
     <li><span class="n">12</span><span class="t">Organ words, explained</span><span class="d">A short glossary</span></li>
   </ul>
-  <p class="small" style="margin-top:8mm">Throughout this manual, words in <span class="ui">THIS STYLE</span> are labels you will see on Opus IV's screen.</p>
+  <p class="small" style="margin-top:8mm">Throughout this manual, words in <span class="ui">THIS STYLE</span> are labels you will see on OpusXIV's screen.</p>
 </section>
 
 <!-- ============================================================ 1 INTRO -->
 <section class="chapter newpage">
   <div class="kicker">Chapter 1</div>
-  <h1><span class="num">01</span>Welcome to Opus IV</h1>
-  <p class="lede">Most organ software plays back recordings. Someone records each pipe of a real organ, note by note, and the software replays those recordings when you press a key. Opus IV works differently: it <b>builds the organ</b>. Every time you play a note, Opus IV works out the sound of a real pipe, starting from the air.</p>
-  <p>Inside a flue pipe, a thin sheet of air (the jet) blows across a sharp lip and makes the air in the tube vibrate. In a reed pipe, a brass tongue beats against an opening. Opus IV models that physics for every pipe in the instrument. It uses each pipe's real length, width and mouth, and the wind pressure feeding it at that moment.</p>
+  <h1><span class="num">01</span>Welcome to OpusXIV</h1>
+  <p class="lede">Most organ software plays back recordings. Someone records each pipe of a real organ, note by note, and the software replays those recordings when you press a key. OpusXIV works differently: it <b>builds the organ</b>. Every time you play a note, OpusXIV works out the sound of a real pipe, starting from the air.</p>
+  <p>Inside a flue pipe, a thin sheet of air (the jet) blows across a sharp lip and makes the air in the tube vibrate. In a reed pipe, a brass tongue beats against an opening. OpusXIV models that physics for every pipe in the instrument. It uses each pipe's real length, width and mouth, and the wind pressure feeding it at that moment.</p>
 
-  <div class="big-quote">Every pipe in Opus IV could be built. Nothing is sampled. Nothing loops.</div>
+  <div class="big-quote">Every pipe in OpusXIV could be built. Nothing is sampled. Nothing loops.</div>
 
-  <h2>What makes Opus IV different</h2>
+  <h2>What makes OpusXIV different</h2>
   <div class="usp">
-    <div><h3>A real organ, pipe by pipe</h3><p>Opus IV is Pasi Opus 14, the organ Martin Pasi built for St. Cecilia Cathedral in Omaha in 2003: four divisions, 55 stops and their 78 ranks, built from the builder's own scale sheets. Every pipe has the length, width, mouth and wind Pasi gave it.</p></div>
-    <div><h3>Alive, never frozen</h3><p>A recording is the same every time. Opus IV's pipes are calculated as you play, so the start of each note and its little breath of air vary naturally, as they do in a church. Notes can last forever without a loop point.</p></div>
+    <div><h3>A real organ, pipe by pipe</h3><p>OpusXIV is Pasi Opus 14, the organ Martin Pasi built for St. Cecilia Cathedral in Omaha in 2003: four divisions, 55 stops and their 78 ranks, built from the builder's own scale sheets. Every pipe has the length, width, mouth and wind Pasi gave it.</p></div>
+    <div><h3>Alive, never frozen</h3><p>A recording is the same every time. OpusXIV's pipes are calculated as you play, so the start of each note and its little breath of air vary naturally, as they do in a church. Notes can last forever without a loop point.</p></div>
     <div><h3>Wind that breathes</h3><p>A blower fills a reservoir, which feeds each chest. Play a big chord and the wind sags a little, then recovers, exactly as on an old organ. You can make the wind steady and modern or flexible and historic.</p></div>
-    <div><h3>Expression an organist never had</h3><p>Real organ keys are on or off. With a pressure-sensitive keyboard, Opus IV lets you open each pipe's valve gradually, push extra wind into a single note, or bend its pitch. Every one of these uses a mechanism that could really exist.</p></div>
-    <div><h3>Any tuning, down to each pipe</h3><p>Opus IV plays in the Wegscheider temperament Opus 14 is tuned in, and has other historical temperaments such as Werckmeister and the quarter-comma meantone of Opus 14's second keyboard set, and equal divisions such as 19 and 31 notes per octave. It also loads Scala files. Then you can retune any single pipe by hand, as a tuner on a ladder would.</p></div>
-    <div><h3>Real churches around you</h3><p>Opus IV places the organ in measured acoustics: York Minster, two English parish churches and a concert hall, recorded by the University of York. You can also load your own room recordings, or use light-weight “lite” rooms.</p></div>
+    <div><h3>Expression an organist never had</h3><p>Real organ keys are on or off. With a pressure-sensitive keyboard, OpusXIV lets you open each pipe's valve gradually, push extra wind into a single note, or bend its pitch. Every one of these uses a mechanism that could really exist.</p></div>
+    <div><h3>Any tuning, down to each pipe</h3><p>OpusXIV plays in the Wegscheider temperament Opus 14 is tuned in, and has other historical temperaments such as Werckmeister and the quarter-comma meantone of Opus 14's second keyboard set, and equal divisions such as 19 and 31 notes per octave. It also loads Scala files. Then you can retune any single pipe by hand, as a tuner on a ladder would.</p></div>
+    <div><h3>Real churches around you</h3><p>OpusXIV places the organ in measured acoustics: York Minster, two English parish churches and a concert hall, recorded by the University of York. You can also load your own room recordings, or use light-weight “lite” rooms.</p></div>
   </div>
-  <p>And because nothing is sampled, Opus IV loads in a moment and needs no huge sample library. Most of the download is the recordings of the real buildings, not the organ.</p>
+  <p>And because nothing is sampled, OpusXIV loads in a moment and needs no huge sample library. Most of the download is the recordings of the real buildings, not the organ.</p>
 
-  <h2>What Opus IV is, and is not</h2>
-  <p>Opus IV is a physical model of one particular organ, Pasi Opus 14. Its pipe dimensions, wind pressure (79 mm), compass and temperament come from the builder's published scales and from Kevin Vogt's study of the instrument. Where those sources are silent (for example how the voicer set each jet, or the tongue widths of the reeds), the missing constants were set by comparing the model with recordings of real organ pipes of the same kinds. Opus IV is not a recording of Opus 14: no sound of the real instrument was used.</p>
+  <h2>What OpusXIV is, and is not</h2>
+  <p>OpusXIV is a physical model of one particular organ, Pasi Opus 14. Its pipe dimensions, wind pressure (79 mm), compass and temperament come from the builder's published scales and from Kevin Vogt's study of the instrument. Where those sources are silent (for example how the voicer set each jet, or the tongue widths of the reeds), the missing constants were set by comparing the model with recordings of real organ pipes of the same kinds. OpusXIV is not a recording of Opus 14: no sound of the real instrument was used.</p>
   <h3>How every pipe is checked</h3>
   <p>Each of the organ's 3830 pipes is voiced by a program that sets it as a voicer would and then listens to it. A pipe is accepted only when it speaks on its own note, promptly (a large bass pipe may take up to 50 of its cycles, as real sub-basses do), holds one steady pitch in tune, keeps its note when the wind falls by 8 % and under the tremulant, and speaks the same way however the key is struck: soft or hard, and many times over with the random breath of air each note has. Every pipe is then played again through the finished instrument at three key velocities.</p>
   <h3>Known limits in this version</h3>
@@ -153,44 +153,45 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h2>What you need</h2>
   <ul>
     <li>A computer running Windows, macOS or Linux.</li>
-    <li>A music program that can host plugins. Examples are Ableton Live, Bitwig Studio, Cubase, FL Studio, Logic Pro, REAPER and Ardour. Opus IV comes in the <b>VST3</b>, <b>CLAP</b> and <b>LV2</b> formats, plus <b>AU</b> on the Mac, so almost any program can use it.</li>
+    <li>A music program that can host plugins. Examples are Ableton Live, Bitwig Studio, Cubase, FL Studio, Logic Pro, REAPER and Ardour. OpusXIV comes in the <b>VST3</b>, <b>CLAP</b> and <b>LV2</b> formats, plus <b>AU</b> on the Mac, so almost any program can use it.</li>
     <li>A MIDI keyboard. Any keyboard works. One with pressure (MPE or aftertouch), such as an Expressive E Osmose or an Exquis, unlocks the expressive features.</li>
   </ul>
 
   <h2>Installing</h2>
   <ol class="steps">
     <li>Go to <b>github.com/78Hz/pipe/releases</b> and download the zip file for your computer: <i>windows-x64</i>, <i>macos-universal</i> or <i>linux-x64</i>.</li>
-    <li>Unzip it. You will find a folder called <b>Opus IV</b> with the plugin files inside.</li>
+    <li>Unzip it. You will find a folder called <b>OpusXIV</b> with the plugin files inside.</li>
     <li>Copy the file for your music program's format into the matching folder from the table below. If you are not sure which format your program uses, copy all of them; they don't interfere with each other.</li>
-    <li>Restart your music program, or ask it to rescan plugins. Opus IV appears as <b>Opus IV</b> by <b>78Hz</b>, listed as an instrument.</li>
+    <li>Restart your music program, or ask it to rescan plugins. OpusXIV appears as <b>OpusXIV</b> by <b>78Hz</b>, listed as an instrument.</li>
   </ol>
   <table>
     <tr><th>Computer</th><th>File</th><th>Copy it to</th></tr>
-    <tr><td>Windows</td><td>OpusIV.vst3</td><td>C:\Program Files\Common Files\VST3\</td></tr>
-    <tr><td></td><td>OpusIV.clap</td><td>C:\Program Files\Common Files\CLAP\</td></tr>
-    <tr><td>Mac</td><td>OpusIV.vst3</td><td>your Library › Audio › Plug-Ins › VST3</td></tr>
-    <tr><td></td><td>OpusIV.component (AU)</td><td>your Library › Audio › Plug-Ins › Components</td></tr>
-    <tr><td></td><td>OpusIV.clap</td><td>your Library › Audio › Plug-Ins › CLAP</td></tr>
-    <tr><td>Linux</td><td>OpusIV.vst3 / .clap / .lv2</td><td>the hidden folders .vst3, .clap and .lv2 in your home folder</td></tr>
+    <tr><td>Windows</td><td>OpusXIV.vst3</td><td>C:\Program Files\Common Files\VST3\</td></tr>
+    <tr><td></td><td>OpusXIV.clap</td><td>C:\Program Files\Common Files\CLAP\</td></tr>
+    <tr><td>Mac</td><td>OpusXIV.vst3</td><td>your Library › Audio › Plug-Ins › VST3</td></tr>
+    <tr><td></td><td>OpusXIV.component (AU)</td><td>your Library › Audio › Plug-Ins › Components</td></tr>
+    <tr><td></td><td>OpusXIV.clap</td><td>your Library › Audio › Plug-Ins › CLAP</td></tr>
+    <tr><td>Linux</td><td>OpusXIV.vst3 / .clap / .lv2</td><td>the hidden folders .vst3, .clap and .lv2 in your home folder</td></tr>
   </table>
   <div class="note"><span class="label">Mac users: one extra step</span>
-    Opus IV is not yet signed by Apple, so the Mac may refuse to open it at first. Open the <b>Terminal</b> app once, paste the line below, and press Return. Then restart your music program.<br>
-    <code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/OpusIV.*</code>
+    OpusXIV is not yet signed by Apple, so the Mac may refuse to open it at first. Open the <b>Terminal</b> app once, paste the line below, and press Return. Then restart your music program.<br>
+    <code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/OpusXIV.*</code>
   </div>
 
   <h2>Your first sound</h2>
   <ol class="steps">
-    <li>Create a new instrument track in your music program and choose <b>Opus IV</b>.</li>
-    <li>Open Opus IV's window. It starts on the <span class="ui">CONSOLE</span> with the preset <span class="ui">P01 PLEIN JEU GT+PED</span>: a bright, full chorus of principals and mixture.</li>
+    <li>Create a new instrument track in your music program and choose <b>OpusXIV</b>.</li>
+    <li>Open OpusXIV's window. It starts on the console with the preset <span class="ui">P01 PLEIN JEU GT+PED</span>: a bright, full chorus of principals and mixture.</li>
     <li>Play. Hold a chord and listen to the room ring after you let go.</li>
     <li>Try the arrows beside the preset name at the top right. They step through the twelve factory sounds.</li>
   </ol>
   <div class="tip"><span class="label">Tip</span>A gentle start? Choose <span class="ui">P03 FLUTES 8+4</span> or <span class="ui">P07 STRINGS + CELESTE</span>. For something grand, try <span class="ui">P08 FULL SWELL</span>.</div>
 
   <h2>Finding your way around</h2>
-  <p>Opus IV has one window, styled like a backlit display, and seven screens. The strip along the top is always there:</p>
+  <p>OpusXIV has one window, drawn like an organ builder's line drawing of the console. The stop jambs are on either side (Pedal and I Hauptwerk on the left, III Unterwerk and II Oberwerk on the right), and the music desk between them shows the keys sounding on each keyboard, each chest's wind, the tremulant, the swell box, the couplers and the combination pistons. Along the foot are the <b>drawers</b>; click one to open it over the console, and click it again to close it:</p>
   <ul>
-    <li><b>Screen tabs</b>: <span class="ui">CONSOLE</span> <span class="ui">EXPRESSION</span> <span class="ui">WIND</span> <span class="ui">VOICING</span> <span class="ui">TUNING</span> <span class="ui">ROOM</span> <span class="ui">PRESETS</span>.</li>
+    <li><b>Drawers</b>: <span class="ui">WIND</span> <span class="ui">TUNING</span> <span class="ui">ROOM</span> <span class="ui">EXPRESSION</span> <span class="ui">VOICING</span> <span class="ui">PRESETS</span>. The right of the foot always shows the temperament, a', the pipe temperature and the building.</li>
+    <li><b>Colours</b>: the button next to the name switches between <span class="ui">DRAFTING</span> (dark ink on paper), <span class="ui">BLUEPRINT</span> and <span class="ui">NIGHT</span>.</li>
     <li><b>Preset bar</b>: the current preset's name, with arrows to step through presets. A <span class="ui">*</span> after the name means you have changed something since loading it. Click the name to open the Presets screen. <span class="ui">SAVE</span> takes you straight to saving.</li>
   </ul>
   <p><b>Using the controls</b>: click a button to switch it. <b>Drag a knob up or down</b> to turn it, or use your mouse wheel over it. The <span class="ui">-</span> and <span class="ui">+</span> buttons step a value. You can resize the window by dragging its corner, and every control can also be automated from your music program.</p>
@@ -201,7 +202,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <div class="kicker">Chapter 3</div>
   <h1><span class="num">03</span>The Console</h1>
   <p class="lede">The Console is where you choose which sets of pipes sound. It's the equivalent of an organist pulling the stop knobs beside the keyboards.</p>
-  <figure><img src="img/console.png"><figcaption>The Console. Stops that are drawn (switched on) are dark. On the right is information about the pipe you are looking at.</figcaption></figure>
+  <figure><img src="img/console.png"><figcaption>The Console. A drawn stop is a filled knob with a ring around it. Click a knob to draw or put in a stop; the couplers and combination pistons are on the music desk.</figcaption></figure>
 
   <h2>Four divisions</h2>
   <p>A pipe organ is really several organs in one case, each with its own keyboard. Opus 14 has three manuals and a pedal:</p>
@@ -228,20 +229,20 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p>Couplers join divisions together, as the six on Opus 14 do: <span class="ui">II / I</span> and <span class="ui">III / I</span> let the Hauptwerk keyboard play the other manuals' stops too, <span class="ui">III / II</span> adds the Unterwerk to the Oberwerk, and <span class="ui">I / PEDAL</span>, <span class="ui">II / PEDAL</span> and <span class="ui">III / PEDAL</span> add manual stops to the pedal. The <span class="ui">TREMULANT</span> makes the wind waver gently, which suits solo flutes and strings.</p>
 
   <h2>The pipe panel</h2>
-  <p>On the right, Opus IV shows one actual pipe of Opus 14: its length as cut to pitch, its diameter, mouth width, cut-up and the wind at its foot, all from Pasi's scales. Use the arrows to step through the keys. Below it you see the wind on the Great chest, how open the swell box is, and whether the tremulant is on. The bottom strip lists the notes and pipes currently sounding, with how much CPU Opus IV is using.</p>
+  <p>On the right, OpusXIV shows one actual pipe of Opus 14: its length as cut to pitch, its diameter, mouth width, cut-up and the wind at its foot, all from Pasi's scales. Use the arrows to step through the keys. Below it you see the wind on the Great chest, how open the swell box is, and whether the tremulant is on. The bottom strip lists the notes and pipes currently sounding, with how much CPU OpusXIV is using.</p>
 </section>
 
 <!-- ============================================================ 4 PLAYING -->
 <section class="chapter">
   <div class="kicker">Chapter 4</div>
   <h1><span class="num">04</span>Playing with expression</h1>
-  <p class="lede">Opus IV never assumes which keyboard you have. It listens to what your keyboard actually sends and responds to it. Whatever you play, it should simply work.</p>
+  <p class="lede">OpusXIV never assumes which keyboard you have. It listens to what your keyboard actually sends and responds to it. Whatever you play, it should simply work.</p>
 
   <h2>With an ordinary keyboard</h2>
   <p>Play as you would play an organ. How hard you strike a key changes how quickly the pipe's valve (the <i>pallet</i>) opens. A firm strike gives a crisper start, called <i>chiff</i>; a gentle one gives a softer start. Each pipe then sounds at its normal wind pressure. An expression pedal plugged into your keyboard (sending CC11) opens and closes the Swell box.</p>
 
   <h2>With pressure: MPE and aftertouch</h2>
-  <p>Keyboards that sense pressure under each finger let Opus IV do things a church organ cannot, but always through parts that could really be built:</p>
+  <p>Keyboards that sense pressure under each finger let OpusXIV do things a church organ cannot, but always through parts that could really be built:</p>
   <table>
     <tr><th>Your gesture</th><th>What happens inside the organ</th></tr>
     <tr><td>Strike</td><td>How fast the pallet valve opens: a sharper or softer start to the note.</td></tr>
@@ -253,33 +254,33 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   </table>
 
   <h3>Expressive E Osmose</h3>
-  <p>Put the Osmose in its MPE mode and choose its first MIDI port (called <b>Port 1</b> on firmware 2.3 and later) in your music program. The Osmose's keys have two stages. Opus IV's standard setup uses them like this:</p>
+  <p>Put the Osmose in its MPE mode and choose its first MIDI port (called <b>Port 1</b> on firmware 2.3 and later) in your music program. The Osmose's keys have two stages. OpusXIV's standard setup uses them like this:</p>
   <ul>
     <li><b>First part of the key's travel</b>: opens the pipe's valve. The pipe begins to speak, softly, almost as soon as the key moves, grows as you press, and at the bottom of the stage (the pressure point) it sounds at full, normal wind. A key that is only resting at the top stays silent and speaks the moment you press it.</li>
     <li><b>Pressing into the second stage</b> (the aftertouch): pushes extra wind into the note.</li>
     <li><b>Wiggling the key sideways</b>: bends the pitch.</li>
   </ul>
-  <div class="note"><span class="label">Switch on MPE in your music program</span>MPE uses all 16 MIDI channels at once: channel 1 carries messages for the whole keyboard and each sounding note gets a channel of its own (the Osmose uses 2 to 16). Your music program has to pass that on, which most do only when MPE is switched on for the plugin, for example with <b>Use MPE</b> in the device Inspector in Bitwig Studio, with the pitch-bend range set to 48. In the CLAP format Bitwig sends its own per-note events instead, which Opus IV also understands. The Expression screen shows which channels notes actually arrive on.</div>
+  <div class="note"><span class="label">Switch on MPE in your music program</span>MPE uses all 16 MIDI channels at once: channel 1 carries messages for the whole keyboard and each sounding note gets a channel of its own (the Osmose uses 2 to 16). Your music program has to pass that on, which most do only when MPE is switched on for the plugin, for example with <b>Use MPE</b> in the device Inspector in Bitwig Studio, with the pitch-bend range set to 48. In the CLAP format Bitwig sends its own per-note events instead, which OpusXIV also understands. The Expression screen shows which channels notes actually arrive on.</div>
   <h3>Exquis and other MPE keyboards</h3>
   <p>These work the same way: pressure opens the valve, and the forward-back slide adds wind. Grid-style keyboards like the Exquis are especially good for the microtonal tunings (see chapter 8).</p>
   <h3>Keyboards with aftertouch</h3>
   <p>Notes play at full wind straight away, and pressing harder once the key is down adds wind: to each note separately with polyphonic aftertouch, or to all held notes with ordinary (channel) aftertouch.</p>
-  <p>Opus IV follows the MIDI and MPE specifications to the letter, so every message means one thing whatever keyboard sends it. In MPE, channel pressure on a note's own channel is that note's key pressure and works its valve, and CC74 is the second stage. Ordinary aftertouch (channel pressure on channel 1 or on a non-MPE channel, and polyphonic aftertouch) adds wind. A keyboard that sends no pressure at all simply plays at full wind.</p>
+  <p>OpusXIV follows the MIDI and MPE specifications to the letter, so every message means one thing whatever keyboard sends it. In MPE, channel pressure on a note's own channel is that note's key pressure and works its valve, and CC74 is the second stage. Ordinary aftertouch (channel pressure on channel 1 or on a non-MPE channel, and polyphonic aftertouch) adds wind. A keyboard that sends no pressure at all simply plays at full wind.</p>
 
   <h2>Playing two divisions at once</h2>
-  <p>Your music program gives Opus IV a single stream of notes, so Opus IV chooses the division by <b>MPE zone</b>. The lower zone plays the Great and the upper zone plays the Swell; you can change which division each zone plays on the Expression screen. Most MPE keyboards use the lower zone unless you set them up otherwise. To play the Pedal from the bottom of your keyboard, set a <span class="ui">PEDAL SPLIT</span> key on the Expression screen: notes below it go to the Pedal.</p>
-  <div class="tip"><span class="label">Tip</span>Want each finger's bend to be fully free? Turn off <span class="ui">STRICT PHYSICAL LIMITS</span> on the Expression screen. Opus IV then follows your keyboard's whole bend range, even if no real pipe could bend that far.</div>
+  <p>Your music program gives OpusXIV a single stream of notes, so OpusXIV chooses the division by <b>MPE zone</b>. The lower zone plays the Great and the upper zone plays the Swell; you can change which division each zone plays on the Expression screen. Most MPE keyboards use the lower zone unless you set them up otherwise. To play the Pedal from the bottom of your keyboard, set a <span class="ui">PEDAL SPLIT</span> key on the Expression screen: notes below it go to the Pedal.</p>
+  <div class="tip"><span class="label">Tip</span>Want each finger's bend to be fully free? Turn off <span class="ui">STRICT PHYSICAL LIMITS</span> on the Expression screen. OpusXIV then follows your keyboard's whole bend range, even if no real pipe could bend that far.</div>
 </section>
 
 <!-- ============================================================ 5 EXPRESSION -->
 <section class="chapter">
   <div class="kicker">Chapter 5</div>
   <h1><span class="num">05</span>The Expression screen</h1>
-  <p class="lede">This screen decides what each movement of your hands does to the organ. You don't need to touch it to enjoy Opus IV; the standard setup already suits most keyboards. Come here when you want to change the feel.</p>
+  <p class="lede">This screen decides what each movement of your hands does to the organ. You don't need to touch it to enjoy OpusXIV; the standard setup already suits most keyboards. Come here when you want to change the feel.</p>
   <figure><img src="img/expression.png"><figcaption>Left: what your keyboard is sending. Middle: the modulation matrix and the selected row's settings. Right: what the organ is doing right now.</figcaption></figure>
 
   <h2>Left: what your keyboard is sending</h2>
-  <p><span class="ui">NOTES ARRIVING ON</span> lists the MIDI channels your notes are actually arriving on. An MPE keyboard should show several channels, for example <span class="ui">CH 2-16</span>. If several notes are held on the same channel at once, Opus IV says so: your music program is probably not passing MPE on. The zone boxes show which division each zone plays (click the dark title to change it); the zone <span class="ui">LAYOUT</span> and what <span class="ui">SET BY</span> it (the MPE standard's default, or an MPE configuration message from your keyboard or music program); the <span class="ui">BEND RANGE</span>; and what has been received: <span class="ui">PRESSURE</span> (<span class="ui">CH PRESSURE</span> from an MPE keyboard, <span class="ui">HOST PER-NOTE</span> from a music program's own per-note events, <span class="ui">14-BIT</span> for high resolution) and <span class="ui">2ND STAGE</span> (<span class="ui">CC74</span>, <span class="ui">POLY AT</span> or <span class="ui">CH AT</span>). <span class="ui">LIVE SOURCES</span> shows the values of the last note you touched and the channel it arrived on.</p>
+  <p><span class="ui">NOTES ARRIVING ON</span> lists the MIDI channels your notes are actually arriving on. An MPE keyboard should show several channels, for example <span class="ui">CH 2-16</span>. If several notes are held on the same channel at once, OpusXIV says so: your music program is probably not passing MPE on. The zone boxes show which division each zone plays (click the dark title to change it); the zone <span class="ui">LAYOUT</span> and what <span class="ui">SET BY</span> it (the MPE standard's default, or an MPE configuration message from your keyboard or music program); the <span class="ui">BEND RANGE</span>; and what has been received: <span class="ui">PRESSURE</span> (<span class="ui">CH PRESSURE</span> from an MPE keyboard, <span class="ui">HOST PER-NOTE</span> from a music program's own per-note events, <span class="ui">14-BIT</span> for high resolution) and <span class="ui">2ND STAGE</span> (<span class="ui">CC74</span>, <span class="ui">POLY AT</span> or <span class="ui">CH AT</span>). <span class="ui">LIVE SOURCES</span> shows the values of the last note you touched and the channel it arrived on.</p>
 
   <h2>Middle: the modulation matrix</h2>
   <p>The matrix is a list of ten connections. Each row reads like a sentence: <i>“this movement of my hand → moves this part of the organ”</i>. Click any cell to change it:</p>
@@ -302,7 +303,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <ol class="steps">
     <li>Click the number of an empty row (or press <span class="ui">CLEAR</span> on one you don't need).</li>
     <li>Press <span class="ui">LEARN</span>. The title says <span class="ui">LEARNING: MOVE A CONTROL</span>.</li>
-    <li>Move the control you want: a mod wheel, pedal, slider, or a gesture on the keys. After about a second Opus IV picks it up and fills in the source.</li>
+    <li>Move the control you want: a mod wheel, pedal, slider, or a gesture on the keys. After about a second OpusXIV picks it up and fills in the source.</li>
     <li>Click <span class="ui">DESTINATION</span> until it shows what you want to move, then set the amount.</li>
   </ol>
   <div class="tip"><span class="label">Example: mod wheel controls the tremulant</span>The last row is already set up for this but switched off. Click its <span class="ui">[ ]</span> to switch it on, then draw the <span class="ui">TREMULANT</span> stop and move the mod wheel.</div>
@@ -373,26 +374,26 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 <section class="chapter">
   <div class="kicker">Chapter 8</div>
   <h1><span class="num">08</span>The Tuning screen</h1>
-  <p class="lede">Organs have been tuned in many ways over the centuries. Opus IV offers the classic historical tunings, unusual equal tunings with many notes per octave, your own Scala files, and fine tuning of every single pipe.</p>
+  <p class="lede">Organs have been tuned in many ways over the centuries. OpusXIV offers the classic historical tunings, unusual equal tunings with many notes per octave, your own Scala files, and fine tuning of every single pipe.</p>
   <figure><img src="img/tuning.png"><figcaption>Left: choose a tuning. Middle: how it sounds compared to modern tuning, and how keys are mapped. Right: tune individual pipes.</figcaption></figure>
 
   <h2>Choosing a tuning</h2>
   <ul>
-    <li><b>Historical</b>: <span class="ui">WEGSCHEIDER (OPUS 14)</span> is the well temperament the organ is tuned in, and Opus IV's default. <span class="ui">12-TET</span> is modern equal temperament. <span class="ui">WERCKMEISTER III</span>, <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
+    <li><b>Historical</b>: <span class="ui">WEGSCHEIDER (OPUS 14)</span> is the well temperament the organ is tuned in, and OpusXIV's default. <span class="ui">12-TET</span> is modern equal temperament. <span class="ui">WERCKMEISTER III</span>, <span class="ui">1/4 MEANTONE</span>, <span class="ui">KIRNBERGER III</span> and <span class="ui">VALLOTTI</span> are older tunings that make some keys sweeter and others more colourful. They are perfect for early music.</li>
     <li><b>Equal divisions</b> (EDO): the octave is split into 19, 22, 24, 31, 41 or 53 equal steps, or any number from 5 to 72 with <span class="ui">CUSTOM</span> and the <span class="ui">EDO</span> stepper. 31-EDO was used on a real Dutch organ built for Adriaan Fokker in 1950.</li>
     <li><b>Scala files</b>: <span class="ui">LOAD .SCL</span> loads a tuning from the large free Scala archive. <span class="ui">LOAD .KBM</span> optionally loads a keyboard map that says which key plays which note.</li>
   </ul>
   <p>The three boxes at the top show how pure the main intervals are compared with natural (“just”) ones. <span class="ui">A4 REFERENCE</span> sets the pitch of A, for example 415 Hz for Baroque pitch. The ruler compares one octave of your tuning with modern tuning.</p>
 
   <h2>Key mapping</h2>
-  <p>A normal keyboard has 12 keys per octave, but 31-EDO has 31 notes, so Opus IV needs to know how to lay them out. You set this separately for each zone and the pedal:</p>
+  <p>A normal keyboard has 12 keys per octave, but 31-EDO has 31 notes, so OpusXIV needs to know how to lay them out. You set this separately for each zone and the pedal:</p>
   <ul>
     <li><span class="ui">SEQUENTIAL</span> (the default): each key plays the next step up, so you can reach every note of the tuning. The octave is as many keys wide as the tuning has steps: 19 keys in 19-EDO, 31 keys in 31-EDO. This is also what grid controllers like the Exquis expect.</li>
     <li><span class="ui">SUBSET</span>: the 12 keys of each octave play 12 of the tuning's notes, chosen along the circle of fifths, so the octave stays 12 keys wide and familiar fingering still works, but the other notes are out of reach. Tick <span class="ui">FLATS INSTEAD OF SHARPS</span>, or hold the sostenuto pedal (CC66), to switch black keys between, say, C♯ and D♭. Some divisions (5, 10, 15 and 20-EDO, for example) have no 12-note subset; for those the button shows <span class="ui">SUBSET N/A</span> and the keys stay sequential.</li>
     <li><span class="ui">SCALA KBM</span>: the loaded keyboard map decides (Scala tunings only).</li>
   </ul>
-  <p><span class="ui">C4 ON KEY</span> chooses which key plays middle C when the keys are sequential; it starts on middle C itself. Because a whole octave now takes more keys, your keyboard covers fewer octaves: next to it, Opus IV shows which keys cover the organ's manual compass (C2 to A6). Move middle C, or your keyboard's octave setting, to reach the part of the compass you want.</p>
-  <p>A project or preset saved with an earlier version of Opus IV keeps the key mapping it was saved with, which was <span class="ui">SUBSET</span> for the lower zone. Choose <span class="ui">SEQUENTIAL</span> once on the Tuning screen and save again.</p>
+  <p><span class="ui">C4 ON KEY</span> chooses which key plays middle C when the keys are sequential; it starts on middle C itself. Because a whole octave now takes more keys, your keyboard covers fewer octaves: next to it, OpusXIV shows which keys cover the organ's manual compass (C2 to A6). Move middle C, or your keyboard's octave setting, to reach the part of the compass you want.</p>
+  <p>A project or preset saved with an earlier version of OpusXIV keeps the key mapping it was saved with, which was <span class="ui">SUBSET</span> for the lower zone. Choose <span class="ui">SEQUENTIAL</span> once on the Tuning screen and save again.</p>
 
   <h2>Tuning single pipes</h2>
   <p>On the right, pick a rank with the arrows and a key from the list, then use <span class="ui">OFFSET</span> to raise or lower that one pipe in cents (hundredths of a semitone). <span class="ui">PIPE TEMP</span> sets the temperature of the building: flue pipes go sharp as a church warms up, while reed pipes barely move, so a warm church puts the two slightly out of tune with each other, just as in real life. <span class="ui">AGE DRIFT</span> adds the small random mistuning of an organ that hasn't been tuned for a while. Set it to 0 for perfection.</p>
@@ -406,7 +407,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <figure><img src="img/room.png"><figcaption>Left: choose a building. Middle: a plan of the room with your listening position, and how long its echo lasts. Right: listener and microphones.</figcaption></figure>
 
   <h2>Choosing a building</h2>
-  <p><b>Measured rooms</b> are real places. Their echo was recorded by the University of York's OpenAIR project, and Opus IV plays your organ through those recordings (a technique called convolution):</p>
+  <p><b>Measured rooms</b> are real places. Their echo was recorded by the University of York's OpenAIR project, and OpusXIV plays your organ through those recordings (a technique called convolution):</p>
   <table>
     <tr><th>Building</th><th>Character</th></tr>
     <tr><td>St Andrew's, Lyndhurst</td><td>A Victorian parish church: warm, about 1.5 seconds of echo.</td></tr>
@@ -419,13 +420,13 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
 
   <h2>Where you listen from</h2>
   <ul>
-    <li><span class="ui">DISTANCE</span>: how far you are from the organ. Close is clear and direct; far away is more echo and less detail. In measured rooms recorded from several seats, Opus IV picks the seat nearest your distance; the plan and the line under it show which.</li>
+    <li><span class="ui">DISTANCE</span>: how far you are from the organ. Close is clear and direct; far away is more echo and less detail. In measured rooms recorded from several seats, OpusXIV picks the seat nearest your distance; the plan and the line under it show which.</li>
     <li><span class="ui">HEIGHT</span> and <span class="ui">WIDTH</span>: the height of the microphones, and how wide the stereo picture is.</li>
     <li><span class="ui">ROOM MIX</span>: how much echo, from none to a lot. <span class="ui">PRE-DELAY</span>: a short gap before the echo starts, which helps clarity.</li>
     <li><span class="ui">OUTPUT</span>: overall volume. <span class="ui">LIMITER</span> (on unless you switch it off) catches any peak that would overload. The output box shows <span class="ui">LIMIT</span> while it is working, or <span class="ui">CLIP!</span> when it is off and the sound is too loud; turn <span class="ui">OUTPUT</span> down if you see either often.</li>
   </ul>
   <h3>Every room at the same loudness</h3>
-  <p>All the buildings, your own recordings and all three microphone setups are matched in loudness, so switching rooms never makes the organ jump in volume. A cathedral sounds bigger and longer, not louder. <span class="ui">DISTANCE</span> and <span class="ui">ROOM MIX</span> change the balance between the organ and the room while the overall level stays about the same: moving away makes the sound more reverberant rather than quieter. Opus IV also gently trims the deepest rumble of each room, which the 16' pedal stops would otherwise stir up.</p>
+  <p>All the buildings, your own recordings and all three microphone setups are matched in loudness, so switching rooms never makes the organ jump in volume. A cathedral sounds bigger and longer, not louder. <span class="ui">DISTANCE</span> and <span class="ui">ROOM MIX</span> change the balance between the organ and the room while the overall level stays about the same: moving away makes the sound more reverberant rather than quieter. OpusXIV also gently trims the deepest rumble of each room, which the 16' pedal stops would otherwise stir up.</p>
   <h3>Microphones</h3>
   <p><span class="ui">AB</span> is two microphones spaced apart: wide and spacious, a classic for organ recordings. <span class="ui">ORTF</span> is two angled microphones close together: a more focused image. <span class="ui">BINAURAL</span> is made for <b>headphones</b> and places you inside the building with a fixed head position.</p>
 
@@ -433,12 +434,12 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p>Many rooms' acoustic “fingerprints” (impulse responses) are freely available online, including many more from OpenAIR. To use one:</p>
   <ol class="steps">
     <li>Click <span class="ui">LOAD IR FILE...</span> and choose a WAV file. Mono, stereo and 4-channel “B-format” recordings all work.</li>
-    <li>Opus IV switches to <span class="ui">CUSTOM IR</span> and shows the file's name.</li>
+    <li>OpusXIV switches to <span class="ui">CUSTOM IR</span> and shows the file's name.</li>
     <li>If the file is B-format, set <span class="ui">FUMA</span> or <span class="ui">AMBIX</span> to match its description. If it sounds odd, try the other.</li>
   </ol>
-  <p>Normally Opus IV removes the recording's own first “bang” and uses its own direct sound of the organ instead, which keeps the organ clear. Untick <span class="ui">DIRECT SOUND FROM THE MODEL</span> to hear the recording exactly as it was made; the recording then carries its own balance of organ and room, so <span class="ui">ROOM MIX</span> has no effect.</p>
-  <div class="note"><span class="label">Keep the file where it is</span>Opus IV remembers where your file is, not the sound itself. If you move or delete it, the room goes quiet and the screen says <span class="ui">CAN'T READ THAT FILE</span>; load it again from its new place.</div>
-  <p><span class="ui">QUALITY</span> (bottom left) sets how many pipes Opus IV can sound at once: <span class="ui">ECO</span> 192, <span class="ui">STD</span> 320, <span class="ui">HQ</span> 448. ECO also lightens the room's processing.</p>
+  <p>Normally OpusXIV removes the recording's own first “bang” and uses its own direct sound of the organ instead, which keeps the organ clear. Untick <span class="ui">DIRECT SOUND FROM THE MODEL</span> to hear the recording exactly as it was made; the recording then carries its own balance of organ and room, so <span class="ui">ROOM MIX</span> has no effect.</p>
+  <div class="note"><span class="label">Keep the file where it is</span>OpusXIV remembers where your file is, not the sound itself. If you move or delete it, the room goes quiet and the screen says <span class="ui">CAN'T READ THAT FILE</span>; load it again from its new place.</div>
+  <p><span class="ui">QUALITY</span> (bottom left) sets how many pipes OpusXIV can sound at once: <span class="ui">ECO</span> 192, <span class="ui">STD</span> 320, <span class="ui">HQ</span> 448. ECO also lightens the room's processing.</p>
 </section>
 
 <!-- ============================================================ 10 PRESETS -->
@@ -472,10 +473,10 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <li>Under <span class="ui">INCLUDE</span>, tick the parts to store. Unticked parts are left alone when the preset is loaded later. For example, a preset with only <i>Room</i> ticked changes the building but keeps your stops.</li>
     <li>Press <span class="ui">SAVE AS NEW</span>, or <span class="ui">OVERWRITE</span> to update the selected preset.</li>
   </ol>
-  <p>Your presets are ordinary small files in a folder called <b>Pipe Presets</b> in your Documents folder. <span class="ui">EXPORT FILE</span> saves one anywhere, for example to share with a friend, and <span class="ui">IMPORT FILE</span> brings one in. Your music program also saves Opus IV's full state with each project automatically.</p>
+  <p>Your presets are ordinary small files in a folder called <b>OpusXIV Presets</b> in your Documents folder. <span class="ui">EXPORT FILE</span> saves one anywhere, for example to share with a friend, and <span class="ui">IMPORT FILE</span> brings one in. Your music program also saves OpusXIV's full state with each project automatically.</p>
 
   <h2>Combinations</h2>
-  <p>Organists change stops quickly with combination buttons. Opus IV has seven, which remember <b>stops only</b>. To store one, set up your stops, press <span class="ui">SET</span>, then a number. To recall it, just press the number, even while playing.</p>
+  <p>Organists change stops quickly with combination buttons. OpusXIV has seven, which remember <b>stops only</b>. To store one, set up your stops, press <span class="ui">SET</span>, then a number. To recall it, just press the number, even while playing.</p>
 </section>
 
 <!-- ============================================================ 11 FAQ -->
@@ -484,19 +485,19 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <h1><span class="num">11</span>Questions and answers</h1>
 
   <h3>I don't hear anything.</h3>
-  <p>Check that at least one stop is drawn on the Console, that the blower is on (Wind screen), and that your music program is sending your keyboard to Opus IV's track. If you play into the upper zone or below a pedal split, make sure that division has stops drawn. The Expression screen's <span class="ui">SEEN</span> lines show whether notes are arriving.</p>
+  <p>Check that at least one stop is drawn on the Console, that the blower is on (Wind screen), and that your music program is sending your keyboard to OpusXIV's track. If you play into the upper zone or below a pedal split, make sure that division has stops drawn. The Expression screen's <span class="ui">SEEN</span> lines show whether notes are arriving.</p>
 
   <h3>My pressure keyboard plays, but pressing doesn't do anything.</h3>
   <p>Look at <span class="ui">SEEN</span> on the Expression screen. If <span class="ui">PRES</span>, <span class="ui">AT</span> or <span class="ui">Y</span> never appear, your keyboard isn't sending that data. Check that it is in MPE mode (or that aftertouch is turned on) and, on the Osmose, that you are using Port 1. If the data is arriving, check the matrix rows are switched on.</p>
 
   <h3>A key makes no sound.</h3>
-  <p>Look at the line above the keyboard strip at the bottom of the window: when a key cannot sound, Opus IV says why for a few seconds. <span class="ui">OUTSIDE THE COMPASS</span> means the organ has no pipe for that key: the manuals run from C2 to A6 and the pedals from C2 to F4, so move your keyboard's octave setting. <span class="ui">NO STOP DRAWN</span> means every stop of that keyboard's division is pushed in: pull one out on the Console screen. With a pressure keyboard, a key resting at the very top of its travel is also silent until you press it; if you would rather every note start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix. The Vox Humana's top note does not sound in this version (see <i>Known limits</i> in Chapter 1).</p>
+  <p>Look at the line above the keyboard strip at the bottom of the window: when a key cannot sound, OpusXIV says why for a few seconds. <span class="ui">OUTSIDE THE COMPASS</span> means the organ has no pipe for that key: the manuals run from C2 to A6 and the pedals from C2 to F4, so move your keyboard's octave setting. <span class="ui">NO STOP DRAWN</span> means every stop of that keyboard's division is pushed in: pull one out on the Console screen. With a pressure keyboard, a key resting at the very top of its travel is also silent until you press it; if you would rather every note start at full wind, switch off row 1 (<span class="ui">PRESSURE &gt; PALLET OPEN</span>) in the matrix. The Vox Humana's top note does not sound in this version (see <i>Known limits</i> in Chapter 1).</p>
 
   <h3>Every keystroke adds extra wind, or notes go missing, in my music program.</h3>
-  <p>Your music program is probably not passing MPE to Opus IV: it squeezes the notes onto one channel and turns each key's pressure into aftertouch. Switch MPE on for Opus IV in your program (in Bitwig Studio, look for the MPE switch in the plugin device's settings), for whichever format you use. On the Expression screen, <span class="ui">NOTES ARRIVING ON</span> then shows a single channel and Opus IV reports <span class="ui">SEVERAL NOTES SHARE A CHANNEL</span>.</p>
+  <p>Your music program is probably not passing MPE to OpusXIV: it squeezes the notes onto one channel and turns each key's pressure into aftertouch. Switch MPE on for OpusXIV in your program (in Bitwig Studio, look for the MPE switch in the plugin device's settings), for whichever format you use. On the Expression screen, <span class="ui">NOTES ARRIVING ON</span> then shows a single channel and OpusXIV reports <span class="ui">SEVERAL NOTES SHARE A CHANNEL</span>.</p>
 
   <h3>The sound crackles, or my computer struggles.</h3>
-  <p>Try <span class="ui">ECO</span> quality, or a lite room instead of a measured one. Fewer stops and couplers also help. Raising your music program's audio buffer size gives Opus IV more time to work.</p>
+  <p>Try <span class="ui">ECO</span> quality, or a lite room instead of a measured one. Fewer stops and couplers also help. Raising your music program's audio buffer size gives OpusXIV more time to work.</p>
 
   <h3>The organ is out of tune.</h3>
   <p>Check the tuning on the Tuning screen. <span class="ui">12-TET</span> is the default and matches other modern instruments; the historical temperaments are intentionally not equal. Every pipe holds its note to within a few hundredths of a semitone. Set <span class="ui">AGE DRIFT</span> to 0 and keep <span class="ui">PIPE TEMP</span> near 18 °C for the most precise result. Heavy chords may also sag the wind slightly; turn <span class="ui">FLEXIBLE</span> down for steadier pitch.</p>
@@ -505,7 +506,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
   <p>The file has probably moved. Load it again with <span class="ui">LOAD IR FILE...</span>.</p>
 
   <h3>A measured room says “NO DATA”.</h3>
-  <p>Very occasionally a download version of Opus IV may be built without the measured rooms; it then uses the lite abbey instead. Download the latest version from the releases page.</p>
+  <p>Very occasionally a download version of OpusXIV may be built without the measured rooms; it then uses the lite abbey instead. Download the latest version from the releases page.</p>
 
   <h3>The Mac says the plugin is damaged or can't be opened.</h3>
   <p>Do the one-time Terminal step described in chapter 2, then restart your music program.</p>
@@ -544,7 +545,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt; background:
     <dt>Impulse response</dt><dd>A recording of how a room echoes a single sharp sound; used to place sounds in that room.</dd>
   </dl>
   <div class="note" style="margin-top:4mm"><span class="label">Credits</span>
-  Opus IV is made by 78Hz. Measured rooms: impulse responses from the OpenAIR library, Audiolab, University of York, used under the Creative Commons Attribution 4.0 licence. St Andrew's Church, Lyndhurst and York Minster were recorded by Damian T. Murphy; St Margaret's Church, York (National Centre for Early Music) by Aglaia Foteinou and Simon Shelley. Built with DPF and PFFFT. The display font is VT323 by Peter Hull (SIL Open Font License).</div>
+  OpusXIV is made by 78Hz. Measured rooms: impulse responses from the OpenAIR library, Audiolab, University of York, used under the Creative Commons Attribution 4.0 licence. St Andrew's Church, Lyndhurst and York Minster were recorded by Damian T. Murphy; St Margaret's Church, York (National Centre for Early Music) by Aglaia Foteinou and Simon Shelley. Built with DPF and PFFFT. The display font is VT323 by Peter Hull (SIL Open Font License).</div>
 </section>
 
 <script>

@@ -1,5 +1,6 @@
 // Pipe - physically modelled pipe organ
-// The interface: one backlit LCD with seven screens.
+// The interface: a line drawing of the console (stop jambs either side of the music desk), with
+// drawers for wind, tuning, room, expression, voicing and presets.
 #include "DistrhoUI.hpp"
 #include "../src/engine/Params.hpp"
 #include "../src/engine/Presets.hpp"
@@ -11,7 +12,7 @@
 #include "../src/engine/MpeInput.hpp"
 #include "../src/engine/Wav.hpp"
 #include "IrMeta.hpp"
-#include "FontVT323.hpp"
+#include "FontPlex.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -39,7 +40,7 @@ static std::string userPresetDir()
     if (!home || !*home) home = std::getenv("HOME");
     fs::path p = home ? fs::path(home) : fs::temp_directory_path();
     if (fs::exists(p / "Documents")) p /= "Documents";
-    return (p / "Pipe Presets").string();
+    return (p / "OpusXIV Presets").string();
 }
 
 static std::string readFile(const std::string& path)
@@ -74,7 +75,8 @@ public:
     {
         voicing->setDefaults();
         for (int i = 0; i < kNumParams; ++i) pv[i] = paramInfo(i).def;
-        font = createFontFromMemory("vt323", pipe_res::kFontVT323, (uint)pipe_res::kFontVT323Size, false);
+        font = createFontFromMemory("plex", pipe_res::kFontPlex, (uint)pipe_res::kFontPlexSize, false);
+        fontBold = createFontFromMemory("plexbold", pipe_res::kFontPlexBold, (uint)pipe_res::kFontPlexBoldSize, false);
         const double sf = getScaleFactor();
         if (sf != 1.0) setSize((uint)(kW * sf), (uint)(kH * sf));
         setGeometryConstraints((uint)(kW * 0.5 * sf), (uint)(kH * 0.5 * sf), true, false);
@@ -149,26 +151,34 @@ protected:
         scale(s, s);
         fontFaceId(font);
 
-        // frame + backlit glass
+        // the sheet: paper (or the chosen ground) inside a thin ruled border
         fill(0, 0, kW, kH, frameCol);
-        beginPath(); roundedRect(8, 8, kW - 16, kH - 16, 6); fillColor(lcd); NanoVG::fill();
-        // scanlines
-        beginPath();
-        for (float y = 10; y < kH - 10; y += 3) { moveTo(10, y); lineTo(kW - 10, y); }
-        strokeColor(Color(31, 42, 18, 0.06f)); strokeWidth(1); stroke();
-        beginPath(); roundedRect(8, 8, kW - 16, kH - 16, 6); strokeColor(Color(147, 166, 64)); strokeWidth(2); stroke();
+        fill(8, 8, kW - 16, kH - 16, lcd);
+        beginPath(); rect(8.75f, 8.75f, kW - 17.5f, kH - 17.5f); strokeColor(ink); strokeWidth(1.5f); stroke();
 
         drawHeader();
-        switch (screen)
+        drawDrawerTabs();
+        if (screen == kScrConsole) drawConsole();
+        else
         {
-        case kScrConsole: drawConsole(); break;
-        case kScrExpression: drawExpression(); break;
-        case kScrWind: drawWind(); break;
-        case kScrVoicing: drawVoicing(); break;
-        case kScrTuning: drawTuning(); break;
-        case kScrRoom: drawRoom(); break;
-        case kScrPresets: drawPresets(); break;
-        default: break;
+            // a drawer: the page, laid out for the full sheet, drawn into the space between the header and
+            // the drawer tabs (scaled to fit); its hit areas are mapped the same way
+            const float k = (kDrawerBottom - kDrawerTop) / (kH - 76.f);
+            const float ox = (kW - kW * k) / 2.f, oy = kDrawerTop - 76.f * k;
+            const size_t h0 = hits.size();
+            save(); translate(ox, oy); scale(k, k);
+            switch (screen)
+            {
+            case kScrExpression: drawExpression(); break;
+            case kScrWind: drawWind(); break;
+            case kScrVoicing: drawVoicing(); break;
+            case kScrTuning: drawTuning(); break;
+            case kScrRoom: drawRoom(); break;
+            case kScrPresets: drawPresets(); break;
+            default: break;
+            }
+            restore();
+            for (size_t i = h0; i < hits.size(); ++i) { Hit& h = hits[i]; h.x = ox + h.x * k; h.y = oy + h.y * k; h.w *= k; h.h *= k; }
         }
         if (!toast.empty())
         {
@@ -320,19 +330,29 @@ private:
     void addDrag(float x, float y, float w, float h, int param) { hits.push_back({ x, y, w, h, nullptr, param }); }
 
     void fill(float x, float y, float w, float h, Color c) { beginPath(); rect(x, y, w, h); fillColor(c); NanoVG::fill(); }
-    void frame(float x, float y, float w, float h, float t = 2.f)
+    void frame(float x, float y, float w, float h, float t = 1.5f)
     {
         beginPath(); rect(x + t * 0.5f, y + t * 0.5f, w - t, h - t); strokeColor(ink); strokeWidth(t); stroke();
     }
-    void text(float x, float y, const std::string& s, float size = 20.f, Color c = Color(31, 42, 18), int align = ALIGN_LEFT | ALIGN_MIDDLE)
+    // Sizes in this file were set for the earlier pixel font; Plex Sans Condensed reads the same at 0.78 of them
+    static constexpr float kFontScale = 0.78f;
+    void fontSize(float size) { NanoVG::fontSize(size * kFontScale); }
+    void text(float x, float y, const std::string& s, float size = 20.f, Color c = Color(0, 0, 0, 0.f), int align = ALIGN_LEFT | ALIGN_MIDDLE)
     {
+        if (c.alpha == 0.f) c = ink;
         fontSize(size); fillColor(c); textAlign(align); NanoVG::text(x, y, s.c_str(), nullptr);
+    }
+    // bold (the headings and the name)
+    void textB(float x, float y, const std::string& s, float size, Color c, int align = ALIGN_LEFT | ALIGN_MIDDLE)
+    {
+        fontFaceId(fontBold); text(x, y, s, size, c, align); fontFaceId(font);
     }
     void titleBar(float x, float y, float w, const std::string& left, const std::string& right = "")
     {
-        fill(x, y, w, 26, ink);
-        text(x + 8, y + 13, left, 21, lcd);
-        if (!right.empty()) text(x + w - 8, y + 13, right, 21, lcd, ALIGN_RIGHT | ALIGN_MIDDLE);
+        // a heading ruled underneath (line drawing), not a filled bar
+        textB(x + 2, y + 13, left, 21, ink);
+        if (!right.empty()) text(x + w - 2, y + 13, right, 21, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        hline(x, y + 26, w);
     }
     void button(float x, float y, float w, float h, const std::string& label, bool on, std::function<void()> f, float size = 21.f)
     {
@@ -351,15 +371,15 @@ private:
     {
         const ParamInfo& pi = paramInfo(param);
         const float frac = (pv[param] - pi.min) / (pi.max - pi.min);
-        beginPath(); circle(cx, cy, 30); strokeColor(ink); strokeWidth(3); stroke();
+        beginPath(); circle(cx, cy, 30); strokeColor(ink); strokeWidth(1.5f); stroke();
         const float a = (-135.f + 270.f * frac - 90.f) * (float)M_PI / 180.f;
-        beginPath(); moveTo(cx, cy); lineTo(cx + std::cos(a) * 26, cy + std::sin(a) * 26); strokeWidth(4); stroke();
+        beginPath(); moveTo(cx + std::cos(a) * 8, cy + std::sin(a) * 8); lineTo(cx + std::cos(a) * 26, cy + std::sin(a) * 26); strokeWidth(2); stroke();
         text(cx, cy + 46, label, 19, ink, ALIGN_CENTER | ALIGN_MIDDLE);
         fontSize(20);
         Rectangle<float> b; textBounds(0, 0, value.c_str(), nullptr, b);
         const float vw = b.getWidth() + 12;
-        fill(cx - vw / 2, cy + 58, vw, 22, ink);
-        text(cx, cy + 69, value, 20, lcd, ALIGN_CENTER | ALIGN_MIDDLE);
+        frame(cx - vw / 2, cy + 58, vw, 22, 1.f);
+        text(cx, cy + 69, value, 20, ink, ALIGN_CENTER | ALIGN_MIDDLE);
         addDrag(cx - 34, cy - 34, 68, 68 + 48, param);
     }
     void stepper(float x, float y, float w, const std::string& label, const std::string& value,
@@ -368,8 +388,8 @@ private:
         text(x, y + 20, label, 20);
         const float bx = x + w - (44 + 6 + valueW + 6 + 44);
         button(bx, y, 44, 40, "-", false, std::move(minus), 26);
-        fill(bx + 50, y, valueW, 40, ink);
-        text(bx + 50 + valueW / 2, y + 21, value, 20, lcd, ALIGN_CENTER | ALIGN_MIDDLE);
+        frame(bx + 50, y, valueW, 40);
+        text(bx + 50 + valueW / 2, y + 21, value, 20, ink, ALIGN_CENTER | ALIGN_MIDDLE);
         button(bx + 56 + valueW, y, 44, 40, "+", false, std::move(plus), 26);
     }
     void paramStepper(float x, float y, float w, const std::string& label, int param, float step, const char* f, float mul = 1.f, float valueW = 110.f)
@@ -382,9 +402,9 @@ private:
         beginPath();
         if (dashed) for (float xx = x; xx < x + w; xx += 10) { moveTo(xx, y); lineTo(std::min(x + w, xx + 5), y); }
         else { moveTo(x, y); lineTo(x + w, y); }
-        strokeColor(dashed ? ink2 : ink); strokeWidth(2); stroke();
+        strokeColor(dashed ? ink2 : ink); strokeWidth(1.5f); stroke();
     }
-    void vline(float x, float y, float h) { beginPath(); moveTo(x, y); lineTo(x, y + h); strokeColor(ink); strokeWidth(2); stroke(); }
+    void vline(float x, float y, float h) { beginPath(); moveTo(x, y); lineTo(x, y + h); strokeColor(ink); strokeWidth(1.5f); stroke(); }
 
     // ======================================================= parameter helpers
     void setParam(int id, float v)
@@ -426,141 +446,233 @@ private:
     // ============================================================== header
     void drawHeader()
     {
-        text(26, 40, "OPUS IV", 48);
-        float x = 132;
-        for (int i = 0; i < kNumScreens; ++i)
-        {
-            fontSize(21);
-            Rectangle<float> b; textBounds(0, 0, kScreenNames[i], nullptr, b);
-            const float w = b.getWidth() + 22;
-            button(x, 18, w, 44, kScreenNames[i], screen == i, [this, i] { screen = i; if (i == kScrPresets) scanUserPresets(); });
-            x += w + 6;
-        }
-        // preset bar
-        const float px = kW - 24 - (44 + 6 + 270 + 6 + 44 + 6 + 70);
-        button(px, 18, 44, 44, "<", false, [this] { stepPreset(-1); }, 26);
-        frame(px + 50, 18, 270, 44);
+        textB(24, 36, "OPUS XIV", 40, ink);
+        text(206, 28, "PASI OPUS 14", 18, ink2);
+        text(206, 46, fmt("4 DIVISIONS · %.0f STOPS", (double)organ::kNumOrganStops), 18, ink2);
+        static const char* const themes[3] = { "DRAFTING", "BLUEPRINT", "NIGHT" };
+        button(470, 16, 120, 38, themes[theme], false, [this] { setTheme(theme + 1); }, 18);
+        // combination / preset bar
+        const float px = kW - 22 - (40 + 6 + 340 + 6 + 40 + 6 + 74);
+        button(px, 16, 40, 38, "<", false, [this] { stepPreset(-1); }, 24);
+        frame(px + 46, 16, 340, 38);
         std::string label = presetLabel;
-        if (label.size() > 24) label = label.substr(0, 24);
-        text(px + 60, 41, label, 21);
-        if (dirty) text(px + 50 + 260, 41, "*", 24, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-        addHit(px + 50, 18, 270, 44, [this] { screen = kScrPresets; scanUserPresets(); });
-        button(px + 326, 18, 44, 44, ">", false, [this] { stepPreset(1); }, 26);
-        button(px + 376, 18, 70, 44, "SAVE", true, [this] { screen = kScrPresets; scanUserPresets(); nameFocus = true; });
-        hline(10, 72, kW - 20);
+        if (label.size() > 30) label = label.substr(0, 30);
+        text(px + 58, 36, label, 21);
+        if (dirty) text(px + 46 + 330, 36, "*", 24, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
+        addHit(px + 46, 16, 340, 38, [this] { screen = kScrPresets; scanUserPresets(); });
+        button(px + 392, 16, 40, 38, ">", false, [this] { stepPreset(1); }, 24);
+        button(px + 438, 16, 74, 38, "SAVE", true, [this] { screen = kScrPresets; scanUserPresets(); nameFocus = true; });
+        hline(9, 66, kW - 18);
+    }
+
+    // the drawers, along the foot of the sheet: a tab opens its drawer over the console, again closes it
+    void drawDrawerTabs()
+    {
+        const float y = kDrawerBottom + 6;
+        hline(9, kDrawerBottom, kW - 18);
+        text(22, y + 19, screen == kScrConsole ? "DRAWER ^" : "DRAWER v", 18, ink2);
+        static const int order[6] = { kScrWind, kScrTuning, kScrRoom, kScrExpression, kScrVoicing, kScrPresets };
+        float x = 112;
+        for (int i : order)
+        {
+            fontSize(20);
+            Rectangle<float> b; textBounds(0, 0, kScreenNames[i], nullptr, b);
+            const float w = b.getWidth() / kFontScale + 26;
+            button(x, y + 2, w, 34, kScreenNames[i], screen == i, [this, i] { screen = screen == i ? (int)kScrConsole : i; if (screen == kScrPresets) scanUserPresets(); }, 20);
+            x += w + 8;
+        }
+        const int room = std::max(0, std::min(kNumRooms - 1, (int)pv[kParamRoom]));
+        std::string info = std::string(kTuningLabels[(int)pv[kParamTuning]]) + fmt(" · A=%.1f", pv[kParamARef]) + fmt(" · %.0f °C · ", pv[kParamPipeTemp]) + kRoomLabels[room]
+                           + (pv[kOutClip] > 1.f ? (on(kParamLimiter) ? " · LIMITING" : " · CLIP!") : "");
+        text(kW - 22, y + 19, info, 19, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
     }
 
     // ============================================================= console
-    void drawConsole()
+    // The console of Opus 14 as a line drawing: the stop jambs either side (Pedal and I Hauptwerk on the
+    // left, III Unterwerk and II Oberwerk on the right), drawknobs lit when drawn; the music desk between
+    // them shows the keys sounding on each keyboard, the chests' wind, the tremulant, the swell box, the
+    // couplers and the combination pistons.
+    void drawJamb(float x, float w, const int (&divs)[2])
     {
-        // four divisions as in the console of Opus 14: Pedal, I Hauptwerk, II Oberwerk, III Unterwerk
-        const float top = 84, colW = 222, gap = 6, rowH = 29;
-        static const int order[4] = { kPedal, kGreat, kPositive, kSwell };
-        for (int c = 0; c < 4; ++c)
+        float y = 78;
+        const float cw = w / 5.f, rowH = 76.f;
+        for (int d : divs)
         {
-            const int d = order[c];
-            const float x = 20 + c * (colW + gap);
-            std::string meta;
-            if ((int)pv[kParamZoneLoDiv] == d) meta = "LOWER";
-            else if ((int)pv[kParamZoneHiDiv] == d) meta = "UPPER";
-            else if (d == kPedal && pv[kParamPedalSplit] > 0) meta = std::string("<") + noteName12((int)pv[kParamPedalSplit]);
-            else meta = d == kSwell ? "ENCL" : "";
-            titleBar(x, top, colW, divisionName(d), meta);
-            float y = top + 32;
+            std::vector<int> stops;
             for (int s = 0; s < kNumStops; ++s)
             {
-                if (kStops[s].division != d) continue;
+                const StopDef& sd = kStops[(size_t)s];
+                if ((sd.type == kStopRank || sd.type == kStopMixture) && sd.division == d) stops.push_back(s);
+                if (sd.type == kStopTremulant && (int)pv[kParamTremTarget] == d) stops.push_back(s);
+            }
+            int drawn = 0; for (int s : stops) if (on(s)) ++drawn;
+            textB(x, y + 10, divisionName(d), 21, ink);
+            text(x + w, y + 10, fmt("%.0f / ", drawn) + fmt("%.0f DRAWN", (double)stops.size()), 18, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            hline(x, y + 24, w, true);
+            y += 32;
+            for (size_t i = 0; i < stops.size(); ++i)
+            {
+                const int s = stops[i];
+                const StopDef& sd = kStops[(size_t)s];
+                const float cx = x + cw * ((float)(i % 5) + 0.5f), cy = y + (float)(i / 5) * rowH + 22;
                 const bool isOn = on(s);
-                if (isOn) fill(x, y, colW, rowH - 3, ink);
-                frame(x, y, colW, rowH - 3);
-                text(x + 7, y + (rowH - 3) / 2, kStops[s].label, 18, isOn ? lcd : ink);
-                text(x + colW - 7, y + (rowH - 3) / 2, kStops[s].foot, 18, isOn ? lcd : ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-                addHit(x, y, colW, rowH - 3, [this, s] {
+                if (isOn)
+                {
+                    beginPath(); circle(cx, cy, 20); fillColor(ink); NanoVG::fill();
+                    beginPath(); circle(cx, cy, 24); strokeColor(ink); strokeWidth(1.5f); stroke();
+                }
+                else { beginPath(); circle(cx, cy, 20); strokeColor(ink); strokeWidth(1.5f); stroke(); }
+                const bool trem = sd.type == kStopTremulant;
+                text(cx, cy + 1, trem ? std::string("~") : std::string(sd.foot), trem ? 26 : 19, isOn ? lcd : ink, ALIGN_CENTER | ALIGN_MIDDLE);
+                fontSize(14); fillColor(ink); textAlign(ALIGN_CENTER | ALIGN_TOP); textLineHeight(0.95f);
+                const std::string name = trem ? std::string("TREMULANT") : std::string(sd.label);
+                textBox(cx - cw / 2 + 2, cy + 27, cw - 4, name.c_str(), nullptr);
+                addHit(cx - cw / 2, cy - 24, cw, rowH - 4, [this, s] {
                     toggle(s);
                     if (kStops[s].type == kStopRank || kStops[s].type == kStopMixture) selRank = kStops[s].rankFirst;
                 });
-                y += rowH;
             }
+            y += (float)((stops.size() + 4) / 5) * rowH + 8;
         }
-        // inspector
-        const float ix = 944, iw = 316;
-        vline(932, 76, 556);
-        const int key = selKey;
-        const KeyPitch kp = tuning.keyPitch(key, (int)pv[kParamMapLo], on(kParamEnharmonic));
-        const double f = kp.hz * rankRatio(selRank, key);
-        const PipeGeometry g = pipeGeometry(*voicing, selRank, key, f);
-        titleBar(ix, top, iw, std::string(divisionShort(kRanks[selRank].division)) + " " + kRanks[selRank].name);
-        // key selector
-        button(ix, top + 34, 40, 34, "<", false, [this] { selKey = std::max(0, selKey - 1); }, 22);
-        text(ix + iw / 2, top + 52, std::string("KEY ") + noteName12(key) + "  " + fmt("%.1f HZ", f), 21, ink, ALIGN_CENTER | ALIGN_MIDDLE);
-        button(ix + iw - 40, top + 34, 40, 34, ">", false, [this] { selKey = std::min(127, selKey + 1); }, 22);
-        // pipe drawing (to scale within the box)
-        const float bx = ix + 8, by = top + 80, bh = 190;
-        const double maxLen = std::max(0.3, g.lengthM);
-        const float pw = (float)std::max(8.0, std::min(40.0, g.diameterMM / 4));
-        const float ph = (float)(bh - 40);
-        beginPath(); rect(bx + 20 - pw / 2 + 18, by, pw, ph); strokeColor(ink); strokeWidth(3); stroke();
-        if (g.stopped) fill(bx + 38 - pw / 2, by - 6, pw, 8, ink);
-        if (!g.reed) fill(bx + 38 - pw / 2, by + ph - 18, pw, 10, ink);
-        beginPath(); moveTo(bx + 38 - pw / 2, by + ph); lineTo(bx + 38 + pw / 2, by + ph); lineTo(bx + 41, by + bh); lineTo(bx + 35, by + bh); closePath(); stroke();
-        (void)maxLen;
-        float ty = by + 4;
-        auto row = [&](const char* k, const std::string& v) { text(ix + 82, ty + 10, k, 21, ink2); text(ix + iw - 4, ty + 10, v, 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE); ty += 24; };
-        row("LENGTH", fmt(g.lengthM >= 1 ? "%.2f M" : "%.3f M", g.lengthM));
-        row("DIAMETER", fmt("%.0f MM", g.diameterMM));
-        if (!g.reed) { row("MOUTH", fmt("%.0f MM", g.mouthWidthMM)); row("CUT-UP", fmt("%.1f MM", g.cutupMM)); }
-        row("TOE WIND", fmt("%.0f MM WC", g.toeMM));
-        row("METAL", kRanks[selRank].metalTin > 0 ? fmt("%.0f%% TIN", kRanks[selRank].metalTin) : std::string("WOOD"));
-        row("PITCH", fmt("%.1f HZ", f));
-        const BuildCheck bc = checkPipe(g);
-        const bool ok = bc.mouthOk && bc.cutupOk && bc.sizeOk && bc.pressureOk;
-        frame(ix, by + bh + 8, iw, 32);
-        text(ix + 10, by + bh + 25, ok ? "[OK] BUILDABLE" : (!bc.cutupOk ? "[!] CUT-UP WON'T SPEAK" : !bc.mouthOk ? "[!] MOUTH TOO WIDE" : !bc.sizeOk ? "[!] SIZE NOT BUILDABLE" : "[!] WIND OUT OF RANGE"), 21);
-        float wy = by + bh + 52;
-        text(ix, wy + 10, "I HAUPTWERK CHEST", 21, ink2);
-        text(ix + iw, wy + 10, fmt("%.0f / 79 MM", pv[kOutChestGt]), 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-        segBar(ix, wy + 24, iw, 14, 20, pv[kOutChestGt] / 85.f);
-        wy += 52;
-        hline(ix, wy, iw, true);
-        text(ix, wy + 18, "III SWELL BOX", 21, ink2);
-        text(ix, wy + 44, fmt("%.0f%%", pv[kParamSwell] * 100), 34);
-        addDrag(ix, wy + 4, iw / 2, 60, kParamSwell);
-        text(ix + iw / 2, wy + 18, "TREMULANT", 21, ink2);
-        text(ix + iw / 2, wy + 44, on(kNumStops - 1) ? "ON" : "OFF", 34);
-        addHit(ix + iw / 2, wy + 4, iw / 2, 60, [this] { toggle(kNumStops - 1); });
+    }
 
-        // sounding notes strip
-        const float sy = 640;
-        hline(10, sy - 6, kW - 20);
+    void keyboard(float x, float y, float w, float h, int lo, int n, int div)
+    {
+        auto black = [](int k) { const int m = k % 12; return m == 1 || m == 3 || m == 6 || m == 8 || m == 10; };
+        auto lit = [this, div](int k) {
+            for (int i = 0; i < kNumShownNotes; ++i)
+            {
+                const float* nn = &pv[kOutNote0 + i * 4];
+                if (nn[0] < 0) continue;
+                if ((int)nn[0] == k && (((int)nn[1] % 1000) / 100) == div) return true;
+            }
+            return false;
+        };
+        int nw = 0; for (int i = 0; i < n; ++i) if (!black(lo + i)) ++nw;
+        const float ww = w / (float)nw;
+        int wi = 0;
+        for (int i = 0; i < n; ++i)
         {
-            // a key that cannot sound says why, instead of just staying silent
-            const int sk = (int)pv[kOutSilentKey];
-            static const char* const nn[12] = { "C", "C#", "D", "EB", "E", "F", "F#", "G", "G#", "A", "BB", "B" };
-            if (sk >= 1000) {
-                const int key = sk % 1000;
-                const std::string name = std::string(nn[key % 12]) + std::to_string(key / 12 - 1);
-                text(20, sy + 12, sk >= 2000 ? "KEY " + name + ": NO STOP DRAWN ON ITS DIVISION"
-                                             : "KEY " + name + ": OUTSIDE THE COMPASS (MANUALS C2-A6, PEDAL C2-F4)", 21);
-            } else
-                text(20, sy + 12, "SOUNDING  NOTE > PIPE PHYSICS", 21);
+            const int k = lo + i;
+            if (black(k)) continue;
+            const float kx = x + wi * ww;
+            if (lit(k)) fill(kx, y, ww, h, ink);
+            beginPath(); rect(kx, y, ww, h); strokeColor(ink); strokeWidth(1.f); stroke();
+            ++wi;
         }
-        std::string info = std::string(kTuningLabels[(int)pv[kParamTuning]]) + fmt("  A=%.1f", pv[kParamARef]) +
-                           fmt("   %.0f PIPES", pv[kOutPipes]) + fmt("   DSP %.0f%%", pv[kOutCpu])
-                           + (pv[kOutClip] > 1.f ? (on(kParamLimiter) ? "   LIMITING" : "   CLIP!") : "");
-        text(kW - 20, sy + 12, info, 21, ink, ALIGN_RIGHT | ALIGN_MIDDLE);
-        for (int i = 0; i < kNumShownNotes; ++i)
+        wi = 0;
+        for (int i = 0; i < n; ++i)
         {
-            const float x = 20 + i * 248;
-            const float* n = &pv[kOutNote0 + i * 4];
-            if (n[0] < 0) { text(x, sy + 50, "--", 28, ghost); continue; }
-            const int k = (int)n[0], src = (int)n[1];
-            const int d = (src % 1000) / 100, rest = src % 100, zone = rest >= 16 ? 1 : 0, ch = rest - zone * 16;
-            const KeyPitch nk = tuning.keyPitch(k, (int)(zone ? pv[kParamMapHi] : pv[kParamMapLo]), on(kParamEnharmonic));
-            text(x, sy + 48, std::string(nk.name) + std::to_string(k / 12 - 1), 30);
-            std::string srcLabel = src >= 1000 ? std::string("CPL>") + divisionName(d) : std::string(zone ? "HI" : "LO") + " CH" + std::to_string(ch);
-            text(x + 228, sy + 48, srcLabel, 20, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
-            segBar(x, sy + 66, 228, 10, 12, n[2] / 120.f);
-            text(x, sy + 94, fmt("%.0fMM ", n[2]) + fmt("%+.0fC", n[3]) + (n[2] > 100 ? " !OVBL" : ""), 21);
+            const int k = lo + i;
+            if (!black(k)) { ++wi; continue; }
+            const float bx = x + wi * ww - 0.32f * ww, bw = 0.64f * ww;
+            fill(bx, y, bw, h * 0.6f, lit(k) ? ink : lcd);
+            beginPath(); rect(bx, y, bw, h * 0.6f); strokeColor(ink); strokeWidth(1.f); stroke();
+        }
+    }
+
+    void drawConsole()
+    {
+        static const int left[2] = { kPedal, kGreat }, right[2] = { kSwell, kPositive };
+        drawJamb(20, 332, left);
+        vline(364, 66, kDrawerBottom - 66);
+        vline(916, 66, kDrawerBottom - 66);
+        drawJamb(928, 332, right);
+
+        // music desk
+        const float x = 380, w = 520;
+        float y = 78;
+        textB(x, y + 10, "SOUNDING", 21, ink);
+        text(x + w, y + 10, fmt("%.0f PIPES", pv[kOutPipes]) + fmt(" · DSP %.0f%%", pv[kOutCpu]), 18, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+        y += 30;
+        static const int kb[4] = { kSwell, kPositive, kGreat, kPedal };
+        const int chestOut[4] = { kOutChestSw, kOutChestPos, kOutChestGt, kOutChestPd };
+        for (int i = 0; i < 4; ++i)
+        {
+            const int d = kb[i];
+            text(x, y + 8, divisionName(d), 18);
+            text(x + w, y + 8, fmt("CHEST %.0f MM", pv[chestOut[i]]), 18, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            keyboard(x, y + 18, w, 40, 36, d == kPedal ? 30 : 61, d);
+            segBar(x, y + 63, w, 5, 24, pv[chestOut[i]] / (kChestNominal[d] * 1.1f));
+            y += 80;
+        }
+        hline(x, y + 2, w);
+        y += 14;
+        // tremulant, swell box, wind
+        const float cw = w / 3.f;
+        {
+            const bool tOn = on(kNumStops - 1);
+            text(x, y + 8, std::string("TREMULANT · ") + divisionShort((int)pv[kParamTremTarget]), 18, ink2);
+            text(x, y + 36, tOn ? std::string(kTremKindLabels[(int)pv[kParamTremKind]]) + fmt(" %.1f HZ", pv[kParamTremSpeed]) : std::string("OFF"), 28);
+            // its beat drawn as a wave, its height the depth
+            beginPath();
+            const float amp = tOn ? 4.f + 40.f * pv[kParamTremDepth] : 0.f;
+            for (int j = 0; j <= 60; ++j) { const float xx = x + j * (cw - 16) / 60.f, yy = y + 64 - amp / 2.f * std::sin(j / 60.f * 6.f * (float)M_PI); if (j) lineTo(xx, yy); else moveTo(xx, yy); }
+            strokeColor(ink); strokeWidth(1.5f); stroke();
+            addHit(x, y, cw - 8, 80, [this] { toggle(kNumStops - 1); });
+        }
+        {
+            const float sx = x + cw;
+            text(sx, y + 8, "SWELL BOX · III", 18, ink2);
+            text(sx, y + 36, fmt("%.0f%% OPEN", pv[kParamSwell] * 100), 28);
+            const int open = (int)std::round(pv[kParamSwell] * 12);
+            const float sw = (cw - 16) / 12.f;
+            for (int j = 0; j < 12; ++j) { if (j >= open) fill(sx + j * sw, y + 54, sw - 2, 20, ink); beginPath(); rect(sx + j * sw, y + 54, sw - 2, 20); strokeColor(ink); strokeWidth(1.f); stroke(); }
+            addDrag(sx, y, cw - 8, 80, kParamSwell);
+        }
+        {
+            const float wx = x + 2 * cw;
+            text(wx, y + 8, "WIND", 18, ink2);
+            text(wx, y + 36, on(kParamBlowerOn) ? "BLOWER ON" : "BLOWER OFF", 28);
+            text(wx, y + 64, fmt("RESERVOIR %.0f MM", pv[kOutReservoir]), 18, ink2);
+            addHit(wx, y, cw, 80, [this] { toggle(kParamBlowerOn); });
+        }
+        // couplers
+        y = 568;
+        text(x, y, "COUPLERS", 18, ink2);
+        int c = 0;
+        const float tw = (w - 5 * 6) / 6.f;
+        for (int s = 0; s < kNumStops; ++s)
+        {
+            if (kStops[(size_t)s].type != kStopCoupler) continue;
+            std::string l = kStops[(size_t)s].label;
+            for (size_t p; (p = l.find(" / ")) != std::string::npos;) l.replace(p, 3, "/");
+            for (size_t p; (p = l.find("PEDAL")) != std::string::npos;) l.replace(p, 5, "P");
+            const float bx = x + c * (tw + 6);
+            const bool isOn = on(s);
+            beginPath(); roundedRect(bx, y + 14, tw, 42, 8);
+            if (isOn) { fillColor(ink); NanoVG::fill(); }
+            strokeColor(ink); strokeWidth(1.5f); stroke();
+            text(bx + tw / 2, y + 36, l, 21, isOn ? lcd : ink, ALIGN_CENTER | ALIGN_MIDDLE);
+            addHit(bx, y + 14, tw, 42, [this, s] { toggle(s); });
+            ++c;
+        }
+        // combination pistons: 1 - 7, SET (then a piston stores), GC (general cancel), + (presets)
+        y = 648;
+        text(x, y, setMode ? "COMBINATIONS · PRESS A PISTON TO STORE" : "COMBINATIONS", 18, setMode ? ink : ink2);
+        const float pw = (w - 9 * 6) / 10.f;
+        for (int i = 0; i < 10; ++i)
+        {
+            const float bx = x + i * (pw + 6), cx = bx + pw / 2, cy = y + 40;
+            std::string l = i < 7 ? fmt("%.0f", i + 1) : i == 7 ? "SET" : i == 8 ? "GC" : "+";
+            const bool lit = i < 7 ? (i == lastPiston) : i == 7 ? setMode : false;
+            beginPath(); ellipse(cx, cy, pw / 2, 22);
+            if (lit) { fillColor(ink); NanoVG::fill(); }
+            strokeColor(ink); strokeWidth(1.5f); stroke();
+            text(cx, cy + 1, l, 21, lit ? lcd : ink, ALIGN_CENTER | ALIGN_MIDDLE);
+            addHit(bx, cy - 22, pw, 44, [this, i] {
+                if (i < 7) { if (setMode) { storePiston(i); setMode = false; toast = fmt("COMBINATION %.0f STORED", i + 1); } else recallPiston(i); lastPiston = i; }
+                else if (i == 7) setMode = !setMode;
+                else if (i == 8) { for (int s = 0; s < kNumStops; ++s) if (on(s)) toggle(s); lastPiston = -1; toast = "GENERAL CANCEL"; }
+                else { screen = kScrPresets; scanUserPresets(); }
+            });
+        }
+        // a key that cannot sound says why
+        const int sk = (int)pv[kOutSilentKey];
+        if (sk >= 1000)
+        {
+            const int key = sk % 1000;
+            text(x, kDrawerBottom - 12, std::string("KEY ") + noteName12(key) + (sk >= 2000 ? ": NO STOP DRAWN ON ITS DIVISION" : ": OUTSIDE THE COMPASS"), 18, ink);
         }
     }
 
@@ -832,9 +944,9 @@ private:
         titleBar(20, top, 890, "WIND SYSTEM", fmt("FLEX %.0f · ", pv[kParamStability] * 100) + fmt("%.0f PIPES SPEAKING", pv[kOutPipes]));
         // diagram
         const float ox = 30, oy = top + 40;
-        strokeColor(ink); strokeWidth(3);
-        auto box = [&](float x, float y, float w, float h) { beginPath(); rect(x, y, w, h); strokeColor(ink); strokeWidth(3); stroke(); };
-        auto line = [&](float x1, float y1, float x2, float y2) { beginPath(); moveTo(x1, y1); lineTo(x2, y2); strokeColor(ink); strokeWidth(3); stroke(); };
+        strokeColor(ink); strokeWidth(1.5f);
+        auto box = [&](float x, float y, float w, float h) { beginPath(); rect(x, y, w, h); strokeColor(ink); strokeWidth(1.5f); stroke(); };
+        auto line = [&](float x1, float y1, float x2, float y2) { beginPath(); moveTo(x1, y1); lineTo(x2, y2); strokeColor(ink); strokeWidth(1.5f); stroke(); };
         box(ox, oy + 120, 120, 80);
         beginPath(); circle(ox + 60, oy + 155, 22); stroke();
         // the fan: spokes turn with its speed
@@ -843,7 +955,7 @@ private:
             for (int i = 0; i < 4; ++i)
             {
                 const float a = (float)i * (float)M_PI / 2.f + (float)fanAngle;
-                beginPath(); moveTo(ox + 60, oy + 155); lineTo(ox + 60 + std::cos(a) * 18, oy + 155 + std::sin(a) * 18); strokeColor(ink); strokeWidth(3); stroke();
+                beginPath(); moveTo(ox + 60, oy + 155); lineTo(ox + 60 + std::cos(a) * 18, oy + 155 + std::sin(a) * 18); strokeColor(ink); strokeWidth(1.5f); stroke();
             }
             fanAngle += 0.35 * sp;
             text(ox + 60, oy + 215, on(kParamBlowerOn) ? (sp > 0.99f ? std::string("BLOWER") : fmt("RUN-UP %.0f%%", sp * 100))
@@ -937,9 +1049,9 @@ private:
         knob(x + 267, ky + 130, kParamConcussion, "CONCUSSION", fmt("%.0f%%", pv[kParamConcussion] * 100));
         titleBar(x, ky + 230, w, "TREMULANT ON", on(kNumStops - 1) ? "ON" : "OFF");
         addHit(x, ky + 230, w, 26, [this] { toggle(kNumStops - 1); });
-        static const int td[3] = { kGreat, kSwell, kPedal };
-        for (int i = 0; i < 3; ++i)
-            button(x + i * 108, ky + 262, 104, 40, divisionName(td[i]), (int)pv[kParamTremTarget] == td[i], [this, i] { setParam(kParamTremTarget, (float)td[i]); });
+        static const int td[4] = { kGreat, kPositive, kSwell, kPedal };
+        for (int i = 0; i < 4; ++i)
+            button(x + i * 81, ky + 262, 77, 40, divisionShort(td[i]), (int)pv[kParamTremTarget] == td[i], [this, i] { setParam(kParamTremTarget, (float)td[i]); });
         for (int i = 0; i < kNumTremKinds; ++i)
             button(x + i * 162, ky + 308, 158, 40, kTremKindLabels[i], (int)pv[kParamTremKind] == i, [this, i] { setParam(kParamTremKind, (float)i); });
         const float sy = ky + 362;
@@ -996,7 +1108,7 @@ private:
             const float db = voicing->rank[selRank].key[kVRegulation][k];
             const float h = std::max(2.f, std::min(gh - 4, (db + 24.f) / 30.f * gh));
             const float bx = x + 4 + (k - lo) * bw;
-            fill(bx, gy + gh - h, std::max(1.f, bw - 2), h, k == selKey ? ink : Color(77, 95, 34));
+            fill(bx, gy + gh - h, std::max(1.f, bw - 2), h, k == selKey ? ink : ink2);
             addHit(bx, gy, bw, gh, [this, k] { selKey = k; });
         }
         for (int k = lo; k <= hi; k += 12) text(x + 4 + (k - lo) * bw, gy + gh + 14, noteName12(k), 19, ink2);
@@ -1026,7 +1138,7 @@ private:
                 if (pass == 0 && (k % 2)) { moveTo(xx, yOf(dd)); continue; }
                 if (k == lo) moveTo(xx, yOf(dd)); else lineTo(xx, yOf(dd));
             }
-            strokeColor(ink); strokeWidth(pass == 0 ? 2 : 3); stroke();
+            strokeColor(ink); strokeWidth(pass == 0 ? 1.f : 1.5f); stroke();
         }
         const double dsel = dia(selKey, voicing->rank[selRank].scaleHT, voicing->rank[selRank].halving);
         fill(px + 4 + (selKey - lo) * bw + bw / 2 - 6, yOf(dsel) - 6, 12, 12, ink);
@@ -1169,7 +1281,7 @@ private:
         hline(rx0, ryl, rw);
         beginPath();
         for (int i = 0; i <= 12; ++i) { const float xx = rx0 + rw * i / 12.f; moveTo(xx, ryl - 30); lineTo(xx, ryl); }
-        strokeColor(ink); strokeWidth(3); stroke();
+        strokeColor(ink); strokeWidth(1.5f); stroke();
         beginPath();
         int nsteps = 0;
         if (tuning.isEdo()) { nsteps = tuning.edoN(); for (int i = 0; i <= nsteps; ++i) { const float xx = rx0 + rw * i / (float)nsteps; moveTo(xx, ryl); lineTo(xx, ryl + 28); } }
@@ -1348,7 +1460,7 @@ private:
         const irmeta::Position* pos = conv && roomIsMeasured(room) ? positionFor(room, usedPos) : nullptr;
         const float roomLen = !conv ? kRoomShapes[roomLiteIndex(room)].lengthM
                                     : std::max(12.f, 1.5f * maxDistance(room));
-        beginPath(); rect(px, py, pw, ph); strokeColor(ink); strokeWidth(3); stroke();
+        beginPath(); rect(px, py, pw, ph); strokeColor(ink); strokeWidth(1.5f); stroke();
         beginPath(); rect(px + 14, py + ph / 2 - 45, 40, 90); stroke();
         for (int i = 1; i < 6; ++i) { beginPath(); moveTo(px + 14, py + ph / 2 - 45 + i * 15.f); lineTo(px + 54, py + ph / 2 - 45 + i * 15.f); strokeWidth(2); stroke(); }
         text(px + 4, py - 12, conv ? "SOURCE · ORGAN" : "WEST GALLERY · ORGAN CASE", 20);
@@ -1398,7 +1510,7 @@ private:
                     const float yy = gy + gh * std::min(1.f, t / rt);
                     if (i == 0) moveTo(gx, yy); else if (pass == 1 && (i % 2)) moveTo(gx + gw * i / 60.f, yy); else lineTo(gx + gw * i / 60.f, yy);
                 }
-                strokeColor(ink); strokeWidth(pass == 0 ? 3 : 2); stroke();
+                strokeColor(ink); strokeWidth(pass == 0 ? 1.5f : 1.f); stroke();
             }
             text(gx + gw, gy + gh + 14, fmt("%.1f S", tmax), 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
             text(gx + 10, gy + 14, conv ? fmt("T30 %.2f S", rtLo) + fmt(" / %.2f S (MEASURED)", rtHi) : fmt("RT60 %.1f S", rtLo), 20);
@@ -1555,7 +1667,7 @@ private:
             addHit(x, y, w, 34, [this, i, e] {
                 if (selPreset == i && (std::chrono::steady_clock::now() - lastClick) < std::chrono::milliseconds(400)) loadEntry(e);
                 selPreset = i; lastClick = std::chrono::steady_clock::now(); });
-            beginPath(); moveTo(x, y + 34); lineTo(x + w, y + 34); strokeColor(Color(61, 77, 31, 0.5f)); strokeWidth(1); stroke();
+            beginPath(); moveTo(x, y + 34); lineTo(x + w, y + 34); strokeColor(ghost); strokeWidth(1); stroke();
             y += 36;
         }
         const float by = kH - 70;
@@ -1750,10 +1862,21 @@ private:
     enum { kFileNone = 0, kFileScl, kFileKbm, kFileImport, kFileExport, kFileIr };
     static constexpr int kHist = 120;
 
-    const Color ink = Color(31, 42, 18), ink2 = Color(61, 77, 31), lcd = Color(195, 211, 107),
-                ghost = Color(174, 191, 90), frameCol = Color(20, 21, 23);
+    // Three grounds for the same line drawing: drafting (dark ink on paper), blueprint, night.
+    // `lcd` is the ground (the name is from the LCD design), `ghost` the unlit segments.
+    Color ink = Color(31, 43, 56), ink2 = Color(77, 90, 104), lcd = Color(243, 240, 231),
+          ghost = Color(206, 205, 201), frameCol = Color(217, 212, 199);
+    int theme = 0;
+    void setTheme(int t)
+    {
+        theme = t % 3;
+        if (theme == 0) { ink = Color(31, 43, 56); ink2 = Color(77, 90, 104); lcd = Color(243, 240, 231); ghost = Color(206, 205, 201); frameCol = Color(217, 212, 199); }
+        if (theme == 1) { ink = Color(230, 240, 247); ink2 = Color(169, 195, 216); lcd = Color(22, 58, 92); ghost = Color(60, 92, 122); frameCol = Color(13, 35, 56); }
+        if (theme == 2) { ink = Color(217, 220, 214); ink2 = Color(154, 161, 156); lcd = Color(23, 26, 29); ghost = Color(58, 62, 64); frameCol = Color(11, 13, 14); }
+    }
+    static constexpr float kDrawerTop = 70.f, kDrawerBottom = 748.f;
 
-    FontId font = -1;
+    FontId font = -1, fontBold = -1;
     float pv[kNumParams];
     std::string st[kNumStates];
     std::unique_ptr<Voicing> voicing;

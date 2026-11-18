@@ -20,7 +20,7 @@ public:
     }
 
 protected:
-    const char* getLabel() const override { return "Pipe"; }
+    const char* getLabel() const override { return "OpusXIV"; }
     const char* getDescription() const override
     {
         return "Physically modelled pipe organ with MPE and polyphonic aftertouch, microtonal tunings and per-pipe voicing. Every pipe could be built.";

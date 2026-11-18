@@ -2,12 +2,12 @@
 #pragma once
 
 #define DISTRHO_PLUGIN_BRAND   "78Hz"
-#define DISTRHO_PLUGIN_NAME    "Opus IV"   // renamed from "Pipe"; the IDs below are kept so saved projects still find it
-#define DISTRHO_PLUGIN_URI     "https://github.com/78Hz/pipe"
-#define DISTRHO_PLUGIN_CLAP_ID "com.78hz.pipe"
+#define DISTRHO_PLUGIN_NAME    "OpusXIV"   // a new instrument (2026-11-18): new IDs, nothing carried over from Pipe / Opus IV
+#define DISTRHO_PLUGIN_URI     "https://github.com/78Hz/pipe/opusxiv"
+#define DISTRHO_PLUGIN_CLAP_ID "com.78hz.opusxiv"
 
 #define DISTRHO_PLUGIN_BRAND_ID  Hz78
-#define DISTRHO_PLUGIN_UNIQUE_ID Pipe
+#define DISTRHO_PLUGIN_UNIQUE_ID OpXV
 
 #define DISTRHO_PLUGIN_HAS_UI          1
 #define DISTRHO_PLUGIN_IS_RT_SAFE      1

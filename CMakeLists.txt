@@ -73,21 +73,21 @@ else()
   target_compile_options(pipe_dsp_support PRIVATE $<$<COMPILE_LANGUAGE:C>:-O3>)
 endif()
 
-dpf_add_plugin(OpusIV
+dpf_add_plugin(OpusXIV
   TARGETS ${PIPE_TARGETS}
   USE_FILE_BROWSER
   FILES_DSP plugin/PipePlugin.cpp
   FILES_UI  plugin/PipeUI.cpp)
 
-target_include_directories(OpusIV PUBLIC plugin src third_party/pffft "${PIPE_IR_DIR}")
-target_link_libraries(OpusIV-dsp PRIVATE pipe_dsp_support pipe_organ_data)
-target_link_libraries(OpusIV-ui PRIVATE pipe_organ_data)
+target_include_directories(OpusXIV PUBLIC plugin src third_party/pffft "${PIPE_IR_DIR}")
+target_link_libraries(OpusXIV-dsp PRIVATE pipe_dsp_support pipe_organ_data)
+target_link_libraries(OpusXIV-ui PRIVATE pipe_organ_data)
 
 if(MSVC)
-  target_compile_options(OpusIV PUBLIC /fp:fast /O2)
-  target_compile_definitions(OpusIV PUBLIC _USE_MATH_DEFINES NOMINMAX)
+  target_compile_options(OpusXIV PUBLIC /fp:fast /O2)
+  target_compile_definitions(OpusXIV PUBLIC _USE_MATH_DEFINES NOMINMAX)
 else()
-  target_compile_options(OpusIV PUBLIC -O3 -ffast-math -fno-finite-math-only)
+  target_compile_options(OpusXIV PUBLIC -O3 -ffast-math -fno-finite-math-only)
 endif()
 
 # Offline engine checks (no plugin framework needed)

@@ -1,4 +1,4 @@
-# OPUS IV
+# OPUS XIV
 
 A physically modelled pipe organ plugin (CLAP, VST3, LV2, and AU on macOS) for Windows, macOS and Linux.
 
@@ -10,21 +10,21 @@ Get the zip for your system from the [Releases page](https://github.com/78Hz/pip
 
 | System | Copy these | To |
 |---|---|---|
-| Windows | `OpusIV.clap` | `C:\Program Files\Common Files\CLAP\` |
-| | `OpusIV.vst3` | `C:\Program Files\Common Files\VST3\` |
-| | `OpusIV.lv2` | `%APPDATA%\LV2\` |
-| macOS | `OpusIV.clap` | `~/Library/Audio/Plug-Ins/CLAP/` |
-| | `OpusIV.vst3` | `~/Library/Audio/Plug-Ins/VST3/` |
-| | `OpusIV.component` (AU) | `~/Library/Audio/Plug-Ins/Components/` |
-| | `OpusIV.lv2` | `~/Library/Audio/Plug-Ins/LV2/` |
-| Linux | `OpusIV.clap` | `~/.clap/` |
-| | `OpusIV.vst3` | `~/.vst3/` |
-| | `OpusIV.lv2` | `~/.lv2/` |
+| Windows | `OpusXIV.clap` | `C:\Program Files\Common Files\CLAP\` |
+| | `OpusXIV.vst3` | `C:\Program Files\Common Files\VST3\` |
+| | `OpusXIV.lv2` | `%APPDATA%\LV2\` |
+| macOS | `OpusXIV.clap` | `~/Library/Audio/Plug-Ins/CLAP/` |
+| | `OpusXIV.vst3` | `~/Library/Audio/Plug-Ins/VST3/` |
+| | `OpusXIV.component` (AU) | `~/Library/Audio/Plug-Ins/Components/` |
+| | `OpusXIV.lv2` | `~/Library/Audio/Plug-Ins/LV2/` |
+| Linux | `OpusXIV.clap` | `~/.clap/` |
+| | `OpusXIV.vst3` | `~/.vst3/` |
+| | `OpusXIV.lv2` | `~/.lv2/` |
 
 **macOS:** the builds are not notarised. After copying, clear the download quarantine once in Terminal:
 
 ```
-xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/OpusIV.*
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/OpusXIV.*
 ```
 
 ## The organ
@@ -62,7 +62,7 @@ The defaults suit an Osmose in MPE mode and most other MPE controllers:
 - The aftertouch stage (CC74 in the lower zone) and aftertouch boost the wind, above a small dead zone.
 - Bend moves the pitch. CC74 in the upper zone aims the jet, and CC11 drives the swell box.
 
-Use the Osmose's MIDI port 1 (firmware 2.3 numbering) in MPE mode, and switch MPE on for Opus IV in your DAW (in Bitwig Studio: **Use MPE** in the device Inspector for VST3, pitch-bend range 48; CLAP needs no setting). Opus IV declares MPE support to CLAP and AU hosts.
+Use the Osmose's MIDI port 1 (firmware 2.3 numbering) in MPE mode, and switch MPE on for OpusXIV in your DAW (in Bitwig Studio: **Use MPE** in the device Inspector for VST3, pitch-bend range 48; CLAP needs no setting). OpusXIV declares MPE support to CLAP and AU hosts.
 
 **MIDI and MPE input** follow MMA/AMEI RP-053 (MPE) and MIDI 1.0 rule by rule; the rules, with section numbers, are written out at the top of `src/engine/MpeInput.hpp`, and `tests/render_test.cpp` checks each one. In short: MPE uses all 16 channels (channel 1 for the zone, a channel per note); channel pressure on a note's channel is its key pressure, CC74 and bend are per note, values sent before a note-on start the note, and channel messages affect every note on their channel. Notes on channel 1 play. Master-channel and non-MPE channel pressure and polyphonic aftertouch are aftertouch. MCM and pitch-bend sensitivity behave as the spec says, and MPE+ 14-bit values (CC87) are read. CLAP per-note events (note expressions, by note ID or key/channel, wildcards, choke) reach exactly the notes they target, even when notes share a channel; `tests/clap_mpe_test.cpp` checks this through the built plugin. The Expression screen shows the channels notes actually arrive on.
 
@@ -105,25 +105,25 @@ There are three key mappings, set per zone:
 
 Voicing is set per place in the compass, so a key always gets the voicing of the pitch it plays, whatever the mapping.
 
-Every pipe can be retuned individually in cents. Opus IV temperature (flue pipes go sharp as they warm; reeds barely move) and a random age drift are also available. Mutations and mixture ranks are tuned pure against their key, as on real organs.
+Every pipe can be retuned individually in cents. OpusXIV temperature (flue pipes go sharp as they warm; reeds barely move) and a random age drift are also available. Mutations and mixture ranks are tuned pure against their key, as on real organs.
 
 ## Presets
 
 - **Factory presets:** 12, from Plein Jeu to 31-EDO and expressive MPE setups.
-- **User presets:** saved as text files (`.pipe`) in `Documents/Pipe Presets`. When saving, tick which parts to include: stops, voicing, tuning, wind, room, expression, routing.
+- **User presets:** saved as text files (`.pipe`) in `Documents/OpusXIV Presets`. When saving, tick which parts to include: stops, voicing, tuning, wind, room, expression, routing.
 - **Combinations 1–7:** store stop settings only, for quick changes while playing.
 - **Host project:** the full state is also saved with your DAW project.
 
 ## Manual
 
-**Opus IV-User-Manual.pdf** on the [Releases page](https://github.com/78Hz/pipe/releases) is a plain-language guide to every screen. It is rebuilt on every push from `docs/manual/manual.html`, with fresh screenshots of that build. When a feature changes, update the text in `manual.html` in the same commit.
+**OpusXIV-User-Manual.pdf** on the [Releases page](https://github.com/78Hz/pipe/releases) is a plain-language guide to every screen. It is rebuilt on every push from `docs/manual/manual.html`, with fresh screenshots of that build. When a feature changes, update the text in `manual.html` in the same commit.
 
 To build it locally (Linux):
 
 ```
-docs/manual/screenshots.sh build/bin/OpusIV.clap        # needs Xvfb, xdotool, ImageMagick
+docs/manual/screenshots.sh build/bin/OpusXIV.clap        # needs Xvfb, xdotool, ImageMagick
 (cd docs/manual && npm install --no-save playwright && npx playwright install chromium)
-node docs/manual/render.js 0.2.0 Opus IV-User-Manual.pdf
+node docs/manual/render.js 0.2.0 OpusXIV-User-Manual.pdf
 ```
 
 ## Building from source

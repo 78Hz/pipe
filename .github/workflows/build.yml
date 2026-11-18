@@ -142,9 +142,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_host_test.cpp -o clap_host_test -ldl
-          ./clap_host_test build/bin/OpusIV.clap
+          ./clap_host_test build/bin/OpusXIV.clap
           g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_mpe_test.cpp -o clap_mpe_test -ldl
-          ./clap_mpe_test build/bin/OpusIV.clap
+          ./clap_mpe_test build/bin/OpusXIV.clap
 
       # The user manual is rebuilt on every push, with fresh screenshots of this build's interface
       - name: Manual - screenshots (Linux)
@@ -152,7 +152,7 @@ jobs:
         run: |
           sudo apt-get install -y xvfb xdotool imagemagick libgl1-mesa-dri
           sudo apt-get install -y fonts-inter || echo "::warning::fonts-inter not available, using fallback font"
-          docs/manual/screenshots.sh build/bin/OpusIV.clap
+          docs/manual/screenshots.sh build/bin/OpusXIV.clap
 
       - name: Manual - node (Linux)
         if: runner.os == 'Linux'
@@ -167,39 +167,39 @@ jobs:
           cd docs/manual
           npm install --no-save --no-package-lock playwright@1.48.2
           npx playwright install --with-deps chromium
-          node render.js "$VER" ../../Opus-IV-User-Manual.pdf
+          node render.js "$VER" ../../OpusXIV-User-Manual.pdf
 
       - name: Manual - upload (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          path: Opus-IV-User-Manual.pdf
+          path: OpusXIV-User-Manual.pdf
           archive: false
 
       - name: Sign (macOS, ad-hoc)
         if: runner.os == 'macOS'
         run: |
-          for b in build/bin/OpusIV.clap build/bin/OpusIV.vst3 build/bin/OpusIV.component; do
+          for b in build/bin/OpusXIV.clap build/bin/OpusXIV.vst3 build/bin/OpusXIV.component; do
             if [ -e "$b" ]; then codesign --force --deep --sign - "$b"; fi
           done
-          for lib in build/bin/OpusIV.lv2/*.dylib; do codesign --force --sign - "$lib"; done
+          for lib in build/bin/OpusXIV.lv2/*.dylib; do codesign --force --sign - "$lib"; done
           ls -la build/bin
 
       - name: Package
         run: |
-          mkdir -p "dist/Opus IV"
-          cp -R build/bin/OpusIV.clap build/bin/OpusIV.vst3 build/bin/OpusIV.lv2 "dist/Opus IV/"
-          [ -e build/bin/OpusIV.component ] && cp -R build/bin/OpusIV.component "dist/Opus IV/" || true
-          cp README.md resources/OFL-VT323.txt third_party/pffft/LICENSE.txt "dist/Opus IV/"
-          mv "dist/Opus IV/LICENSE.txt" "dist/Opus IV/LICENSE-pffft.txt"
+          mkdir -p "dist/OpusXIV"
+          cp -R build/bin/OpusXIV.clap build/bin/OpusXIV.vst3 build/bin/OpusXIV.lv2 "dist/OpusXIV/"
+          [ -e build/bin/OpusXIV.component ] && cp -R build/bin/OpusXIV.component "dist/OpusXIV/" || true
+          cp README.md resources/OFL-IBMPlexSansCondensed.txt third_party/pffft/LICENSE.txt "dist/OpusXIV/"
+          mv "dist/OpusXIV/LICENSE.txt" "dist/OpusXIV/LICENSE-pffft.txt"
           cd dist
-          zip -r -y ../Opus-IV-${{ matrix.slug }}.zip "Opus IV"
+          zip -r -y ../OpusXIV-${{ matrix.slug }}.zip "OpusXIV"
 
       # uploaded as the zip itself (not zipped again by the artifact store): the download is one zip,
       # which keeps the macOS bundles' symlinks and permissions
       - uses: actions/upload-artifact@v7
         with:
-          path: Opus-IV-${{ matrix.slug }}.zip
+          path: OpusXIV-${{ matrix.slug }}.zip
           archive: false
 
       # Release gate: a check that failed above fails the job here, after the packages are uploaded, so
@@ -226,10 +226,10 @@ jobs:
         run: |
           VER=$(sed -nE 's/^project\(pipe VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
           TAG="v${VER}"
-          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README and in Opus-IV-User-Manual.pdf. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
+          NOTES="Compiled plugins for Windows (x64), macOS (Apple Silicon + Intel) and Linux (x64): CLAP, VST3, LV2, and AU on macOS. Download the zip for your system; install steps are in the README and in OpusXIV-User-Manual.pdf. Measured rooms: impulse responses from OpenAIR (Audiolab, University of York), CC BY 4.0. Built from ${GITHUB_SHA::7}."
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-          gh release create "$TAG" $(find artifacts -name "Opus-IV-*.zip" -o -name "*.pdf") \
+          gh release create "$TAG" $(find artifacts -name "OpusXIV-*.zip" -o -name "*.pdf") \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Opus IV $TAG" \
+            --title "OpusXIV $TAG" \
             --notes "$NOTES"

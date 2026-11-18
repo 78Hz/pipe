@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 (async () => {
   const version = process.argv[2] || 'dev';
-  const out = path.resolve(process.argv[3] || 'Opus-IV-User-Manual.pdf');
+  const out = path.resolve(process.argv[3] || 'OpusXIV-User-Manual.pdf');
   const src = path.join(__dirname, 'manual.html');
   const tmp = path.join(__dirname, '.manual.render.html');
   fs.writeFileSync(tmp, fs.readFileSync(src, 'utf8').replace(/\{\{VERSION\}\}/g, version));
