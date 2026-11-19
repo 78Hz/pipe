@@ -1200,6 +1200,23 @@ private:
         strokeColor(ink); strokeWidth(1.5f);
         auto box = [&](float x, float y, float w, float h) { beginPath(); rect(x, y, w, h); strokeColor(ink); strokeWidth(1.5f); stroke(); };
         auto line = [&](float x1, float y1, float x2, float y2) { beginPath(); moveTo(x1, y1); lineTo(x2, y2); strokeColor(ink); strokeWidth(1.5f); stroke(); };
+        // the room's air: the blower draws it in, every pipe speaks with it (Air.hpp)
+        {
+            box(ox, oy - 8, 120, 112);
+            text(ox + 60, oy + 6, "ROOM AIR", 18, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+            const int ids[3] = { kParamPipeTemp, kParamHumidity, kParamAirPressure };
+            const float steps[3] = { 1.f, 5.f, 0.5f };
+            const char* const fm[3] = { "%.0f C", "%.0f %%", "%.1f KPA" };
+            for (int i = 0; i < 3; ++i)
+            {
+                const float ry = oy + 22 + i * 26;
+                const int id = ids[i]; const float st = steps[i];
+                button(ox + 4, ry, 24, 22, "-", false, [this, id, st] { setParam(id, std::max(paramInfo(id).min, pv[id] - st)); }, 18);
+                text(ox + 60, ry + 11, fmt(fm[i], pv[id]), 18, ink, ALIGN_CENTER | ALIGN_MIDDLE);
+                button(ox + 92, ry, 24, 22, "+", false, [this, id, st] { setParam(id, std::min(paramInfo(id).max, pv[id] + st)); }, 18);
+            }
+            line(ox + 60, oy + 104, ox + 60, oy + 120);
+        }
         box(ox, oy + 120, 120, 80);
         beginPath(); circle(ox + 60, oy + 155, 22); stroke();
         // the fan: spokes turn with its speed
@@ -1634,7 +1651,7 @@ private:
             for (int p = 0; p < kNumPipeSlots; ++p) voicing->pipeTune[selRank][p] = 0.f;
             setStateValue(kStatePipeTune, voicing->serializeTuning()); }, 20);
         ty += 44;
-        paramStepper(px, ty, pw, "PIPE TEMP", kParamPipeTemp, 1.f, "%.0f C", 1.f, 90); ty += 46;
+        paramStepper(px, ty, pw, "AIR TEMP", kParamPipeTemp, 1.f, "%.0f C", 1.f, 90); ty += 46;
         paramStepper(px, ty, pw, "AGE DRIFT", kParamAgeDrift, 0.5f, "±%.1f C", 1.f, 90); ty += 50;
         // build check
         // the compass is fixed in pitch (C2-A6), whatever the keys are mapped to

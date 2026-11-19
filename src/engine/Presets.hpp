@@ -33,7 +33,7 @@ inline int paramGroup(int id) {
     case kParamReleaseMs: case kParamBendStopped: case kParamBendOpen: case kParamBendString:
     case kParamBendReed: return kGroupExpression;
     case kParamTuning: case kParamEdoN: case kParamARef: case kParamMapLo: case kParamMapHi: case kParamMapPed:
-    case kParamAnchorKey: case kParamEnharmonic: case kParamPipeTemp: case kParamAgeDrift: return kGroupTuning;
+    case kParamAnchorKey: case kParamEnharmonic: case kParamPipeTemp: case kParamHumidity: case kParamAirPressure: case kParamAgeDrift: return kGroupTuning;
     case kParamRoom: case kParamDistance: case kParamMicHeight: case kParamWidth: case kParamRoomMix: case kParamPreDelay:
     case kParamOutputGain: case kParamMicType: case kParamQuality: case kParamLimiter: case kParamIrTrim: case kParamIrOrder: return kGroupRoom;
     case kParamZoneLoDiv: case kParamZoneHiDiv: case kParamPedalSplit: return kGroupRouting;

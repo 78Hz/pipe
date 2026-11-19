@@ -145,6 +145,8 @@ jobs:
           ./clap_host_test build/bin/OpusXIV.clap
           g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_mpe_test.cpp -o clap_mpe_test -ldl
           ./clap_mpe_test build/bin/OpusXIV.clap
+          g++ -O1 -std=c++17 -Idpf/distrho/src/clap tests/clap_system_test.cpp -o clap_system_test -ldl
+          ./clap_system_test build/bin/OpusXIV.clap
 
       # The user manual is rebuilt on every push, with fresh screenshots of this build's interface
       - name: Manual - screenshots (Linux)

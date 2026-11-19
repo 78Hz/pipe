@@ -13,6 +13,7 @@
 #include "MpeInput.hpp"
 #include "OrganPipes.hpp"
 #include "PipeEdit.hpp"
+#include "Air.hpp"
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -45,6 +46,8 @@ constexpr int kControlBlock = 32;
 constexpr float kMmToPa = 9.80665f;
 // output scale of the physical flue pipes: radiated pressure at 1 m (Pa) to the mix
 constexpr float kFlueGain = 1.0f;
+// The air the organ was tuned in (its tuning conditions): a church at 18 C, 50 % humidity, sea level.
+constexpr double kTunedTempC = 18.0, kTunedHumidity = 50.0, kTunedPressureKPa = 101.325;
 constexpr float kReedGain = 1.0f;
 // Provisional balance between ranks (2026-11-18). The voicer regulates each rank only against itself; nothing
 // set one rank against another, and every reed came out 7 - 28 dB under the principals (measured dry, each
@@ -439,9 +442,7 @@ private:
         double cents = voicing->pipeTune[rank][p.pitch.pipeIndex] + rd.detuneCents;
         const float drift = params[kParamAgeDrift];
         if (drift > 0) cents += drift * ((hash32((uint32_t)(rank * 4096 + p.pitch.pipeIndex)) & 0xFFFF) / 32767.5f - 1.f);
-        const double tC = params[kParamPipeTemp];
-        const double tempCents = 1200.0 * std::log2(std::sqrt((273.15 + tC) / (273.15 + 18.0)));
-        cents += rd.kind == kKindReed ? 0.15 * tempCents : tempCents;
+        // (the air's temperature, humidity and pressure act on the pipes themselves: Air.hpp, updateAir)
         return f * std::pow(2.0, cents / 1200.0);
     }
 
@@ -512,7 +513,7 @@ private:
             if (!sp) { v.active = false; return; }
             v.family = rd.family;
             FluePipeRT& core = *flues[(size_t)v.slot];
-            core.init(*sp, fs, seed);
+            core.init(*sp, fs, seed); core.setAir(pipeAir);
             core.setPallet(0.002, 0.002);   // the engine moves the pallet (Pallet::aperture); this is how fast the valve follows
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -534,7 +535,7 @@ private:
             if (!sp) { v.active = false; return; }
             v.family = rd.family;
             ReedPipeRT& core = *reeds[(size_t)v.slot];
-            core.init(*sp, fs, seed);
+            core.init(*sp, fs, seed); core.setAir(pipeAir);
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -614,7 +615,25 @@ private:
     }
 
     // --------------------------------------------------------- control block
+    // The air in the organ (Air.hpp), from the room's temperature, humidity and barometric pressure: every
+    // pipe speaks with it. The organ was tuned in the air of its tuning conditions (kTunedAir); the tuner holds
+    // a pipe to its tuning there, so what the air does to the pipes is heard.
+    void updateAir() {
+        const double t = params[kParamPipeTemp], h = params[kParamHumidity], pk = params[kParamAirPressure];
+        if (t == airT && h == airH && pk == airP) return;
+        airT = t; airH = h; airP = pk;
+        air = AirState::make(t, h, pk);
+        pipeAir = PipeAir::of(air);
+        const AirState tuned = AirState::make(kTunedTempC, kTunedHumidity, kTunedPressureKPa);
+        cTunedRatio = air.c / tuned.c;
+        airAtTuning = std::fabs(cTunedRatio - 1.0) < 2e-5 && std::fabs(air.rho / tuned.rho - 1.0) < 2e-4;
+        for (auto& v : voices) {
+            if (!v.active) continue;
+            if (v.reed) reeds[(size_t)v.slot]->setAir(pipeAir); else flues[(size_t)v.slot]->setAir(pipeAir);
+        }
+    }
     void controlUpdate() {
+        updateAir();
         // pick up state from the host/UI thread without blocking
         if ((voicingDirty || tuningDirty || scalaDirty || matrixDirty || editsDirty) && stateMutex.try_lock()) {
             if (voicingDirty) { std::memcpy(voicing->rank, pendingVoicing->rank, sizeof(voicing->rank)); voicingDirty = false; }
@@ -733,9 +752,13 @@ private:
                 // the tuner listens only in the voiced state, and only to a pipe that has settled
                 const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f
                                     && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
-                if (voiced != v.tunable) { v.tunable = voiced; v.prevOk = false; v.winLen = v.winMin; }
-                v.cacheable = voiced;
-                v.tgtW = 2.f * (float)M_PI * v.freq * std::pow(2.f, bend / 1200.f) / fs;
+                if ((voiced && (!v.reed || airAtTuning)) != v.tunable) { v.tunable = voiced && (!v.reed || airAtTuning); v.prevOk = false; v.winLen = v.winMin; }
+                // in tune at the tuning conditions: a flue's pitch follows the speed of sound (its body is fixed), so
+                // its target moves with it; a reed's does not follow simply, so it is only tuned in that air
+                const bool airOk = !v.reed || airAtTuning;
+                v.cacheable = voiced && airOk;
+                if (!airOk && v.tunable) { v.tunable = false; v.prevOk = false; }
+                v.tgtW = 2.f * (float)M_PI * v.freq * std::pow(2.f, bend / 1200.f) * (float)(v.reed ? 1.0 : cTunedRatio) / fs;
                 v.rotC = std::cos(v.tgtW); v.rotS = std::sin(v.tgtW);
                 const float cents = bend + v.trim;
                 const bool newPitch = cents != v.curPitch;
@@ -1059,6 +1082,10 @@ private:
     Tuning tuning;
     std::unique_ptr<Voicing> voicing, pendingVoicing;
     std::unique_ptr<PipeEditSet> pipeEdits, pendingEdits;
+    AirState air = AirState::make(kTunedTempC, kTunedHumidity, kTunedPressureKPa);
+    PipeAir pipeAir = PipeAir::of(AirState::make(kTunedTempC, kTunedHumidity, kTunedPressureKPa));
+    double airT = -999, airH = -999, airP = -999, cTunedRatio = 1.0;
+    bool airAtTuning = true;
     std::atomic<bool> editsDirty{false};
     ScalaScale pendingScl; ScalaKbm pendingKbm;
     std::mutex stateMutex;

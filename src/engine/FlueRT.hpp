@@ -10,6 +10,7 @@
 // The pipe is described by PipeSpec (continuous-time data, independent of the sample rate), so the
 // whole organ can be precomputed and stored. FlueSim stays the reference; tests compare the two.
 #pragma once
+#include "Air.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -64,9 +65,7 @@ public:
     // the jet together (a geometrically similar pipe), for tuning and bends.
     void init(const FluePipeSpec& s, double sampleRate, uint32_t seed) {
         sp = s; os = std::max(1, (int)std::ceil(s.target * 24.0 / sampleRate)); fs = sampleRate * os; dt = 1.0 / fs;
-        rho = kRho; c2rho = rho * 343.21 * 343.21; mu = 1.807e-5;   // air at 20 C (as resonator::Air)
         toeArea = s.toe > 0 ? M_PI * 0.25 * (double)s.toe * s.toe : 0.0;
-        windR = 12.0 * mu * s.languid / ((double)s.h * s.h);
         lc = s.languid;
         const double D = 2.0 * s.radius, Lf = std::max(0.150, 2.5 * D);
         volume = 0.3e-3 + M_PI / 12.0 * D * D * Lf;
@@ -74,22 +73,13 @@ public:
         deltaOut = 0.82 * std::sqrt(Sm / M_PI);
         const double hLip = s.b / 0.4;
         ddE = 4.0 / M_PI * std::sqrt(2.0 * hLip * s.W);
-        driveK = -(rho * ddE * s.kd / Sm);
         Gh = s.gscale * 2.0 * s.b / 0.10;
-        vortexK = 0.5 * rho / (0.6 * 0.6) * (s.vortex > 0 ? s.vortex : 1.0);    // gain * h, gain = gscale * 2 (b/h) / 0.10
+        applyAir();
         rng = 0x9E3779B97F4A7C15ull ^ ((uint64_t)seed * 0x2545F4914F6CDD1Dull); if (!rng) rng = 1;
         {
             const double fc = 0.4 * fs, K = std::tan(M_PI * fc / fs), q = 1.0 / std::sqrt(2.0);
             const double nrm = 1.0 / (1.0 + K / q + K * K);
             lp = { K * K * nrm, 2 * K * K * nrm, K * K * nrm, 2 * (K * K - 1) * nrm, (1 - K / q + K * K) * nrm, 0, 0 };
-        }
-        // noise band-pass (Verge St 0.05 on the jet at the lip, voiced pressure)
-        {
-            const double U = jetSpeed(s.footPa > 0 ? s.footPa : 775.0);
-            const double fc = std::min(0.4 * fs, 0.05 * s.lipSpeed * U / hLip), Qn = 0.7, w0 = 2 * M_PI * fc / fs;
-            const double al = std::sin(w0) / (2 * Qn), a0 = 1 + al;
-            nb0 = al / a0; nb2 = -al / a0; na1 = -2 * std::cos(w0) / a0; na2 = (1 - al) / a0;
-            nnorm = 1.0 / std::sqrt(2.0 * (M_PI / 2.0 * fc / Qn) / fs);
         }
         pitch = 0; setPitch(1.0);
         reset();
@@ -100,6 +90,27 @@ public:
         lp.z1 = lp.z2 = 0; std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         std::memset(hist, 0, sizeof hist); pos = 0; steadyCount = 0;
     }
+    // The air the pipe speaks in (Air.hpp), relative to the air it was voiced in: the density sets the jet
+    // (U = sqrt(2 P / rho)) and the air in the foot, the viscosity the windway's friction, the speed of sound
+    // the resonances (the body's length is fixed: they move with c, the jet does not), rho c the impedance.
+    void setAir(const PipeAir& a) {
+        if (a == air) return;
+        air = a; applyAir();
+        const double p = pitch; pitch = 0; setPitch(p > 0 ? p : 1.0);
+    }
+    void applyAir() {
+        rho = kRho * air.rhoRatio; const double c = 343.21 * air.cRatio; c2rho = rho * c * c; mu = 1.807e-5 * air.muRatio;
+        windR = 12.0 * mu * sp.languid / ((double)sp.h * sp.h);
+        driveK = -(rho * ddE * sp.kd / Sm);
+        vortexK = 0.5 * rho / (0.6 * 0.6) * (sp.vortex > 0 ? sp.vortex : 1.0);    // gain * h, gain = gscale * 2 (b/h) / 0.10
+        // noise band-pass (Verge St 0.05 on the jet at the lip, voiced pressure)
+        const double hLip = sp.b / 0.4;
+        const double U = jetSpeed(sp.footPa > 0 ? sp.footPa : 775.0);
+        const double fc = std::min(0.4 * fs, 0.05 * sp.lipSpeed * U / hLip), Qn = 0.7, w0 = 2 * M_PI * fc / fs;
+        const double al = std::sin(w0) / (2 * Qn), a0 = 1 + al;
+        nb0 = al / a0; nb2 = -al / a0; na1 = -2 * std::cos(w0) / a0; na2 = (1 - al) / a0;
+        nnorm = 1.0 / std::sqrt(2.0 * (M_PI / 2.0 * fc / Qn) / fs);
+    }
     void setPitch(double ratioIn) {
         if (ratioIn == pitch) return;
         pitch = ratioIn;
@@ -107,9 +118,9 @@ public:
         n = sp.nModes; nPad = std::min(kRtMaxModes, (n + 3) & ~3);
         for (int i = 0; i < kRtMaxModes; ++i) {
             if (i >= n) { b0[i] = b1[i] = b2[i] = a1[i] = a2[i] = cA[i] = cI[i] = 0; continue; }
-            const double wn = 2 * M_PI * sp.f[i] * ratio, Q = sp.Q[i];
+            const double wn = 2 * M_PI * sp.f[i] * ratio * air.cRatio, Q = sp.Q[i];
             if (wn >= M_PI * fs * 0.98) { b0[i] = b1[i] = b2[i] = a1[i] = a2[i] = cA[i] = cI[i] = 0; continue; }
-            const double A = sp.pkRe[i] * wn / Q, B = -sp.pkIm[i] * wn * wn / Q;
+            const double A = air.zRatio() * sp.pkRe[i] * wn / Q, B = -air.zRatio() * sp.pkIm[i] * wn * wn / Q;
             const double K = wn / std::tan(wn * dt / 2), a0 = K * K + K * wn / Q + wn * wn;
             b0[i] = (A * K + B) / a0; b1[i] = 2 * B / a0; b2[i] = (-A * K + B) / a0;
             a1[i] = 2 * (wn * wn - K * K) / a0; a2[i] = (K * K - K * wn / Q + wn * wn) / a0;
@@ -218,6 +229,7 @@ private:
     int os = 1;
     FluePipeSpec sp;
     double fs = 48000, dt = 1.0 / 48000, rho = 1.2, c2rho = 1.4e5, mu = 1.81e-5;
+    PipeAir air;
     double vortexK = 0, toeArea = 0, windR = 0, lc = 0.002, volume = 1e-4, Sm = 1e-4, deltaOut = 0, ddE = 0, driveK = 0, Gh = 0;
     double pitch = 0, transitS = 0;
     // wind path

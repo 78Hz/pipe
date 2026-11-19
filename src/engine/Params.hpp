@@ -51,6 +51,7 @@ enum ParamId {
     kParamBendStopped, kParamBendOpen, kParamBendString, kParamBendReed,
     kParamTuning, kParamEdoN, kParamARef, kParamMapLo, kParamMapHi, kParamMapPed, kParamEnharmonic,
     kParamPipeTemp, kParamAgeDrift,
+    kParamHumidity, kParamAirPressure,   // the air in the organ (with kParamPipeTemp): Air.hpp
     kParamRoom, kParamDistance, kParamMicHeight, kParamWidth, kParamRoomMix, kParamPreDelay,
     kParamOutputGain, kParamMicType, kParamQuality, kParamLimiter, kParamIrTrim, kParamIrOrder,
     kParamZoneLoDiv, kParamZoneHiDiv, kParamPedalSplit,
@@ -128,7 +129,9 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamAnchorKey,   { "anchor_key", "Key For Middle C", 0.f, 127.f, 60.f, kPInt, "", 0, nullptr });
         set(kParamMapPed,      { "map_ped", "Key Map Pedal Split", 0.f, 2.f, 1.f, kPEnum, "", 3, kMapLabels });
         set(kParamEnharmonic,  { "enharmonic", "Flats Instead Of Sharps", 0.f, 1.f, 0.f, kPBool, "", 0, nullptr });
-        set(kParamPipeTemp,    { "pipe_temp", "Pipe Temperature", 5.f, 35.f, 18.f, kPFloat, "C", 0, nullptr });
+        set(kParamPipeTemp,    { "pipe_temp", "Air Temperature", 5.f, 35.f, 18.f, kPFloat, "C", 0, nullptr });
+        set(kParamHumidity,    { "air_humidity", "Air Humidity", 0.f, 100.f, 50.f, kPFloat, "%", 0, nullptr });
+        set(kParamAirPressure, { "air_pressure", "Air Pressure", 70.f, 106.f, 101.325f, kPFloat, "kPa", 0, nullptr });
         set(kParamAgeDrift,    { "age_drift", "Age Drift", 0.f, 10.f, 1.5f, kPFloat, "ct", 0, nullptr });
         set(kParamRoom,        { "room", "Building", 0.f, (float)(kNumRooms - 1), (float)kRoomStMargarets, kPEnum, "", kNumRooms, kRoomLabels });
         set(kParamDistance,    { "distance", "Listener Distance", 2.f, 40.f, 18.f, kPFloat, "m", 0, nullptr });

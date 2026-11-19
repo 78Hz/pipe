@@ -14,6 +14,7 @@
 // Constants not on the Pasi sheets (tongue width / resonator lower diameter, rest opening / free
 // length, tongue damping, boot volume) are matched to reference recordings per family.
 #pragma once
+#include "Air.hpp"
 
 #include "Opus14Data.hpp"
 #include "Resonator.hpp"
@@ -75,20 +76,17 @@ public:
         sp = s;
         os = std::max(2, (int)std::ceil(s.target * 40.0 / sampleRate));
         fs = sampleRate * os; dt = 1.0 / fs;
-        rho = kRho; c2rho = rho * 343.21 * 343.21;
         wr = 2 * M_PI * (s.fr > 0 ? s.fr : 0.1615 * (s.t / ((double)s.L * s.L)) * std::sqrt(kE / kRhoB));
         // horn above the modes: pressure rho c / S_in on the reed, flow to the top sqrt(S_top/S_in), delayed L/c
         // (hfFrom = 0: no horn path. Fed back onto the tongue as rho c / S it made the reed unstable,
         // the result depending on the sample rate; the modes carry the sound instead.)
-        Zc = s.hfFrom > 0 ? kRho * 343.21 / (M_PI * (double)s.lowerR * s.lowerR) : 0.0;
         topGain = s.hfFrom > 0 ? s.upperR / std::max(1e-4f, s.lowerR) : 0.0;
-        hornDelay = std::min(kHorn - 2, std::max(1, (int)std::lround(s.length / 343.21 * fs)));
         { const double w0 = 2 * M_PI * std::max(200.f, s.hfFrom) / fs, K = std::tan(w0 / 2), q = 0.7071, n = 1.0 / (1 + K / q + K * K);
           hb0 = n; hb1 = -2 * n; hb2 = n; ha1 = 2 * (K * K - 1) * n; ha2 = (1 - K / q + K * K) * n; }
         accK = 1.56 / (kRhoB * s.t);
         Sr = 0.39 * (double)s.w * s.L;
         // shallot inertance in series with the resonator (Rucz 2015 sec. 8.4): rho l / S of the shallot bore
-        Ls = s.shallotL > 0 ? kRho * s.shallotL / (M_PI * (double)s.lowerR * s.lowerR) : 0.0;
+        applyAir();
         pitch = 0; setPitch(1.0);
         reset();
     }
@@ -96,6 +94,23 @@ public:
         x = sp.x0; vx = 0; Us = 0; boot = 0; palletPhase = 0; palletPos = 0; palletTarget = 0; U = 0; p = 0; topPrev = 0;
         std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         hz1 = hz2 = 0; std::memset(horn, 0, sizeof horn); hpos = 0; uhPrev = 0;
+    }
+    // The air (Air.hpp), relative to the air the pipe was voiced in: its density sets the flow through the
+    // slit and the shallot's inertia, its speed of sound the resonator's modes and the horn's delay, rho c the
+    // resonator's impedance. The tongue is brass and does not follow the air. (The brass itself changes with
+    // temperature too - expansion and a softer modulus - which is not modelled yet.)
+    void setAir(const PipeAir& a) {
+        if (a == air) return;
+        air = a; applyAir();
+        const double p0 = pitch; pitch = 0; setPitch(p0 > 0 ? p0 : 1.0);
+    }
+    void applyAir() {
+        rho = kRho * air.rhoRatio; const double c = 343.21 * air.cRatio; c2rho = rho * c * c;
+        // horn above the modes: pressure rho c / S_in on the reed, flow to the top sqrt(S_top/S_in), delayed L/c
+        Zc = sp.hfFrom > 0 ? rho * c / (M_PI * (double)sp.lowerR * sp.lowerR) : 0.0;
+        hornDelay = std::min(kHorn - 2, std::max(1, (int)std::lround(sp.length / c * fs)));
+        // shallot inertance in series with the resonator (Rucz 2015 sec. 8.4): rho l / S of the shallot bore
+        Ls = sp.shallotL > 0 ? rho * sp.shallotL / (M_PI * (double)sp.lowerR * sp.lowerR) : 0.0;
     }
     // a frequency ratio scales the tongue and the resonator together (tuning, bends)
     void setPitch(double ratioIn) {
@@ -106,13 +121,13 @@ public:
         hornDelayScaled = hornDelay;
         nPad = std::min(kReedMaxModes, (sp.nModes + 3) & ~3);
         for (int i = 0; i < kReedMaxModes; ++i) {
-            const double wn = 2 * M_PI * sp.f[i] * ratio;
+            const double wn = 2 * M_PI * sp.f[i] * ratio * air.cRatio;
             if (i >= sp.nModes || wn >= M_PI * fs * 0.98) { b0[i] = b1[i] = b2[i] = a1[i] = a2c[i] = cA[i] = cI[i] = 0; continue; }
             const double Q = sp.Q[i];
             // each mode passive on its own (reedPassiveR): (A s + B) / (s^2 + s wn/Q + wn^2) is positive real
             // when 0 <= B <= A wn / Q, i.e. -pkRe/Q <= pkIm <= 0
             const double im = std::min(0.0, std::max(-(double)sp.pkRe[i] / Q, (double)sp.pkIm[i]));
-            const double A = sp.pkRe[i] * wn / Q, B = -im * wn * wn / Q;
+            const double A = air.zRatio() * sp.pkRe[i] * wn / Q, B = -air.zRatio() * im * wn * wn / Q;
             const double K = wn / std::tan(wn * dt / 2), a0 = K * K + K * wn / Q + wn * wn;
             b0[i] = (A * K + B) / a0; b1[i] = 2 * B / a0; b2[i] = (-A * K + B) / a0;
             a1[i] = 2 * (wn * wn - K * K) / a0; a2c[i] = (K * K - K * wn / Q + wn * wn) / a0;
@@ -256,6 +271,7 @@ private:
     ReedPipeSpec sp;
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
+    PipeAir air;
     double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;
