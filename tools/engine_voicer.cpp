@@ -156,6 +156,11 @@ static std::vector<Change> flueChanges(int rank, int key) {
         for (float h : { 0.7f, 1.3f }) one.push_back({ "flue", { { kEdFlue, h } } });
         for (float t : { 0.5f, 2.0f }) one.push_back({ "toe", { { kEdToe, t } } });
     }
+    if (std::getenv("PASS4")) {   // the fourth: finer steps between the ones tried
+        for (float g : { 0.9f, 0.7f, 1.12f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
+        for (float y : { 0.4f, -0.4f, 0.05f, -0.05f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
+        for (float c : { 0.97f, 1.03f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
+    }
     return one;
 }
 static std::vector<Change> reedChanges() {
