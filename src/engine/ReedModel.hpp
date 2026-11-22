@@ -141,12 +141,17 @@ public:
     double bootPressure() const { return boot; }
 
     void render(float* out, int count) {
+        inAcc = gAcc = 0;
         for (int k = 0; k < count; ++k) {
             double acc = 0;
             for (int j = 0; j < os; ++j) acc += tick();
             out[k] = (float)(acc / os);
         }
+        inAcc /= (double)(os * count); gAcc /= (double)(os * count);
     }
+    // the wind drawn into the boot over the last render, and its conductance (as FluePipeRT::inflow)
+    double inflow() const { return inAcc; }
+    double inflowConductance() const { return gAcc; }
 
     inline double tick() {
         // pallet and boot (inflow implicit, outflow = reed flow of the last step)
@@ -173,8 +178,10 @@ public:
                     if (dP > 0) { const double r = std::sqrt(bb * bb + 4 * aa * dP); qi = (-bb + r) / (2 * aa); dq = 1.0 / r; }
                     const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq;
                     P = std::max(0.0, std::min(std::max(chest, P0), P - F / dF));
+                    qiLast = qi; dqLast = dq;
                 }
-            } else P = P0 - k1 * U;
+            } else { P = P0 - k1 * U; qiLast = 0; dqLast = 0; }
+            inAcc += qiLast; gAcc += dqLast;
             kb = k1 / (1.0 + k1 * dq);
             Pb = P + kb * U;   // the outflow taken back out; it is put in again at this sample's flow
         }
@@ -272,6 +279,7 @@ private:
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
     PipeAir air;
+    double inAcc = 0, gAcc = 0, qiLast = 0, dqLast = 0;
     double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;

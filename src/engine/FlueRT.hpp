@@ -68,7 +68,8 @@ public:
         toeArea = s.toe > 0 ? M_PI * 0.25 * (double)s.toe * s.toe : 0.0;
         lc = s.languid;
         const double D = 2.0 * s.radius, Lf = std::max(0.150, 2.5 * D);
-        volume = 0.3e-3 + M_PI / 12.0 * D * D * Lf;
+        footCone = M_PI / 12.0 * D * D * Lf;
+        volume = (grooveFed ? 0.0 : 0.3e-3) + footCone;   // fed from its own pallet, the 0.3 l stood for the pallet's groove
         Sm = (double)s.W * s.Wm;
         deltaOut = 0.82 * std::sqrt(Sm / M_PI);
         const double hLip = s.b / 0.4;
@@ -138,12 +139,21 @@ public:
 
     // Renders n samples of the two radiated pressures (Pa at 1 m): mouth and top.
     void render(float* mouth, float* top, int count) {
+        inAcc = gAcc = 0;
         for (int k = 0; k < count; ++k) {
             double m = 0, t = 0;
             for (int j = 0; j < os; ++j) { double a, b; tick(a, b); m += a; t += b; }
             mouth[k] = (float)(m / os); top[k] = (float)(t / os);
         }
+        inAcc /= (double)(os * count); gAcc /= (double)(os * count);
     }
+    // The wind it drew from under its toe over the last render (m^3/s), and how that flow changes with the
+    // pressure there (m^3/s per Pa, the foot held): what a shared groove needs from its pipes.
+    double inflow() const { return inAcc; }
+    double inflowConductance() const { return gAcc; }
+    // Fed from a groove shared with the other drawn stops on its key (the engine's slider chest): its own
+    // valve is then the slider and toe, and its foot no longer includes a groove of its own.
+    void setGrooveFed(bool g) { if (g == grooveFed) return; grooveFed = g; volume = (grooveFed ? 0.0 : 0.3e-3) + footCone; }
 
     inline void tick(double& mouthOut, double& topOut) {
         wind();
@@ -230,6 +240,8 @@ private:
     FluePipeSpec sp;
     double fs = 48000, dt = 1.0 / 48000, rho = 1.2, c2rho = 1.4e5, mu = 1.81e-5;
     PipeAir air;
+    double inAcc = 0, gAcc = 0, qiLast = 0, dqiLast = 0, footCone = 0;
+    bool grooveFed = false;
     double vortexK = 0, toeArea = 0, windR = 0, lc = 0.002, volume = 1e-4, Sm = 1e-4, deltaOut = 0, ddE = 0, driveK = 0, Gh = 0;
     double pitch = 0, transitS = 0;
     // wind path
@@ -278,6 +290,7 @@ private:
             double qo = 0, dqo = 0;
             if (P > 0) { const double r = std::sqrt(windR * windR + 2.0 * rho * P); qo = hw * (r - windR) / rho; dqo = hw / r; }
             dF = 1.0 + k1 * (dqi + dqo);
+            qiLast = qi; dqiLast = dqi;
             return P - P0 - k1 * (qi - qo);
         };
         if (steadyCount < 64) {
@@ -299,6 +312,7 @@ private:
             if (std::fabs(U - Uslot) > 1e-12 * (1.0 + U)) steadyCount = 0;
             Uslot = U;
         }
+        inAcc += qiLast; gAcc += dqiLast;
     }
 public:
     // the engine changes the chest pressure (wind system): wake the solver

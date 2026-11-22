@@ -9,7 +9,7 @@ int main() {
     const float depth = getenv("DEPTH") ? atof(getenv("DEPTH")) : 0.22f, rate = getenv("RATE") ? atof(getenv("RATE")) : 5.8f;
     for (int k = 0; k < kNumTremKinds; ++k) {
         printf("%s  rate %.1f Hz depth %.2f\n", kTremKindLabels[k], rate, depth);
-        for (float d : { 0.0f, 0.05f, 0.15f, 0.3f, 0.6f, 1.0f, 1.5f }) {
+        for (float d : { 0.0f, 0.3f, 0.6f, 1.0f, 1.2f, 1.5f, 2.0f }) {
             Tremulant t; t.kind = k;
             auto E = [](const char* n, float& v) { if (getenv(n)) v = atof(getenv(n)); };
             E("DA", t.kDouxArea); E("DB", t.kDouxBack); E("VA", t.kVentArea); E("VG", t.kVentGain); E("VS", t.kVentSeat); E("VZ", t.kVentZeta); E("VH", t.kHelmVent); E("TL", t.kTrunkLin); t.rate = rate; t.depth = depth; t.reset();
