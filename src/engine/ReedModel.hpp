@@ -101,8 +101,8 @@ public:
     }
     // The air (Air.hpp), relative to the air the pipe was voiced in: its density sets the flow through the
     // slit and the shallot's inertia, its speed of sound the resonator's modes and the horn's delay, rho c the
-    // resonator's impedance. The tongue is brass and does not follow the air. (The brass itself changes with
-    // temperature too - expansion and a softer modulus - which is not modelled yet.)
+    // resonator's impedance. The tongue is brass and does not follow the air's sound speed; it is as warm as the air
+    // though, and warm brass is softer (PipeAir::tongueRatio).
     void setAir(const PipeAir& a) {
         if (a == air) return;
         air = a; applyAir();
@@ -121,7 +121,7 @@ public:
         if (ratioIn == pitch) return;
         pitch = ratioIn;
         const double ratio = ratioIn * (sp.trim > 0 ? sp.trim : 1.f);
-        wrNow = wr * ratio;
+        wrNow = wr * ratio * air.tongueRatio;
         hornDelayScaled = hornDelay;
         nPad = std::min(kReedMaxModes, (sp.nModes + 3) & ~3);
         for (int i = 0; i < kReedMaxModes; ++i) {
