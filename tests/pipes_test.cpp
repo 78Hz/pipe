@@ -62,15 +62,36 @@ struct Rig {
         en->setParameter(kParamPedalSplit, 0.f);
         en->allNotesOff();
         L.clear(); R.clear();
+        for (auto& t : tapped) t.clear();
     }
     void draw(int rank) {
         en->setParameter(stopForRank(rank), 1.f);
         en->setParameter(kParamZoneLoDiv, (float)kRanks[rank].division);
     }
+    // Listening to single pipes inside a full organ: each tapped pipe's own sound (what its model gives,
+    // before the room), taken block by block as the engine renders it, so one pipe can be judged while
+    // the whole organ plays and draws on the wind. Silence where the pipe is not sounding.
+    std::vector<std::pair<int, int>> taps;
+    std::vector<std::vector<float>> tapped;
+    void tap(int rank, int key) { taps.push_back({ rank, key }); tapped.emplace_back(); }
     void run(double seconds) {
         const int n = (int)(seconds * fs);
         const size_t o = L.size(); L.resize(o + (size_t)n); R.resize(o + (size_t)n);
-        for (int i = 0; i < n; i += 64) en->render(&L[o + (size_t)i], &R[o + (size_t)i], std::min(64, n - i));
+        if (taps.empty()) { for (int i = 0; i < n; i += 64) en->render(&L[o + (size_t)i], &R[o + (size_t)i], std::min(64, n - i)); return; }
+        for (int i = 0; i < n;) {
+            // within one control block: the voices' block buffers then hold exactly these samples
+            const int len = std::min(n - i, kControlBlock - (int)((o + (size_t)i) % kControlBlock));
+            en->render(&L[o + (size_t)i], &R[o + (size_t)i], len);
+            for (size_t t = 0; t < taps.size(); ++t) {
+                const Voice* v = en->debugVoice(taps[t].first, taps[t].second);
+                for (int j = 0; j < len; ++j) tapped[t].push_back(v ? v->gm[j] : 0.f);
+            }
+            i += len;
+        }
+    }
+    std::vector<float> tappedTail(size_t t, double seconds) const {
+        const size_t n = (size_t)(seconds * fs);
+        return std::vector<float>(tapped[t].end() - (long)n, tapped[t].end());
     }
     void send(int a, int b, int c = -1) {
         const uint8_t m[3] = { (uint8_t)a, (uint8_t)b, (uint8_t)(c < 0 ? 0 : c) };
@@ -275,22 +296,26 @@ static void partTravel() {
 
 // ---------------------------------------------------------------------------
 static void shortNotes() {
-    std::printf("5. short notes\n");
+    std::printf("5. short notes: a key let go as soon as its pipe is allowed to have spoken (the judge's speech time)\n");
+    // A note held only as long as the pipe is given to speak (PipeJudge.hpp: 30 of its periods, a keen string
+    // 50, the large stopped basses 50 and 80; never under 0.3 s) has come within 6 dB of its full level:
+    // letting the key go in the middle of the attack does not choke it.
     Rig g;
-    struct Case { int rank, key; double ms; };
+    struct Case { int rank, key; };
     const int oct8 = rankOf("i_octave_8"), sal = rankOf("i_salicional_8"), ged = rankOf("ii_gedeckt_8"), p16 = rankOf("p_principal_16"), pos = rankOf("p_posaune_16");
-    for (const Case& c : { Case{ oct8, 60, 60 }, Case{ oct8, 48, 90 }, Case{ oct8, 36, 230 }, Case{ sal, 60, 60 }, Case{ ged, 60, 80 }, Case{ ged, 48, 140 }, Case{ p16, 36, 420 }, Case{ pos, 36, 450 } }) {
+    for (const Case& c : { Case{ oct8, 60 }, Case{ oct8, 48 }, Case{ oct8, 36 }, Case{ sal, 60 }, Case{ ged, 60 }, Case{ ged, 48 }, Case{ p16, 36 }, Case{ pos, 36 } }) {
+        const double f = judge::pipeHz(c.rank, c.key), ms = 1000.0 * judge::speechLimitFor(c.rank, f) / f;
         g.reset(); g.draw(c.rank); g.run(0.05);
         g.send(0x90, c.key, 100); g.run(1.5); const double steady = g.tailDb(0.3);
         g.send(0x80, c.key, 64); g.run(0.6);
         const size_t t0 = g.L.size();
-        g.send(0x90, c.key, 100); g.run(c.ms / 1000.0); g.send(0x80, c.key, 64); g.run(0.3);
+        g.send(0x90, c.key, 100); g.run(ms / 1000.0); g.send(0x80, c.key, 64); g.run(0.3);
         double peak = -200;
         for (size_t i = t0; i + 480 <= g.L.size(); i += 120) {
             double e = 0; for (size_t j = 0; j < 480; ++j) { const double s = 0.5 * (g.L[i + j] + g.R[i + j]); e += s * s; }
             peak = std::max(peak, 10 * std::log10(e / 480 + 1e-20));
         }
-        check(peak > steady - 6, "%s key %d held %3.0f ms: reaches %.1f dB of its full level", kRanks[c.rank].name, c.key, c.ms, peak - steady);
+        check(peak > steady - 6, "%s key %d held %3.0f ms: reaches %.1f dB of its full level", kRanks[c.rank].name, c.key, ms, peak - steady);
     }
 }
 
@@ -336,10 +361,13 @@ static void blowerOffOn() {
     std::printf("7. the blower stops and starts (reservoir size 1 s and blower coast-down 1 s, so the tests run quickly)\n");
     const int chord[] = { 48, 55, 60, 64 };
     const double c3 = et(48);
-    struct Trace { double seconds; double flattest; double lastCents; bool silent; int jumps; };
+    struct Trace { double seconds; double flattest; double lastCents; bool silent; int jumps; double emptyAt; };
     // play the chord, stop the blower, follow C3 (the Principal's fundamental) every `step` s
+    // The Principal's C3 is followed by its pipe's own sound (Rig::tap): on full organ the chord's other
+    // ranks put partials of their own beside it.
+    const int principal = rankOf("i_octave_8");
     auto shutdown = [&](int load, bool fullOrgan, double step, std::vector<double>* cents = nullptr) {
-        Rig g;
+        Rig g; g.tap(principal, 48);
         // a short coast-down, so what is measured is the reservoir, not the blower slowing
         g.en->setParameter(kParamResLoad, (float)load); g.en->setParameter(kParamResSize, 1.f); g.en->setParameter(kParamSpinDown, 1.f);
         if (fullOrgan) { for (int st = 0; st < kNumStops; ++st) if (kStops[st].type == kStopRank || kStops[st].type == kStopMixture) g.en->setParameter(st, 1.f); }
@@ -347,11 +375,13 @@ static void blowerOffOn() {
         g.en->setParameter(kParamZoneLoDiv, (float)kGreat);
         g.run(0.1); for (int k : chord) g.send(0x90, k, 100); g.run(1.5);
         g.en->setParameter(kParamBlowerOn, 0.f);
-        Trace t{ 0, 0, 0, false, 0 }; double prev = 0;
+        Trace t{ 0, 0, 0, false, 0, -1 }; double prev = 0;
+        double c, db0; strongest(g.tapped[0], g.tapped[0], 9600, c3, c, db0);
         for (int i = 0; i < 4000 && !t.silent; ++i) {
             g.run(step); t.seconds += step;
-            double c, db; strongest(g.L, g.R, 9600, c3, c, db);
-            if (db < -70) { t.silent = true; break; }
+            if (t.emptyAt < 0 && g.en->outputs[kOutLid - kOutFirst] <= WindSystem::kStops) t.emptyAt = t.seconds;   // the reservoir empty: its lid down on its stops
+            double db; strongest(g.tapped[0], g.tapped[0], 9600, c3, c, db);
+            if (db < db0 - 50) { t.silent = true; break; }
             if (cents) cents->push_back(c);
             if (c < prev - 25) ++t.jumps;           // a sudden fall, more than the slow slide
             t.flattest = std::min(t.flattest, c); t.lastCents = c; prev = c;
@@ -363,7 +393,10 @@ static void blowerOffOn() {
     const Trace full = shutdown(kLoadSprings, true, 0.1);
     check(one.silent && full.silent, "springs: the chord dies away on one stop (%.1f s) and on full organ (%.1f s)", one.seconds, full.seconds);
     check(one.seconds > 5 * full.seconds, "one stop lasts far longer than full organ (%.1f s against %.1f s)", one.seconds, full.seconds);
-    check(one.flattest < -40 && full.flattest < -40, "on the way the pipes sink well flat (%.0f and %.0f cents) before they stop", one.flattest, full.flattest);
+    // Springs: the pressure falls with the lid, so the pitch slides flat as the reservoir empties. One stop
+    // lets it fall slowly, through the pipe's last speaking pressure (well flat); full organ empties it in a
+    // few seconds and the wind collapses with the lid on its stops, the pipe still sliding.
+    check(one.flattest < -40 && full.flattest < -10, "on the way the pipes sink flat before they stop: one stop %.0f cents (well flat), full organ %.0f cents", one.flattest, full.flattest);
     // the slide is gradual: in the first half the pitch moves by no more than a few cents per step
     bool gradual = true; double worstStep = 0;
     for (size_t i = 1; i < path.size() / 2; ++i) { worstStep = std::max(worstStep, std::fabs(path[i] - path[i - 1])); if (std::fabs(path[i] - path[i - 1]) > 6) gradual = false; }
@@ -372,7 +405,8 @@ static void blowerOffOn() {
     const Trace w = shutdown(kLoadWeights, true, 0.1, &path);
     double heldUntil = 0;
     for (size_t i = 0; i < path.size(); ++i) { if (std::fabs(path[i]) > 3) break; heldUntil = (i + 1) * 0.1; }
-    check(w.silent && heldUntil > 0.8 * w.seconds, "weights: pitch holds (within 3 cents for %.1f of %.1f s), then the wind fails", heldUntil, w.seconds);
+    // Weights: the pressure stays while the lid falls, so the pitch holds until the reservoir is empty
+    check(w.silent && w.emptyAt > 0 && heldUntil >= w.emptyAt - 0.2, "weights: pitch holds (within 3 cents for %.1f s, the reservoir empty at %.1f s), then the wind fails (silent at %.1f s)", heldUntil, w.emptyAt, w.seconds);
 
     // nothing played: only leakage draws on the reservoir
     {
@@ -405,32 +439,42 @@ static void blowerOffOn() {
 
 static void fullChord() {
     std::printf("6. full organ, ten-note chord: every note's Principal still speaks while the wind sags\n");
+    // Each note's Principal (Octave 8') is heard on its own, by its pipe's own sound, first alone and then
+    // inside the full organ: every other stop drawn on every division (the reservoir feeds them all) and the
+    // same ten keys held. The sound of the whole cannot be used for this: the chord's octaves and the
+    // mixtures' pure fifths and thirds put other ranks' partials within a few cents of every Principal.
+    const int principal = rankOf("i_octave_8");
+    const int keys[] = { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76 };
+    const int nk = (int)(sizeof keys / sizeof keys[0]);
+    double alone[10], aloneDb[10];
+    for (int i = 0; i < nk; ++i) {
+        Rig g; g.tap(principal, keys[i]); g.draw(principal); g.run(0.05);
+        g.send(0x90, keys[i], 100); g.run(2.5);
+        const auto x = g.tappedTail(0, 0.5);
+        alone[i] = centsOff(x.data(), (int)x.size(), judge::pipeHz(principal, keys[i]));
+        aloneDb[i] = rmsDb(x.data(), (int)x.size());
+    }
     Rig g;
-    g.reset();
+    for (int k : keys) g.tap(principal, k);
     for (int s = 0; s < kNumStops; ++s) if (kStops[s].type == kStopRank || kStops[s].type == kStopMixture) g.en->setParameter(s, 1.f);
     g.en->setParameter(kParamZoneLoDiv, (float)kGreat);
-    g.run(0.05);
-    const int keys[] = { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76 };
+    g.run(0.5);
+    const float chest0 = g.en->outputs[kOutChestGt - kOutFirst], res0 = g.en->outputs[kOutReservoir - kOutFirst];
     for (int k : keys) g.send(0x90, k, 100);
     g.run(2.5);
-    const auto m = g.tail(0.5);
-    double weakest = 0, worst = 0; bool first = true;
-    for (int k : keys) {
-        const double f0 = et(k);
-        // strongest partial within 15 cents of where this note's Principal belongs
-        double f = f0, db = -200;
-        for (double c = -15; c <= 15; c += 0.5) {
-            const double ft = f0 * std::pow(2.0, c / 1200.0);
-            std::complex<double> z = 0;
-            for (size_t i = 0; i < m.size(); ++i) z += (double)m[i] * std::polar(1.0, -2 * M_PI * ft * (double)i / fs);
-            const double d = 20 * std::log10(2 * std::abs(z) / (double)m.size() + 1e-20);
-            if (d > db) { db = d; f = ft; }
-        }
-        if (first || db < weakest) weakest = db;
-        first = false;
-        worst = std::max(worst, std::fabs(1200 * std::log2(f / f0)));
+    const float chest1 = g.en->outputs[kOutChestGt - kOutFirst], res1 = g.en->outputs[kOutReservoir - kOutFirst];
+    std::printf("      reservoir %.1f -> %.1f mm, Hauptwerk chest %.1f -> %.1f mm\n", res0, res1, chest0, chest1);
+    double worst = 0, quieter = 0; std::string line;
+    for (int i = 0; i < nk; ++i) {
+        const auto x = g.tappedTail((size_t)i, 0.5);
+        const double c = centsOff(x.data(), (int)x.size(), judge::pipeHz(principal, keys[i]));
+        const double d = rmsDb(x.data(), (int)x.size()) - aloneDb[i];
+        char b[64]; std::snprintf(b, sizeof b, " %d: %+.1f c %+.1f dB;", keys[i], c > 9000 ? 999.0 : c - alone[i], d); line += b;
+        worst = std::max(worst, c > 9000 ? 999.0 : std::fabs(c - alone[i]));
+        quieter = std::min(quieter, d);
     }
-    check(weakest > -60, "weakest fundamental in the chord: %.1f dB", weakest);
+    std::printf("     %s\n", line.c_str());
+    check(quieter > -6, "every Principal still speaks in the chord (the weakest %.1f dB against alone)", quieter);
     check(worst < 8, "the chord sags by no more than %.1f cents", worst);
     check(g.tailDb(0.5) < -3, "and it does not overload (%.1f dB RMS)", g.tailDb(0.5));
 }
