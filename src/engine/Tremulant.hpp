@@ -44,9 +44,11 @@ struct Tremulant {
     void reset(float p0 = 1.f) { p = pAvg = p0; q = 0.f; x = 0.02f; v = 0.f; amt = 0.f; }
 
     // One step. pr: supply pressure from the regulator (relative); d: the division's pipes'
-    // conductance (flow at p = 1, relative to the trunk's unit flow); on: tremulant drawn.
-    // Returns the chest pressure (relative).
-    float step(float dt, float pr, float d, bool on) {
+    // conductance (flow at p = 1, relative to the trunk's unit flow); on: tremulant drawn; qOut, when given
+    // (>= -1e8), the flow actually leaving the chest for the pipes over this step (relative to the trunk's
+    // unit flow; the engine's grooves fill and empty with the chest, so it may run backwards), used in
+    // place of d. Returns the chest pressure (relative).
+    float step(float dt, float pr, float d, bool on, float qOut = -1e9f) {
         amt += ((on ? 1.f : 0.f) - amt) * std::min(1.f, 8.f * dt);
         const float w = 2.f * (float)M_PI * rate;
         // the trunk: its inertance makes the chest's Helmholtz frequency (with the chest's compliance)
@@ -56,7 +58,7 @@ struct Tremulant {
         const int sub = std::max(1, (int)std::ceil(dt * 6000.f));
         const float h = dt / (float)sub;
         for (int i = 0; i < sub; ++i) {
-            const float qp = d * std::sqrt(std::max(0.f, p));
+            const float qp = qOut > -1e8f ? qOut : d * std::sqrt(std::max(0.f, p));
             float qv = 0.f, qpist = 0.f;
             pAvg += (p - pAvg) * std::min(1.f, h * 2.f);   // the chest's mean pressure (over half a second)
             if (kind == kTremDoux) {

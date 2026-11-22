@@ -46,6 +46,7 @@ struct WindSystem {
     float leak = 0.004f;            // leakage at working pressure, fraction of blower output
     float tremSpeed = 5.8f, tremDepth = 0.22f;
     Tremulant trem;
+    float tremLoad = 0.f;
     int tremTarget = kSwell;
     bool tremOn = false;
 
@@ -130,7 +131,12 @@ struct WindSystem {
                 trem.rate = tremSpeed; trem.depth = tremDepth;
                 const float load = divFlow ? divFlow[d] / kTrunkUnitFlow : 0.f;
                 const float pr = std::max(1e-3f, p / kChestNominal[d]);
-                p = kChestNominal[d] * trem.step(dt, pr, load / std::sqrt(pr), tremOn);
+                // The pipes load it as a conductance: their real flow (the grooves' pallets, Engine::renderGrooves)
+                // over the chest pressure, averaged over 0.2 s. Taken block by block, that flow includes the
+                // grooves filling and emptying with the chest one block late, which undamps the beat; the
+                // chest, its grooves and the tremulant solved together at audio rate (stage 3) replace this.
+                tremLoad += (load / std::sqrt(pr) - tremLoad) * std::min(1.f, dt / 0.2f);
+                p = kChestNominal[d] * trem.step(dt, pr, tremLoad, tremOn);
             }
             if (d == tremTarget) chest[d] = std::max(0.f, p);   // the tremulant's model holds this chest's own dynamics
             else chest[d] += (std::max(0.f, p) - chest[d]) * std::min(1.f, 60.f * dt);

@@ -50,6 +50,15 @@ struct Instance {
         x.expr.expression_id = which; x.expr.note_id = id; x.expr.port_index = 0; x.expr.channel = (int16_t)ch; x.expr.key = (int16_t)key; x.expr.value = v; evs.ev.push_back(x);
     }
     // parameter by its display name, set through an event like a host automation lane would
+    double get(const char* name) const {
+        auto* pp = (const clap_plugin_params_t*)p->get_extension(p, CLAP_EXT_PARAMS);
+        for (uint32_t i = 0; pp && i < pp->count(p); ++i) {
+            clap_param_info_t info{};
+            if (!pp->get_info(p, i, &info) || strcmp(info.name, name) != 0) continue;
+            double v = 0; pp->get_value(p, info.id, &v); return v;
+        }
+        return -1e9;
+    }
     void param(const char* name, double value) {
         auto* pp = (const clap_plugin_params_t*)p->get_extension(p, CLAP_EXT_PARAMS);
         for (uint32_t i = 0; pp && i < pp->count(p); ++i) {
@@ -154,6 +163,27 @@ int main(int argc, char** argv) {
         double lA, lB;
         const double fP0 = pitchIn("OCTAVE 8'", 18, 50, 101.325, lA), fP1 = pitchIn("OCTAVE 8'", 18, 50, 81.5, lB);
         check(std::fabs(1200 * std::log2(fP1 / fP0)) < 4.0 && std::isfinite(lB) && lB > lA - 6, "flue in thin air (81.5 kPa): still speaks, near pitch (cents, dB change)", 1200 * std::log2(fP1 / fP0), lB - lA);
+    }
+
+    // ---- the slider chest: the drawn stops on a key share its groove's wind
+    {
+        auto grooveMm = [&](bool full, double& demand) {
+            Instance s(fac, id); s.param("Room Mix", 0.0); s.param("Age Drift", 0);
+            onlyStop(s, "I", "OCTAVE 8'");
+            if (full) {   // every stop of the Hauptwerk
+                auto* pp = (const clap_plugin_params_t*)s.p->get_extension(s.p, CLAP_EXT_PARAMS);
+                for (uint32_t i = 0; i < pp->count(s.p); ++i) { clap_param_info_t info{}; if (pp->get_info(s.p, i, &info)) { const std::string nm = info.name; if (nm.rfind("I ", 0) == 0 && nm.find('/') == std::string::npos && nm.find("TREMULANT") == std::string::npos) s.param(info.name, 1.0); } }
+            }
+            s.play(0.1);
+            s.note(CLAP_EVENT_NOTE_ON, 1, 0, 48, 0.8); s.play(1.5);
+            demand = s.get("Wind Demand");
+            return s.get("Note 1 mm");
+        };
+        double d1, dF;
+        const double g1 = grooveMm(false, d1), gF = grooveMm(true, dF);
+        check(g1 > 70 && g1 < 90, "c (key 48), one stop: its groove holds the chest's wind (mm)", g1);
+        check(gF < g1 - 0.5 && gF > 0.5 * g1, "c, the whole Hauptwerk on it: the stops share the groove, its wind sinks (mm, one stop)", gF, g1);
+        check(dF > 3 * d1, "the blower feels what the pallets let in (demand, one stop / all)", dF, d1);
     }
 
     printf("%s\n", failures ? "SYSTEM FAILURES" : "SYSTEM CHECKS PASSED");

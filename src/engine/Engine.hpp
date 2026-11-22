@@ -950,7 +950,9 @@ private:
                 const int d = (int)(&p - &pallets[0][0]) / kNumKeys;
                 o[0] = (float)((&p - &pallets[0][0]) % kNumKeys);
                 o[1] = (float)((p.coupled ? 1000 : 0) + d * 100 + p.srcZone * 16 + p.srcChannel + 1);
-                o[2] = p.footRatio * kChestNominal[d];
+                // the wind under the pipes' toes: the groove's pressure (the key's pallet, the stops drawn on it)
+                const int kk = (int)((&p - &pallets[0][0]) % kNumKeys);
+                o[2] = grooveP[d][kk] > 0.0 ? (float)(grooveP[d][kk] / kMmToPa) : p.footRatio * kChestNominal[d];
                 o[3] = p.bendCents;
             } else { o[0] = -1.f; o[1] = o[2] = o[3] = 0.f; }
         }
