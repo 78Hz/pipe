@@ -161,6 +161,12 @@ static std::vector<Change> flueChanges(int rank, int key) {
         for (float y : { 0.4f, -0.4f, 0.05f, -0.05f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
         for (float c : { 0.97f, 1.03f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
     }
+    if (std::getenv("PASS5")) {   // the fifth, for a slow-speaking bass: more wind, a lower mouth, the jet between steps
+        for (float t : { 1.8f, 2.5f }) one.push_back({ "toe", { { kEdToe, t } } });
+        for (float c : { 0.75f, 0.7f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
+        for (float m : { 1.25f, 1.35f }) one.push_back({ "mouth", { { kEdMouthWidth, m } } });
+        for (float g : { 0.56f, 0.6f, 0.66f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
+    }
     return one;
 }
 static std::vector<Change> reedChanges() {
