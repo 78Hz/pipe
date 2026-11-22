@@ -147,6 +147,11 @@ static std::vector<Change> flueChanges(int rank) {
         for (float g : { 0.5f, 2.0f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
         for (float y : { -0.3f, 0.3f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
     }
+    if (std::getenv("PASS3")) {
+        for (float g : { 0.4f, 2.5f, 3.2f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
+        for (float h : { 0.7f, 1.3f }) one.push_back({ "flue", { { kEdFlue, h } } });
+        for (float t : { 0.5f, 2.0f }) one.push_back({ "toe", { { kEdToe, t } } });
+    }
     return one;
 }
 static std::vector<Change> reedChanges() {
@@ -162,6 +167,11 @@ static std::vector<Change> reedChanges() {
         for (float c : { 1.35f, 0.8f }) one.push_back({ "curve", { { kEdTongueCurve, c } } });
         one.push_back({ "toe", { { kEdToe, 0.4f } } });
         for (float pr : { 0.85f, 1.15f }) one.push_back({ "boot", { { kEdBootPressure, pr } } });
+    }
+    if (std::getenv("PASS3")) {   // the third: the tongue brought well up towards its note (a bass reed sounding far below its tongue)
+        for (float l : { 0.9f, 0.85f, 0.8f, 1.1f }) one.push_back({ "tongue length", { { kEdTongueLength, l } } });
+        for (float t : { 1.1f, 1.2f, 0.9f }) one.push_back({ "tongue thickness", { { kEdTongueThick, t } } });
+        one.push_back({ "toe", { { kEdToe, 0.3f } } });
     }
     return one;
 }
