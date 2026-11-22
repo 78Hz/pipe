@@ -68,8 +68,8 @@ struct Bench {
     double firstCents(const PipeRef& p) {
         judge::Options o; o.full = false;
         const judge::Verdict v = judge::judgePipe(*rigs[0], p.rank, p.key, o);
-        if (v.silent || v.wrongFirst) return 9999;
-        return v.first;
+        if (v.silent) return 9999;
+        return v.wrongFirst ? v.rawFirst : v.first;   // a pipe in the wrong register is still cut to its note; the judge then hears it
     }
 };
 

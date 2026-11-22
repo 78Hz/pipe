@@ -76,6 +76,16 @@ inline double centsOff(const float* x, int n, double expectHz, double fs, bool v
     return 1200 * std::log2(finePitch(x, n, f, fs) / expectHz);
 }
 
+// The pitch of the strongest partial near the note, whatever else sounds (the voicer cuts a pipe to pitch with it
+// before judging its register).
+inline double centsRaw(const float* x, int n, double expectHz, double fs) {
+    const int n1 = std::min(n, std::max(1024, (int)(40 * fs / expectHz)));
+    double f = expectHz, top = -300;
+    for (double c = -70; c <= 70; c += 2) { const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDb(x, n1, ft, fs); if (d > top) { top = d; f = ft; } }
+    if (top < -100) return 9999;
+    return 1200 * std::log2(finePitch(x, n, f, fs) / expectHz);
+}
+
 inline double et(int key) { return 440.0 * std::pow(2.0, (key - 69) / 12.0); }
 
 // The engine as the plugin runs it, dry, equal temperament, no drift, no blower noise or limiter.
@@ -135,6 +145,7 @@ struct Verdict {
     double tremCents = 0;         // mean pitch under the tremulant (cents)
     double tremLevel = 0;         // its level against the pipe's own (dB)
     double level = -300;          // the pipe's level (dB RMS)
+    double rawFirst = 9999;       // first strike: the strongest partial near the note (cents), register aside
     double speechPeriods = 0;
     bool reed = false, tiny = false;
     std::string why;
@@ -219,6 +230,7 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
     const auto first = g.tail(std::min(0.4, hold / 3));
     v.level = rmsDb(first.data(), (int)first.size());
     if (v.level < -75) { v.silent = true; return v; }
+    v.rawFirst = v.tiny ? 0.0 : centsRaw(first.data(), (int)first.size(), f, fs);
     v.first = cents(first);
     if (v.first > 9000) { v.wrongFirst = true; return v; }
     if (o.stopEarly && !v.firstOk()) return v;
