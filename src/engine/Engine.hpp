@@ -535,6 +535,9 @@ private:
             core.init(*sp, fs, seed); core.setAir(pipeAir);
             // a pipe on an offset chest of its own (sp->valve) keeps its own valve; the others stand on the groove
             v.groove = sp->valve <= 0.f;
+#ifdef PIPE_NO_GROOVE
+            v.groove = false;   // diagnostics: every pipe on a chest of its own, as the voicer voiced it
+#endif
             core.setGrooveFed(v.groove);
             core.setPallet(0.002, 0.002);   // its valve (the slider and toe, or its own) follows in 2 ms
             core.setChestPa(wind.chest[d] * kMmToPa);
@@ -559,9 +562,14 @@ private:
             ReedPipeRT& core = *reeds[(size_t)v.slot];
             core.init(*sp, fs, seed); core.setAir(pipeAir);
             v.groove = true;
+#ifdef PIPE_NO_GROOVE
+            v.groove = false;
+#endif
             // its toe hole, as a voicer opens it to regulate a reed: ASSUMPTION an area of 3 x the tongue's
             // largest opening (w x0), at least 5 mm across (Opus 14's reed toe holes are not in the sources)
+#ifndef PIPE_NO_TOE
             core.setToe(std::max(0.005, std::sqrt(4.0 * 3.0 * sp->w * sp->x0 / M_PI)));
+#endif
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
