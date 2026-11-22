@@ -38,6 +38,7 @@ jobs:
           head -30 irs/IrMeta.hpp
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1   # used only by this run
           name: irs
           path: |
             irs/ir_blob.bin
@@ -175,6 +176,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
+          retention-days: 1   # kept a day: the zips and manual live on the preview release
           path: OpusXIV-User-Manual.pdf
           archive: false
 
@@ -209,6 +211,7 @@ jobs:
       # which keeps the macOS bundles' symlinks and permissions
       - uses: actions/upload-artifact@v7
         with:
+          retention-days: 1   # kept a day: the zips and manual live on the preview release
           path: OpusXIV-${{ matrix.slug }}.zip
           archive: false
 
