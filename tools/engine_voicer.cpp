@@ -232,6 +232,7 @@ static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<
         put(s);
         const auto v = b.judgeAll(p, quick);
         bad = badness(v);
+        if (std::getenv("TRACE")) std::fprintf(stderr, "  %s %d [%s] bad %.1f: %s\n", kRanks[p.rank].name, p.key, label(cs).c_str(), bad, describe(v).c_str());   // every attempt, to see why a pipe will not voice
         if (!allPass(v)) { note(cs, bad, describe(v)); return false; }
         // (a pipe that passes is heard in full: the quick judge stops only at a fault)
         spec = s; res.ok = true; res.how = label(cs); res.verdict = describe(v);
