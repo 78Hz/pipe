@@ -36,10 +36,17 @@ inline double partialDb(const float* x, int n, double f, double fs) {
     for (int i = 0; i < n; ++i) z += (double)x[i] * std::polar(1.0, -2 * M_PI * f * i / fs);
     return 20 * std::log10(2 * std::abs(z) / n + 1e-20);
 }
+// The same through a Hann window: what leaks from a strong partial a few bins away (a bass reed's second
+// partial, 15 dB over its fundamental) falls 30 dB lower, so a partial that is not there reads as not there.
+inline double partialDbHann(const float* x, int n, double f, double fs) {
+    std::complex<double> z = 0;
+    for (int i = 0; i < n; ++i) z += (double)x[i] * (0.5 - 0.5 * std::cos(2 * M_PI * i / n)) * std::polar(1.0, -2 * M_PI * f * i / fs);
+    return 20 * std::log10(4 * std::abs(z) / n + 1e-20);
+}
 // Refine a frequency estimate from the phase advance between the two halves of longer and longer
 // stretches (each stretch short enough for the error left by the one before).
-inline double finePitch(const float* x, int n, double f, double fs) {
-    for (int len = std::max(64, (int)(4 * fs / f)); ; len *= 3) {
+inline double finePitch(const float* x, int n, double f, double fs, int firstLen = 0) {
+    for (int len = std::max({ 64, (int)(4 * fs / f), firstLen }); ; len *= 3) {
         len = std::min(len, n);
         std::complex<double> z1 = 0, z2 = 0; const int mid = len / 2;
         for (int i = 0; i < mid; ++i) z1 += (double)x[i] * std::polar(1.0, -2 * M_PI * f * i / fs);
@@ -49,6 +56,15 @@ inline double finePitch(const float* x, int n, double f, double fs) {
     }
     return f;
 }
+// The pitch of a harmonic sound whose fundamental is near f, read from its strongest partial of the first
+// four (divided by its number), as a tuner listens to a 32' reed whose fundamental is 15 dB under its
+// second partial: the weak fundamental's phase is the noisiest thing in the sound.
+inline double pitchOf(const float* x, int n, double f, double fs) {
+    const int n1 = std::min(n, std::max(1024, (int)(40 * fs / f)));
+    int best = 1; double bd = partialDbHann(x, n1, f, fs);
+    for (int h = 2; h <= 4 && h * f < 0.4 * fs; ++h) { const double d = partialDbHann(x, n1, h * f, fs); if (d > bd + 3) { bd = d; best = h; } }
+    return finePitch(x, n, best * f, fs, (int)(8 * fs / f)) / best;   // stretches of whole fundamental periods, so its neighbours do not leak in
+}
 // Cents between the sound and `expectHz`; 9999 when it is in the wrong register: when the strongest
 // partial near the expected pitch is not the fundamental of what sounds (energy an octave or a twelfth
 // below it, or the note itself all but missing under its own overtones).
@@ -56,24 +72,24 @@ inline double centsOff(const float* x, int n, double expectHz, double fs, bool v
     const int n1 = std::min(n, std::max(1024, (int)(40 * fs / expectHz)));
     double f = expectHz, top = -300;
     for (double c = -70; c <= 70; c += 2) {
-        const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDb(x, n1, ft, fs);
+        const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDbHann(x, n1, ft, fs);
         if (d > top) { top = d; f = ft; }
     }
     if (verbose && top < -80) {
         double bf = 0, bd = -300;
-        for (double c = -2400; c <= 2400; c += 4) { const double ft = expectHz * std::pow(2.0, c / 1200.0); if (ft > 0.48 * fs) break; const double d = partialDb(x, n1, ft, fs); if (d > bd) { bd = d; bf = c; } }
+        for (double c = -2400; c <= 2400; c += 4) { const double ft = expectHz * std::pow(2.0, c / 1200.0); if (ft > 0.48 * fs) break; const double d = partialDbHann(x, n1, ft, fs); if (d > bd) { bd = d; bf = c; } }
         std::printf("      %.1f Hz: nothing near the note; strongest partial %+.0f cents away at %.1f dB\n", expectHz, bf, bd);
     }
     if (std::fabs(1200 * std::log2(f / expectHz)) > 60) return 9999;
     for (double sub : { 0.5, 1.0 / 3.0, 2.0 / 3.0, 1.5 })
         for (double c = -70; c <= 70; c += 5)
-            if (partialDb(x, n1, f * sub * std::pow(2.0, c / 1200.0), fs) > top - 15) {
-                if (verbose) std::printf("      %.1f Hz: partial at x%.3f %+.0f ct is %.1f dB against %.1f dB\n", expectHz, sub, c, partialDb(x, n1, f * sub * std::pow(2.0, c / 1200.0), fs), top);
+            if (partialDbHann(x, n1, f * sub * std::pow(2.0, c / 1200.0), fs) > top - 15) {
+                if (verbose) std::printf("      %.1f Hz: partial at x%.3f %+.0f ct is %.1f dB against %.1f dB\n", expectHz, sub, c, partialDbHann(x, n1, f * sub * std::pow(2.0, c / 1200.0), fs), top);
                 return 9999;
             }
-    if (2 * f < 0.45 * fs && partialDb(x, n1, 2 * f, fs) > top + 25) return 9999;
-    if (3 * f < 0.45 * fs && partialDb(x, n1, 3 * f, fs) > top + 25) return 9999;
-    return 1200 * std::log2(finePitch(x, n, f, fs) / expectHz);
+    if (2 * f < 0.45 * fs && partialDbHann(x, n1, 2 * f, fs) > top + 25) return 9999;
+    if (3 * f < 0.45 * fs && partialDbHann(x, n1, 3 * f, fs) > top + 25) return 9999;
+    return 1200 * std::log2(pitchOf(x, n, f, fs) / expectHz);
 }
 
 // The pitch of the strongest partial near the note, whatever else sounds (the voicer cuts a pipe to pitch with it
@@ -81,7 +97,7 @@ inline double centsOff(const float* x, int n, double expectHz, double fs, bool v
 inline double centsRaw(const float* x, int n, double expectHz, double fs) {
     const int n1 = std::min(n, std::max(1024, (int)(40 * fs / expectHz)));
     double f = expectHz, top = -300;
-    for (double c = -70; c <= 70; c += 2) { const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDb(x, n1, ft, fs); if (d > top) { top = d; f = ft; } }
+    for (double c = -70; c <= 70; c += 2) { const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDbHann(x, n1, ft, fs); if (d > top) { top = d; f = ft; } }
     if (top < -100) return 9999;
     return 1200 * std::log2(finePitch(x, n, f, fs) / expectHz);
 }
@@ -227,7 +243,9 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
     const double hold = holdFor(f);
     g.run(hold);
     const size_t t0 = g.L.size() - (size_t)(hold * fs);
-    const auto first = g.tail(std::min(0.4, hold / 3));
+    // the first reading: 0.4 s, or 20 periods for the lowest pipes (6 periods of a 32' tell nothing)
+    const double firstWin = std::max(std::min(0.4, hold / 3), std::min(20.0 / f, hold / 2));
+    const auto first = g.tail(firstWin);
     v.level = rmsDb(first.data(), (int)first.size());
     if (v.level < -75) { v.silent = true; return v; }
     v.rawFirst = v.tiny ? 0.0 : centsRaw(first.data(), (int)first.size(), f, fs);
@@ -245,7 +263,7 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
         const double lh = longHoldFor(f), win = std::max(0.4, 20.0 / f);
         g.run(lh - hold);
         double lo = 1e9, hi = -1e9;
-        const int nw = (int)((lh - hold + std::min(0.4, hold / 3)) / win);
+        const int nw = (int)((lh - hold + firstWin) / win);
         for (int w = 0; w < nw; ++w) {
             const auto x = g.span((nw - w) * win, win);
             const double c = cents(x), d = rmsDb(x.data(), (int)x.size());
@@ -264,7 +282,7 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
         // is what is compared.
         const double again = v.reed ? holdFor(f) : std::max(0.6, 50.0 / f);
         g.run(again);
-        const auto x = g.tail(v.reed ? std::min(0.4, again / 3) : again * 0.4);
+        const auto x = g.tail(v.reed ? std::max(std::min(0.4, again / 3), std::min(20.0 / f, again / 2)) : again * 0.4);
         c = cents(x);
         return c < 9000;
     };
