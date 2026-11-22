@@ -202,6 +202,17 @@ public:
         // prepared: a prepared engine plays the same notes the same way (the pipe test and the voicer hear the
         // same pipe; before, the count ran on from whatever had been played before)
         ageCounter = 0; orderCounter = 0;
+        // ... and from the start of a control block, with every smoothed value at its target: a note struck after
+        // a reset falls on the same sample of the block, so it plays exactly as on a new engine (before, the
+        // block's phase ran on, and the same pipe spoke in 29 or 34 periods depending on what came before)
+        blockPos = 0; idleSeconds = 0.f; recentChannels = 0; silentTimer = 0.f;
+        for (int i = 0; i < kNumModRows; ++i) { globalState[i] = 0.f; globalInit[i] = false; }
+        swellGain = swellGainT = 1.f; swellCoef = swellCoefT = 1.f;   // as a new engine: the box follows its pedal from there
+        blowerLp = 0.f; blowerGain = 0.f; blowerNoise = Noise();
+        prePeak = 0.f; minLimGain = 1.f;
+        // the grooves empty, as on a new organ (a groove held the last note's wind into the next test)
+        std::memset(grooveP, 0, sizeof grooveP); std::memset(grooveMean, 0, sizeof grooveMean); std::memset(grooveAp, 0, sizeof grooveAp);
+        std::memset(grooveFlow, 0, sizeof grooveFlow); std::memset(divInflow, 0, sizeof divInflow);
         room.clear();
         for (int d = 0; d < kNumDivisions; ++d) { swellLpL = swellLpR = 0.f; }
     }

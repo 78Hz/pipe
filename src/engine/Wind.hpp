@@ -58,8 +58,8 @@ struct DivisionWind {
     double tx = 0.02, tv = 0, tAmt = 0, tAvg = 0;
 
     void reset(double Pres) {
-        Pr = Pc = Pb = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
-        inSum = outSum = 0; nSum = 0;
+        Pr = Pc = Pb = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = qAvg = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
+        inSum = outSum = pcSum = 0; pcMean = Pc; nSum = 0;   // all of it: a reset wind is the wind of a new organ
     }
     // One sample. Pres: the main reservoir's pressure (Pa); qOut: what the grooves' pallets and the chest's
     // other pipes take this sample (m^3/s). rho, c: the air. The tremulant: its kind, rate, depth, on.
@@ -190,7 +190,7 @@ struct WindSystem {
         fan = blowerOn ? 1.f : 0.f;
         lid = blowerOn ? kWorkHeight : 0.f;
         reservoir = lidPressure(lid);
-        sag = sagVel = 0.f;
+        sag = sagVel = 0.f; demand = 0.f; tremLoad = 0.f;
         for (int d = 0; d < kNumDivisions; ++d) { chest[d] = blowerOn ? std::min(kChestNominal[d], reservoir) : 0.f; div[d].Pnom = kChestNominal[d] * 9.80665; div[d].reset(reservoir * 9.80665); }
         trem.reset();
         secondsLeft = -1.f;

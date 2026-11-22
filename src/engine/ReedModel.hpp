@@ -95,6 +95,7 @@ public:
         reset();
     }
     void reset() {
+        inAcc = gAcc = qiLast = dqLast = 0;
         x = sp.x0; vx = 0; Us = 0; boot = 0; palletPhase = 0; palletPos = 0; palletTarget = 0; U = 0; p = 0; topPrev = 0;
         std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         hz1 = hz2 = 0; std::memset(horn, 0, sizeof horn); hpos = 0; uhPrev = 0;

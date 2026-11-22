@@ -83,9 +83,11 @@ public:
             lp = { K * K * nrm, 2 * K * K * nrm, K * K * nrm, 2 * (K * K - 1) * nrm, (1 - K / q + K * K) * nrm, 0, 0 };
         }
         pitch = 0; setPitch(1.0);
+        keyDown = false;   // a new pipe: its key is up (a slot taken over from a held note kept it down, and its pallet opened early)
         reset();
     }
     void reset() {
+        inAcc = gAcc = qiLast = dqiLast = 0;
         footP = 0; palletPhase = 0; palletPos = 0; palletTarget = keyDown ? 1.0 : 0.0; Uslot = 0; qjPrev = 0; qinPrev = 0; vPrev = 0;
         etaLP = 0; tauPrev = 1e9; ucache = -1; qMouthPrev = 0; sTopPrev = 0; nz1 = nz2 = 0;
         lp.z1 = lp.z2 = 0; std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
