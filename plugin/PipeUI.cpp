@@ -811,6 +811,7 @@ private:
             row("FOOT PRESSURE", bf->footPa / 9.80665, kEdFootPressure, " MM", 1, "%.1f");
             row("BEARD (X CUT-UP)", bf->beard, kEdBeard, "", 1, "%.2f");
             if (bf->toe > 0) row("TOE HOLE", bf->toe, kEdToe, " MM", 1000, "%.1f");   // an open foot has none to bore
+            if (const double hd = edit::harmonicHoleOf(selRank, selKey); hd > 0) row("HARMONIC HOLE", hd, kEdHole, " MM", 1000, "%.1f");   // only a harmonic pipe has one
         }
         else if (br)
         {

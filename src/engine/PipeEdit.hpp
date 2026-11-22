@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -32,12 +33,14 @@ enum PipeEditField {
     kEdTongueThick, kEdTongueLength, kEdTongueWidth, kEdTongueCurve, kEdResLength, kEdResDiameter, kEdBootPressure,
     // both: the toe hole (the flue's foot, the reed's boot)
     kEdToe,
+    // flue: a harmonic pipe's hole at half its length (its diameter)
+    kEdHole,
     kNumEditFields
 };
 // state text names, one per field
 static const char* const kEditFieldIds[kNumEditFields] = {
     "length", "diameter", "mouth", "cutup", "flue", "languid", "foot", "beard",
-    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot", "toe" };
+    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot", "toe", "hole" };
 
 // An edit is a ratio to the pipe as voiced (1 = unchanged), except the beard: its value in cut-ups
 // (negative = unchanged).
@@ -139,6 +142,22 @@ inline bool flueDesign(int rank, int key, const FluePipeSpec& base, flue::Design
     return true;
 }
 
+// The diameter of a harmonic pipe's hole as the voicer bored it (m), 0 for a pipe without one. Found once
+// per pipe (the rebuild searches for it) and kept.
+inline double harmonicHoleOf(int rank, int key) {
+    const opus14::Stop* s = stopFor(rank);
+    if (!s || key < flue::overblowFrom(*s)) return 0;
+    static std::mutex m; static std::map<int, double> known;
+    { std::lock_guard<std::mutex> lk(m); auto it = known.find(rank * 128 + key); if (it != known.end()) return it->second; }
+    double dia = 0;
+    if (const FluePipeSpec* b = organFlueSpec(rank, key)) {
+        flue::Design d; std::string why;
+        if (flueDesign(rank, key, *b, d, why) && !d.g.holes.empty()) dia = std::sqrt(4.0 * d.g.holes[0].area / M_PI);
+    }
+    std::lock_guard<std::mutex> lk(m); known[rank * 128 + key] = dia;
+    return dia;
+}
+
 inline flue::JetParams jetOf(const FluePipeSpec& b) {
     flue::JetParams jp;
     jp.y0b = b.y0b; jp.lpk = b.lpk; jp.gain = -(double)b.gscale; jp.kd = b.kd; jp.noise = b.noise; jp.sign = b.sign; jp.vortex = b.vortex; jp.beard = b.beard;
@@ -166,6 +185,10 @@ inline bool editFlue(int rank, int key, const FluePipeSpec& base, const PipeEdit
     d.languid *= e.v[kEdLanguid];
     d.footPa *= e.v[kEdFootPressure];
     if (d.toe > 0) d.toe *= e.v[kEdToe];   // an open foot (no toe hole) has nothing to bore
+    // the harmonic hole pierced wider: it sits where the pipe's even modes (the note and its octaves) have a
+    // pressure node and its odd ones (the octave below, the twelfth below the octave) a loop, so it is the
+    // odd ones it damps and pulls away
+    for (auto& h : d.g.holes) h.area *= (double)e.v[kEdHole] * e.v[kEdHole];
     flue::recut(d, e.v[kEdBodyLength]);   // also finds the modes again after a diameter change
     flue::JetParams jp = jetOf(base);
     if (e.v[kEdBeard] >= 0.f) jp.beard = e.v[kEdBeard];

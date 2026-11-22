@@ -11,7 +11,7 @@
 // each finished pipe is appended, so a stopped run resumes).
 //
 // What the voicer may change is what a voicer changes at the voicing machine. A flue pipe: the toe hole
-// (its wind), the cut-up, the flue (windway) width, the languid (the jet's height against the lip: y0/b),
+// (its wind), a harmonic pipe's hole at half its length, the cut-up, the flue (windway) width, the languid (the jet's height against the lip: y0/b),
 // the nicking and the jet's strength (the family's gain), a beard; and it is cut to pitch (the whole pipe
 // scaled, the trim). A reed: the toe hole (an open boot to a bored hole), the tongue's curve (its rest
 // opening), its width, the boot pressure, and the tuning (tongue and resonator, the trim). The search
@@ -131,9 +131,13 @@ static bool tune(Bench& b, const PipeRef& p, Spec& sp, std::function<void(const 
 // ---------------------------------------------------------------- candidates
 struct Change { const char* what; std::vector<std::pair<int, float>> edits; float y0b = 0, gainX = 1, beard = -1; };
 
-static std::vector<Change> flueChanges(int rank) {
+static std::vector<Change> flueChanges(int rank, int key) {
     const bool string = kRanks[rank].kind == kKindString;
     std::vector<Change> one;
+    // a harmonic pipe: its hole at half the length pierced wider (it damps the octave below and the 1.5x
+    // resonance the doubled pipe also has), first of all
+    if (const opus14::Stop* st = edit::stopFor(rank); st && key >= flue::overblowFrom(*st))
+        for (float hk : { 1.2f, 1.4f, 1.6f, 1.8f, 0.85f }) one.push_back({ "harmonic hole", { { kEdHole, hk } } });
     for (float t : { 0.9f, 1.12f, 0.8f, 1.25f, 0.7f, 1.4f }) one.push_back({ "toe", { { kEdToe, t } } });
     for (float c : { 0.95f, 1.05f, 0.9f, 1.1f, 0.85f, 1.15f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
     for (float h : { 0.9f, 1.1f, 0.8f, 1.2f }) one.push_back({ "flue", { { kEdFlue, h } } });
@@ -241,7 +245,7 @@ static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<
 
 static Outcome voiceFlue(Bench& b, const PipeRef& p, FluePipeSpec& spec) {
     const FluePipeSpec orig = spec;
-    return search<FluePipeSpec>(b, p, spec, flueChanges(p.rank), [&](const std::vector<const Change*>& cs, FluePipeSpec& out) {
+    return search<FluePipeSpec>(b, p, spec, flueChanges(p.rank, p.key), [&](const std::vector<const Change*>& cs, FluePipeSpec& out) {
         FluePipeSpec base = orig;
         PipeEdit e; for (auto* c : cs) for (auto& ed : c->edits) e.v[ed.first] *= ed.second;
         float beard = -1; for (auto* c : cs) { base.y0b += c->y0b; base.gscale *= c->gainX; if (c->beard >= 0) beard = c->beard; }
