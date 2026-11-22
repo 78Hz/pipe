@@ -198,6 +198,10 @@ public:
         for (auto& v : voices) v.active = false;
         for (int d = 0; d < kNumDivisions; ++d) for (int k = 0; k < kNumKeys; ++k) pallets[d][k] = Pallet();
         std::memset(trimValid, 0, sizeof(trimValid));
+        // every note's breath of air is drawn from its rank, key and the count of notes since the engine was
+        // prepared: a prepared engine plays the same notes the same way (the pipe test and the voicer hear the
+        // same pipe; before, the count ran on from whatever had been played before)
+        ageCounter = 0; orderCounter = 0;
         room.clear();
         for (int d = 0; d < kNumDivisions; ++d) { swellLpL = swellLpR = 0.f; }
     }

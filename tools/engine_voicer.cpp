@@ -318,6 +318,8 @@ int main(int argc, char** argv) {
                     if (ok || !std::getenv("REDO_FAILED")) doneSet[{ r, k }] = ok != 0; else doneSet.erase({ r, k });
                 }
                 std::fclose(f);
+                // REDO=r:k,r:k,... (rank index, key): voiced again from where they are (the judge has changed, or the pipe test found them wanting)
+                if (const char* rd = std::getenv("REDO")) { std::string s = rd; size_t p0 = 0; while (p0 < s.size()) { size_t q = s.find(',', p0); if (q == std::string::npos) q = s.size(); int r, k; if (std::sscanf(s.substr(p0, q - p0).c_str(), "%d:%d", &r, &k) == 2) doneSet.erase({ r, k }); p0 = q + 1; } }
                 std::fprintf(stderr, "checkpoint: %zu pipes already voiced\n", doneSet.size());
             }
         }
