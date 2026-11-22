@@ -11,6 +11,9 @@
 //   5. short notes speak
 //   6. every note of a full chord speaks while the wind sags
 #include "engine/Engine.hpp"
+#include "PipeJudge.hpp"
+#include <atomic>
+#include <thread>
 
 #include <complex>
 #include <cstdarg>
@@ -37,55 +40,10 @@ static double rmsDb(const float* x, int n) {
     return 10 * std::log10(e / std::max(1, n) + 1e-20);
 }
 
-// Level (dB) of the partial at `f` in x.
-static double partialDb(const float* x, int n, double f) {
-    std::complex<double> z = 0;
-    for (int i = 0; i < n; ++i) z += (double)x[i] * std::polar(1.0, -2 * M_PI * f * i / fs);
-    return 20 * std::log10(2 * std::abs(z) / n + 1e-20);
-}
-
-// Refine a frequency estimate from the phase advance between the two halves of
-// longer and longer stretches (each stretch short enough for the error left by
-// the one before).
-static double finePitch(const float* x, int n, double f) {
-    for (int len = std::max(64, (int)(4 * fs / f)); ; len *= 3) {
-        len = std::min(len, n);
-        std::complex<double> z1 = 0, z2 = 0; const int mid = len / 2;
-        for (int i = 0; i < mid; ++i) z1 += (double)x[i] * std::polar(1.0, -2 * M_PI * f * i / fs);
-        for (int i = mid; i < 2 * mid; ++i) z2 += (double)x[i] * std::polar(1.0, -2 * M_PI * f * i / fs);
-        f += std::arg(z2 * std::conj(z1)) / (2 * M_PI * mid / (double)fs);
-        if (len == n) break;
-    }
-    return f;
-}
-
-// Cents between the sound and `expectHz`; 9999 when it is in the wrong register:
-// when the strongest partial near the expected pitch is not the fundamental of
-// what sounds (energy an octave or a twelfth below it, or the note itself all but
-// missing under its own overtones).
-static double centsOff(const float* x, int n, double expectHz) {
-    const int n1 = std::min(n, std::max(1024, (int)(40 * fs / expectHz)));
-    double f = expectHz, top = -300;
-    for (double c = -70; c <= 70; c += 2) {
-        const double ft = expectHz * std::pow(2.0, c / 1200.0), d = partialDb(x, n1, ft);
-        if (d > top) { top = d; f = ft; }
-    }
-    if (std::getenv("PIPE_TEST_VERBOSE") && top < -80) {
-        double bf = 0, bd = -300;
-        for (double c = -2400; c <= 2400; c += 4) { const double ft = expectHz * std::pow(2.0, c / 1200.0); if (ft > 0.48 * fs) break; const double d = partialDb(x, n1, ft); if (d > bd) { bd = d; bf = c; } }
-        std::printf("      %.1f Hz: nothing near the note; strongest partial %+.0f cents away at %.1f dB\n", expectHz, bf, bd);
-    }
-    if (std::fabs(1200 * std::log2(f / expectHz)) > 60) return 9999;
-    for (double sub : { 0.5, 1.0 / 3.0, 2.0 / 3.0, 1.5 })
-        for (double c = -70; c <= 70; c += 5)
-            if (partialDb(x, n1, f * sub * std::pow(2.0, c / 1200.0)) > top - 15) {
-                if (std::getenv("PIPE_TEST_VERBOSE")) std::printf("      %.1f Hz: partial at x%.3f %+.0f ct is %.1f dB against %.1f dB\n", expectHz, sub, c, partialDb(x, n1, f * sub * std::pow(2.0, c / 1200.0)), top);
-                return 9999;
-            }
-    if (2 * f < 0.45 * fs && partialDb(x, n1, 2 * f) > top + 25) return 9999;
-    if (3 * f < 0.45 * fs && partialDb(x, n1, 3 * f) > top + 25) return 9999;
-    return 1200 * std::log2(finePitch(x, n, f) / expectHz);
-}
+// the judge's measures (PipeJudge.hpp), at this run's rate
+static double partialDb(const float* x, int n, double f) { return judge::partialDb(x, n, f, fs); }
+static double finePitch(const float* x, int n, double f) { return judge::finePitch(x, n, f, fs); }
+static double centsOff(const float* x, int n, double expectHz) { return judge::centsOff(x, n, expectHz, fs, std::getenv("PIPE_TEST_VERBOSE") != nullptr); }
 
 static int rankOf(const char* stopId) { const int s = stopById(stopId); return s >= 0 ? kStops[s].rankFirst : 0; }
 
@@ -131,60 +89,44 @@ struct Rig {
 static double et(int key) { return 440.0 * std::pow(2.0, (key - 69) / 12.0); }
 
 // ---------------------------------------------------------------------------
+// Every pipe, judged by the one judge the voicer uses (PipeJudge.hpp): alone on its groove, first strike,
+// re-strike, soft and hard strikes, a long hold and the tremulant. The ranks run in parallel, one engine
+// per thread.
 static void everyPipe() {
-    std::printf("1. every pipe of every rank: speaks, right register, in tune (12-TET, a' = 440)\n");
-    std::printf("   %-16s %5s %6s %7s %10s %10s %9s\n", "rank", "pipes", "silent", "wrong", "first |ct|", "again |ct|", "speech ms");
-    Rig g;
-    for (int r = 0; r < kNumRanks; ++r) {
-        const int stop = stopForRank(r), div = kRanks[r].division;
-        if (kStops[stop].rankCount > 1) continue;        // mixture ranks cannot be drawn alone; their pipes are the same models
-        int pipes = 0, silent = 0, wrong = 0; double worstFirst = 0, worstAgain = 0, slowest = 0; std::string bad;
-        const int hi = div == kPedal ? kPedalHigh : kManualHigh;
-        for (int key = kManualLow; key <= hi; ++key) {
-            if (kRanks[r].lowestKey > 0 && key < kRanks[r].lowestKey) continue;
-            const double f = et(key) * rankRatio(r, key) * std::pow(2.0, kRanks[r].detuneCents / 1200.0);
-            if (f > 0.42 * fs) continue;
-            ++pipes;
-            g.reset(); g.draw(r);
-            g.run(0.05);
-            g.send(0x90, key, 100);
-            const double hold = std::max(1.0, 90.0 / f);       // long enough for the lowest pipes to settle
-            g.run(hold);
-            const size_t t0 = g.L.size() - (size_t)(hold * fs);
-            const auto first = g.tail(std::min(0.4, hold / 3));
-            const double lvl = rmsDb(first.data(), (int)first.size());
-            char buf[64];
-            if (lvl < -75) { ++silent; std::snprintf(buf, sizeof buf, " %d:silent", key); bad += buf; continue; }
-            // The model stops being a pipe when a period is only a handful of samples; those
-            // few top pipes are only required to speak.
-            const bool tiny = f > 0.145 * fs;
-            const double c1 = tiny ? 0 : centsOff(first.data(), (int)first.size(), f);
-            // time to speech: the first 10 ms stretch within 6 dB of the settled level
-            for (int i = 0; i + 480 < (int)(hold * fs); i += 96) {
-                double e = 0; for (int j = 0; j < 480; ++j) { const double s = 0.5 * (g.L[t0 + (size_t)(i + j)] + g.R[t0 + (size_t)(i + j)]); e += s * s; }
-                if (10 * std::log10(e / 480 + 1e-20) > lvl - 6) { slowest = std::max(slowest, (double)i / fs * f); break; }
+    std::printf("1. every pipe of every rank: speaks promptly, right register, in tune (12-TET, a' = 440), holds, under the tremulant\n");
+    std::printf("   %-26s %5s %6s %6s %7s %7s %7s %6s %6s %7s %7s\n", "rank", "pipes", "fail", "first", "again", "hold c", "hold dB", "vel", "trem", "speech", "of");
+    struct Row { int pipes = 0, fail = 0; double first = 0, again = 0, hold = 0, holdDb = 0, vel = 0, trem = 0, speech = 0, speechLim = 0; std::string bad; };
+    std::vector<Row> rows((size_t)kNumRanks);
+    std::atomic<int> next{0};
+    const bool verbose = std::getenv("PIPE_TEST_VERBOSE") != nullptr;
+    auto work = [&] {
+        judge::Rig g(fs);
+        for (int r; (r = next++) < kNumRanks;) {
+            Row& row = rows[(size_t)r];
+            const int hi = kRanks[r].division == kPedal ? kPedalHigh : kManualHigh;
+            for (int key = kManualLow; key <= hi; ++key) {
+                if (organ::kOrganPipe[r][key] < 0 && organ::kOrganReedPipe[r][key] < 0) continue;
+                judge::Options o; o.verbose = verbose;
+                const judge::Verdict v = judge::judgePipe(g, r, key, o);
+                if (!v.played) continue;
+                ++row.pipes;
+                row.first = std::max(row.first, std::fabs(v.first)); row.again = std::max(row.again, std::fabs(v.again));
+                row.hold = std::max(row.hold, v.holdWorst); row.holdDb = std::max(row.holdDb, v.holdLevel); row.vel = std::max(row.vel, v.velWorst);
+                row.trem = std::max(row.trem, std::fabs(v.tremCents));
+                if (v.speechPeriods / v.speechLimit > row.speech / std::max(1e-9, row.speechLim)) { row.speech = v.speechPeriods; row.speechLim = v.speechLimit; }
+                if (!v.pass()) { ++row.fail; char b[120]; std::snprintf(b, sizeof b, " %d:%s;", key, v.fault().c_str()); row.bad += b; }
             }
-            // let go, strike again: the pipe has to be in tune from the start now
-            g.send(0x80, key, 64); g.run(0.4);
-            g.send(0x90, key, 100);
-            // A reed struck from silence starts flat and takes about 40 periods to settle (a
-            // known limit of the reed model, checked separately below); its settled pitch is
-            // what is compared here.
-            const bool reedPipe = kRanks[r].kind == kKindReed;
-            const double again = reedPipe ? std::max(1.0, 90.0 / f) : std::max(0.6, 50.0 / f);
-            g.run(again);
-            const auto second = g.tail(reedPipe ? std::min(0.4, again / 3) : again * 0.4);
-            const double c2 = tiny ? 0 : centsOff(second.data(), (int)second.size(), f);
-            if (c1 > 9000 || c2 > 9000) { ++wrong; std::snprintf(buf, sizeof buf, " %d:register(%s)", key, c1 > 9000 ? "first" : "again"); bad += buf; continue; }
-            worstFirst = std::max(worstFirst, std::fabs(c1)); worstAgain = std::max(worstAgain, std::fabs(c2));
-            if (std::getenv("PIPE_TEST_VERBOSE") && (std::fabs(c1) > 2 || std::fabs(c2) > 1.5)) std::printf("      %s key %d (%.1f Hz): first %+.2f, again %+.2f\n", kRanks[r].name, key, f, c1, c2);
         }
-        std::printf("   %-16s %5d %6d %7d %10.2f %10.2f %7.0f per %s\n", kRanks[r].name, pipes, silent, wrong, worstFirst, worstAgain, slowest, bad.substr(0, 80).c_str());
-        check(silent == 0 && wrong == 0, "%s: all %d pipes speak in the right register", kRanks[r].name, pipes);
-        if (kRanks[r].kind == kKindReed)
-            check(worstFirst <= 3.0 && worstAgain <= 3.0, "%s: within 3 cents once settled, the first time and after a re-strike", kRanks[r].name);
-        else
-            check(worstFirst <= 3.0 && worstAgain <= 1.5, "%s: within 3 cents the first time a pipe speaks, 1.5 cents after that", kRanks[r].name);
+    };
+    unsigned nt = std::max(1u, std::thread::hardware_concurrency());
+    if (const char* e = std::getenv("PIPE_TEST_THREADS")) nt = (unsigned)std::max(1, std::atoi(e));
+    std::vector<std::thread> t; for (unsigned i = 0; i < nt; ++i) t.emplace_back(work); for (auto& x : t) x.join();
+    for (int r = 0; r < kNumRanks; ++r) {
+        const Row& row = rows[(size_t)r];
+        if (!row.pipes) continue;
+        std::printf("   %-26s %5d %6d %6.2f %7.2f %7.2f %7.2f %6.2f %6.1f %7.0f %7.0f\n", kRanks[r].name, row.pipes, row.fail, row.first, row.again, row.hold, row.holdDb, row.vel, row.trem, row.speech, row.speechLim);
+        if (row.fail) std::printf("      %s\n", row.bad.substr(0, 600).c_str());
+        check(row.fail == 0, "%s: all %d pipes speak promptly in the right register, in tune, hold, and under the tremulant", kRanks[r].name, row.pipes);
     }
 }
 
@@ -306,7 +248,8 @@ static void mpeTiming() {
 static void partTravel() {
     std::printf("4. a key pressed part of the way (MPE pressure opens the pallet)\n");
     Rig g;
-    for (int r : { 7, 0, 18, 19, 17, 5 }) {
+    // a principal, a large open bass, a string and its celeste, a stopped flute, a bass reed
+    for (int r : { rankOf("i_octave_8"), rankOf("p_principal_16"), rankOf("i_salicional_8"), rankOf("iii_celeste_8"), rankOf("ii_gedeckt_8"), rankOf("p_posaune_16") }) {
         g.reset(); g.draw(r);
         g.send(0xB0, 101, 0); g.send(0xB0, 100, 6); g.send(0xB0, 6, 15);
         g.run(0.05);
@@ -335,7 +278,8 @@ static void shortNotes() {
     std::printf("5. short notes\n");
     Rig g;
     struct Case { int rank, key; double ms; };
-    for (const Case& c : { Case{ 7, 60, 60 }, Case{ 7, 48, 90 }, Case{ 7, 36, 230 }, Case{ 18, 60, 60 }, Case{ 17, 60, 80 }, Case{ 17, 48, 140 }, Case{ 0, 36, 420 }, Case{ 5, 36, 450 } }) {
+    const int oct8 = rankOf("i_octave_8"), sal = rankOf("i_salicional_8"), ged = rankOf("ii_gedeckt_8"), p16 = rankOf("p_principal_16"), pos = rankOf("p_posaune_16");
+    for (const Case& c : { Case{ oct8, 60, 60 }, Case{ oct8, 48, 90 }, Case{ oct8, 36, 230 }, Case{ sal, 60, 60 }, Case{ ged, 60, 80 }, Case{ ged, 48, 140 }, Case{ p16, 36, 420 }, Case{ pos, 36, 450 } }) {
         g.reset(); g.draw(c.rank); g.run(0.05);
         g.send(0x90, c.key, 100); g.run(1.5); const double steady = g.tailDb(0.3);
         g.send(0x80, c.key, 64); g.run(0.6);

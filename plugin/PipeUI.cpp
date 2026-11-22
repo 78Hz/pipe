@@ -786,12 +786,13 @@ private:
         text(x + 452, top + 44, "NOW", 17, ink2, ALIGN_CENTER | ALIGN_MIDDLE);
         text(x + w, top + 44, "CHANGE", 17, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
         float ry = top + 58;
-        auto row = [&](const char* label, double base, int field, const char* unit, double mul, const char* f) {
+        auto row = [&](const char* label, double base, int field, const char* unit, double mul, const char* f, const char* baseText = nullptr) {
             const double ratio = field == kEdBeard ? 1.0 : e.v[field];
             text(x, ry + 17, label, 19);
-            text(x + 250, ry + 17, fmt(f, base * mul) + unit, 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
+            text(x + 250, ry + 17, baseText ? std::string(baseText) : fmt(f, base * mul) + unit, 19, ink2, ALIGN_RIGHT | ALIGN_MIDDLE);
             std::string now;
-            if (field == kEdBeard) now = e.v[kEdBeard] < 0 ? (base > 0 ? fmt("%.2f", base) : std::string("NONE")) : (e.v[kEdBeard] == 0 ? std::string("NONE") : fmt("%.2f", e.v[kEdBeard]));
+            if (baseText && std::fabs(ratio - 1.0) < 1e-6) now = baseText;
+            else if (field == kEdBeard) now = e.v[kEdBeard] < 0 ? (base > 0 ? fmt("%.2f", base) : std::string("NONE")) : (e.v[kEdBeard] == 0 ? std::string("NONE") : fmt("%.2f", e.v[kEdBeard]));
             else now = fmt(f, base * mul * ratio) + unit;
             stepper(x + 270, ry, 346 - 92, "", now,
                     [this, field, ratio, base] { if (field == kEdBeard) { const float c = pipeEdits.count(selRank * 128 + selKey) && pipeEdits[selRank * 128 + selKey].v[kEdBeard] >= 0 ? pipeEdits[selRank * 128 + selKey].v[kEdBeard] : (float)base; setEdit(kEdBeard, std::max(0.f, c - 0.05f)); } else setEdit(field, (float)(ratio / 1.01)); },
@@ -809,6 +810,7 @@ private:
             row("WINDWAY LENGTH", bf->languid, kEdLanguid, " MM", 1000, "%.1f");
             row("FOOT PRESSURE", bf->footPa / 9.80665, kEdFootPressure, " MM", 1, "%.1f");
             row("BEARD (X CUT-UP)", bf->beard, kEdBeard, "", 1, "%.2f");
+            if (bf->toe > 0) row("TOE HOLE", bf->toe, kEdToe, " MM", 1000, "%.1f");   // an open foot has none to bore
         }
         else if (br)
         {
@@ -819,6 +821,8 @@ private:
             row("RESONATOR LENGTH", br->length, kEdResLength, " MM", 1000, "%.1f");
             row("RESONATOR DIAMETER", 2 * br->lowerR, kEdResDiameter, " MM", 1000, "%.1f");
             row("BOOT PRESSURE", br->footPa / 9.80665, kEdBootPressure, " MM", 1, "%.1f");
+            // the toe hole: an open boot (0) is first given the hole that passes what the open boot does (PipeEdit.hpp)
+            row("TOE HOLE", br->toe > 0 ? br->toe : std::sqrt(4.0 * 10.0 * br->w * br->x0 / M_PI), kEdToe, " MM", 1000, "%.1f", br->toe > 0 ? nullptr : "OPEN");
         }
         // what follows from them
         ry += 6;

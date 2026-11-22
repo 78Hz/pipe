@@ -30,12 +30,14 @@ enum PipeEditField {
     kEdBodyLength = 0, kEdBodyDiameter, kEdMouthWidth, kEdCutup, kEdFlue, kEdLanguid, kEdFootPressure, kEdBeard,
     // reed
     kEdTongueThick, kEdTongueLength, kEdTongueWidth, kEdTongueCurve, kEdResLength, kEdResDiameter, kEdBootPressure,
+    // both: the toe hole (the flue's foot, the reed's boot)
+    kEdToe,
     kNumEditFields
 };
 // state text names, one per field
 static const char* const kEditFieldIds[kNumEditFields] = {
     "length", "diameter", "mouth", "cutup", "flue", "languid", "foot", "beard",
-    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot" };
+    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot", "toe" };
 
 // An edit is a ratio to the pipe as voiced (1 = unchanged), except the beard: its value in cut-ups
 // (negative = unchanged).
@@ -163,6 +165,7 @@ inline bool editFlue(int rank, int key, const FluePipeSpec& base, const PipeEdit
     d.flue *= e.v[kEdFlue];
     d.languid *= e.v[kEdLanguid];
     d.footPa *= e.v[kEdFootPressure];
+    if (d.toe > 0) d.toe *= e.v[kEdToe];   // an open foot (no toe hole) has nothing to bore
     flue::recut(d, e.v[kEdBodyLength]);   // also finds the modes again after a diameter change
     flue::JetParams jp = jetOf(base);
     if (e.v[kEdBeard] >= 0.f) jp.beard = e.v[kEdBeard];
@@ -213,6 +216,12 @@ inline bool editReed(int rank, int key, const ReedPipeSpec& base, const PipeEdit
     out.w = (float)(base.w * e.v[kEdTongueWidth]);
     out.x0 = (float)(base.x0 * e.v[kEdTongueCurve]); out.xs = (float)(base.xs * e.v[kEdTongueCurve]);
     out.footPa = (float)(base.footPa * e.v[kEdBootPressure]);
+    // the toe hole: an open boot (0) narrowed is first given the hole that passes what the open boot does
+    // (ten times the tongue's largest opening, so the tongue, not the toe, limits the flow)
+    if (std::fabs(e.v[kEdToe] - 1.f) > 1e-6f) {
+        const double open = std::sqrt(4.0 * 10.0 * base.w * base.x0 / M_PI);
+        out.toe = (float)((base.toe > 0 ? base.toe : open) * e.v[kEdToe]);
+    }
     out.passR = (float)reedPassiveR(out);
     return true;
 }

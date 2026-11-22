@@ -238,6 +238,15 @@ public:
         tuningDirty = true;
     }
     // Pipes edited in the Workshop (PipeEdit.hpp): rebuilt here, off the audio thread, then handed over.
+    // The voicer's hook (tools/engine_voicer.cpp): play these pipes in place of the organ's, at once.
+    // Call between notes, from the thread that renders. The tuner forgets what it learnt.
+    // The pipe test's and the voicer's hook: only this rank of a drawn stop sounds (a mixture's rank on its
+    // own); -1 = all.
+    void setSoloRank(int r) { soloRank = r; }
+    void setVoicingOverride(std::unique_ptr<PipeEditSet> set) {
+        pipeEdits = std::move(set); pendingEdits.reset(); editsDirty = false;
+        std::memset(trimValid, 0, sizeof(trimValid));
+    }
     void setPipeEditsText(const std::string& text) {
         std::unique_ptr<PipeEditSet> set = buildPipeEdits(text);
         std::lock_guard<std::mutex> lk(stateMutex);
@@ -456,7 +465,10 @@ private:
     // Frequency the pipe under (rank, key) is tuned to right now.
     double pipeFrequency(int rank, const Pallet& p, int key) const {
         const RankDef& rd = kRanks[rank];
-        double f = p.pitch.hz * rankRatio(rank, key);
+        // the rank's pipe for the pitch the key plays (in a 41-EDO octave, key 100 plays a pipe of the compass)
+        const int kk = std::max(0, std::min(127, (int)std::lround(p.pitch.keyFloat)));
+        (void)key;
+        double f = p.pitch.hz * rankRatio(rank, kk);
         // tuning offsets: rank, pipe, celeste, age, temperature
         double cents = voicing->pipeTune[rank][p.pitch.pipeIndex] + rd.detuneCents;
         const float drift = params[kParamAgeDrift];
@@ -486,6 +498,7 @@ private:
     }
 
     void startVoice(int rank, int d, int key) {
+        if (soloRank >= 0 && rank != soloRank) return;
         const RankDef& rd = kRanks[rank];
         const Pallet& p = pallets[d][key];
         if (rd.lowestKey > 0 && p.pitch.keyFloat < rd.lowestKey - 0.5f) return;
@@ -565,11 +578,8 @@ private:
 #ifdef PIPE_NO_GROOVE
             v.groove = false;
 #endif
-            // its toe hole, as a voicer opens it to regulate a reed: ASSUMPTION an area of 3 x the tongue's
-            // largest opening (w x0), at least 5 mm across (Opus 14's reed toe holes are not in the sources)
-#ifndef PIPE_NO_TOE
-            core.setToe(std::max(0.005, std::sqrt(4.0 * 3.0 * sp->w * sp->x0 / M_PI)));
-#endif
+            // its toe hole, as the voicer bored it (0: an open boot)
+            core.setToe(sp->toe);
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -722,7 +732,7 @@ private:
                 for (int r = 0; r < kNumRanks; ++r) {
                     if (kRanks[r].division != d) continue;
                     if (const FluePipeSpec* f = organFlueSpec(r, key)) a += f->toe > 0 ? M_PI * 0.25 * f->toe * f->toe : 0.5 * M_PI * f->radius * f->radius;
-                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += std::max(M_PI * 0.25 * 0.005 * 0.005, 3.0 * (double)q->w * q->x0);
+                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += q->toe > 0 ? M_PI * 0.25 * q->toe * q->toe : 3.0 * (double)q->w * q->x0;   // an open boot: what its tongue lets through, with room
                 }
                 grooveW[d][key] = std::max(0.05, std::min(0.30, 1.5 * a / (kGroovePalletCd * kGroovePalletLift)));
             }
@@ -1261,6 +1271,7 @@ private:
     Tuning tuning;
     std::unique_ptr<Voicing> voicing, pendingVoicing;
     std::unique_ptr<PipeEditSet> pipeEdits, pendingEdits;
+    int soloRank = -1;
     AirState air = AirState::make(kTunedTempC, kTunedHumidity, kTunedPressureKPa);
     PipeAir pipeAir = PipeAir::of(AirState::make(kTunedTempC, kTunedHumidity, kTunedPressureKPa));
     double airT = -999, airH = -999, airP = -999, cTunedRatio = 1.0;

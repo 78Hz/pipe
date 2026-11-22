@@ -43,6 +43,10 @@ struct ReedPipeSpec {
     int nModes = 0;
     float f[kReedMaxModes], Q[kReedMaxModes], pkRe[kReedMaxModes], pkIm[kReedMaxModes], topRe[kReedMaxModes], topIm[kReedMaxModes];
     float passR = -1;              // the fitted modes' most negative Re Z (reedPassiveR), for the record; not used in sound
+    // The toe hole the boot is fed through from the groove, as the voicer bored it to regulate the pipe
+    // (m, diameter). 0 = open: the boot takes the groove's wind through its own bore. (Last in the record:
+    // a record written before it was added is read with 0.)
+    float toe = 0;
 };
 
 // The resonator's input impedance as the sum of its modes, each fitted to the complex peak of the
