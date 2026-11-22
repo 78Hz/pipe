@@ -8,6 +8,8 @@
 //     heard it 1.5 cents (flue) / 3 cents (reed, settled)
 //   - hold that pitch and level while the key is held (an organist holds a chord for many seconds): every
 //     window of the hold within 3 cents, the level within 2 dB of its range
+//   - speak promptly: within its speech limit it is at its level and sounding its own note (not another
+//     resonance of its body that it only later leaves)
 //   - speak the same when struck softly and hard (the key action's pallet opening)
 //   - keep speaking its note under the tremulant
 #pragma once
@@ -162,7 +164,8 @@ struct Verdict {
     double tremLevel = 0;         // its level against the pipe's own (dB)
     double level = -300;          // the pipe's level (dB RMS)
     double rawFirst = 9999;       // first strike: the strongest partial near the note (cents), register aside
-    double speechPeriods = 0;
+    double speechPeriods = 0;      // to its level and its note, whichever is later
+    double notePeriods = 0;        // to its note (the sound repeating at the note's period)
     bool reed = false, tiny = false;
     std::string why;
     bool registerOk() const { return !silent && !wrongFirst && !wrongAgain && !wrongHold && !wrongVel && !wrongTrem; }
@@ -196,7 +199,7 @@ struct Verdict {
         if (wrongTrem) return "wrong register under the tremulant";
         if (!firstOk()) { std::snprintf(b, sizeof b, "first strike %+.1f c", first); return b; }
         if (!againOk()) { std::snprintf(b, sizeof b, "re-strike %+.1f c", again); return b; }
-        if (!speechOk()) { std::snprintf(b, sizeof b, "slow to speak: %.0f periods (%.0f allowed)", speechPeriods, speechLimit); return b; }
+        if (!speechOk()) { std::snprintf(b, sizeof b, "slow to speak%s: %.0f periods (%.0f allowed)", notePeriods >= speechPeriods ? " its note" : "", speechPeriods, speechLimit); return b; }
         if (!holdOk()) { std::snprintf(b, sizeof b, "while held: pitch %.1f c, level %.1f dB", holdWorst, holdLevel); return b; }
         if (!velOk()) { std::snprintf(b, sizeof b, "soft/hard strike %.1f c", velWorst); return b; }
         if (!tremOk()) { std::snprintf(b, sizeof b, "under the tremulant %+.1f c, %+.1f dB", tremCents, tremLevel); return b; }
@@ -256,6 +259,35 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
     for (int i = 0; i + 480 < (int)(hold * fs); i += 96) {
         double e = 0; for (int j = 0; j < 480; ++j) { const double s = 0.5 * (g.L[t0 + (size_t)(i + j)] + g.R[t0 + (size_t)(i + j)]); e += s * s; }
         if (10 * std::log10(e / 480 + 1e-20) > v.level - 6) { v.speechPeriods = (double)i / fs * f; break; }
+    }
+    // ... and speaking its own note: loud is not enough, a pipe can come up to its level on another resonance
+    // of its body (an inharmonic mode of a Haskell bass, the stopped pipe's flue on a cross mode) and only
+    // later fall into its note. The sound has its note when it repeats at the note's period: the correlation
+    // of 4 periods (at least 10 ms) with the same one period later, within 0.15 of the settled pipe's (and at
+    // least 0.85 of a perfect repeat). A reed, which starts flat, is allowed its period within 3 %.
+    if (!v.tiny) {
+        const double T = fs / f; const int n = std::max((int)(4 * T), 480), hop = std::max(96, n / 4);
+        auto rAt = [&](size_t a, double lag) {
+            const int Ti = (int)lag; const double fr = lag - Ti; double sxy = 0, sxx = 0, syy = 0;
+            for (int i = 0; i < n; ++i) {
+                const double x = 0.5 * (g.L[a + i] + g.R[a + i]);
+                const size_t j = a + (size_t)(i + Ti);
+                const double y = 0.5 * ((1 - fr) * (g.L[j] + g.R[j]) + fr * (g.L[j + 1] + g.R[j + 1]));
+                sxy += x * y; sxx += x * x; syy += y * y;
+            }
+            return sxy / std::sqrt(sxx * syy + 1e-30);
+        };
+        auto r = [&](size_t a) {
+            if (!v.reed) return rAt(a, T);
+            double best = -1; for (double m = 0.97; m <= 1.0301; m += 0.005) best = std::max(best, rAt(a, T * m));
+            return best;
+        };
+        const size_t last = t0 + (size_t)(hold * fs) - (size_t)n - (size_t)(1.04 * T) - 2;
+        const double thr = std::min(r(last) - 0.15, 0.85);
+        double late = 0;
+        for (size_t a = t0; a <= last; a += (size_t)hop) if (r(a) < thr) late = (double)(a - t0 + (size_t)n) / fs;
+        v.notePeriods = late * f;
+        v.speechPeriods = std::max(v.speechPeriods, v.notePeriods);
     }
     if (o.stopEarly && !v.speechOk()) return v;
     if (o.full) {
