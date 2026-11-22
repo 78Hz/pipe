@@ -188,7 +188,17 @@ inline bool editFlue(int rank, int key, const FluePipeSpec& base, const PipeEdit
     // the harmonic hole pierced wider: it sits where the pipe's even modes (the note and its octaves) have a
     // pressure node and its odd ones (the octave below, the twelfth below the octave) a loop, so it is the
     // odd ones it damps and pulls away
-    for (auto& h : d.g.holes) h.area *= (double)e.v[kEdHole] * e.v[kEdHole];
+    // A pipe whose hole is all but closed (under 5 % of its diameter: it was made to overblow by its jet alone)
+    // is first bored at a quarter of its diameter, as harmonic pipes are made (opus14_organ's hole), and that hole is
+    // then scaled.
+    if (std::fabs(e.v[kEdHole] - 1.f) > 1e-6f && d.speakMode == 2) {
+        const double dia = 2 * d.radius, L = d.g.body[0].L;
+        if (d.g.holes.empty()) d.g.holes = { { 0.5 * L, 0.0, d.g.wall } };
+        auto& h = d.g.holes[0];
+        const double hd = std::sqrt(4.0 * h.area / M_PI);
+        const double from = hd < 0.05 * dia ? 0.25 * dia : hd;
+        h.area = M_PI * 0.25 * (from * e.v[kEdHole]) * (from * e.v[kEdHole]);
+    }
     flue::recut(d, e.v[kEdBodyLength]);   // also finds the modes again after a diameter change
     flue::JetParams jp = jetOf(base);
     if (e.v[kEdBeard] >= 0.f) jp.beard = e.v[kEdBeard];

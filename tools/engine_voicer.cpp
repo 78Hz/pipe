@@ -137,7 +137,7 @@ static std::vector<Change> flueChanges(int rank, int key) {
     // a harmonic pipe: its hole at half the length pierced wider (it damps the octave below and the 1.5x
     // resonance the doubled pipe also has), first of all
     if (const opus14::Stop* st = edit::stopFor(rank); st && key >= flue::overblowFrom(*st))
-        for (float hk : { 1.2f, 1.4f, 1.6f, 1.8f, 0.85f }) one.push_back({ "harmonic hole", { { kEdHole, hk } } });
+        for (float hk : { 1.2f, 1.4f, 0.85f, 1.6f, 1.8f, 0.6f }) one.push_back({ "harmonic hole", { { kEdHole, hk } } });   // an all but closed hole is first bored at a quarter of the diameter
     for (float t : { 0.9f, 1.12f, 0.8f, 1.25f, 0.7f, 1.4f }) one.push_back({ "toe", { { kEdToe, t } } });
     for (float c : { 0.95f, 1.05f, 0.9f, 1.1f, 0.85f, 1.15f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
     for (float h : { 0.9f, 1.1f, 0.8f, 1.2f }) one.push_back({ "flue", { { kEdFlue, h } } });
@@ -176,6 +176,13 @@ static std::vector<Change> reedChanges() {
         for (float l : { 0.9f, 0.85f, 0.8f, 1.1f }) one.push_back({ "tongue length", { { kEdTongueLength, l } } });
         for (float t : { 1.1f, 1.2f, 0.9f }) one.push_back({ "tongue thickness", { { kEdTongueThick, t } } });
         one.push_back({ "toe", { { kEdToe, 0.3f } } });
+    }
+    if (std::getenv("PASS4")) {   // the fourth, for the top reeds: the tongue opened much further (a tongue curved so little it
+                                  // barely lets wind by), more wind in the boot, the resonator shorter or longer against the tongue
+        for (float c : { 1.5f, 1.7f, 2.0f }) one.push_back({ "curve", { { kEdTongueCurve, c } } });
+        for (float pr : { 1.3f, 1.5f }) one.push_back({ "boot", { { kEdBootPressure, pr } } });
+        for (float r : { 0.94f, 1.06f, 0.9f, 1.1f }) one.push_back({ "resonator", { { kEdResLength, r } } });
+        for (float w : { 1.2f, 1.35f }) one.push_back({ "width", { { kEdTongueWidth, w } } });
     }
     return one;
 }
