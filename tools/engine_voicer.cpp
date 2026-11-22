@@ -129,7 +129,7 @@ static bool tune(Bench& b, const PipeRef& p, Spec& sp, std::function<void(const 
 }
 
 // ---------------------------------------------------------------- candidates
-struct Change { const char* what; std::vector<std::pair<int, float>> edits; float y0b = 0, gainX = 1, beard = -1; };
+struct Change { const char* what; std::vector<std::pair<int, float>> edits; float y0b = 0, gainX = 1, beard = -1, noiseX = 1; };
 
 static std::vector<Change> flueChanges(int rank, int key) {
     const bool string = kRanks[rank].kind == kKindString;
@@ -144,6 +144,8 @@ static std::vector<Change> flueChanges(int rank, int key) {
     for (float y : { -0.1f, 0.1f, -0.2f, 0.2f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
     for (float g : { 0.8f, 1.25f, 0.63f, 1.6f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
     for (float bd : string ? std::vector<float>{ 1.0f, 0.7f, 0.5f } : std::vector<float>{ 1.0f, 0.7f }) { Change c{ "beard", {} }; c.beard = bd; one.push_back(c); }
+    // nicking the languid: the jet's turbulence (its noise) quietened, a steadier jet and a cleaner start
+    for (float nk : { 0.7f, 0.5f, 0.35f }) { Change c{ "nicking", {} }; c.noiseX = nk; one.push_back(c); }
     if (std::getenv("PASS2")) {   // the second pass, for the pipes the first could not voice: wider, and the mouth
         for (float m : { 0.92f, 1.08f, 0.85f, 1.15f }) one.push_back({ "mouth", { { kEdMouthWidth, m } } });
         for (float t : { 0.6f, 1.6f }) one.push_back({ "toe", { { kEdToe, t } } });
@@ -166,6 +168,12 @@ static std::vector<Change> flueChanges(int rank, int key) {
         for (float c : { 0.75f, 0.7f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
         for (float m : { 1.25f, 1.35f }) one.push_back({ "mouth", { { kEdMouthWidth, m } } });
         for (float g : { 0.56f, 0.6f, 0.66f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
+    }
+    if (std::getenv("PASS6")) {   // the sixth, for a pipe between slow speech and an unsteady start: fine steps of the mouth
+        for (float c : { 0.96f, 0.98f, 0.99f, 0.93f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
+        for (float m : { 0.88f, 0.95f, 1.04f }) one.push_back({ "mouth", { { kEdMouthWidth, m } } });
+        for (float y : { 0.15f, 0.25f, -0.15f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
+        for (float h : { 1.05f, 1.15f, 0.95f }) one.push_back({ "flue", { { kEdFlue, h } } });
     }
     return one;
 }
@@ -204,6 +212,7 @@ static std::string label(const std::vector<const Change*>& cs) {
         if (!c->edits.empty()) std::snprintf(b, sizeof b, "%s x%.2f", c->what, (double)c->edits[0].second);
         else if (c->beard >= 0) std::snprintf(b, sizeof b, "beard %.2f", (double)c->beard);
         else if (c->y0b != 0) std::snprintf(b, sizeof b, "languid %+.2f", (double)c->y0b);
+        else if (c->noiseX != 1) std::snprintf(b, sizeof b, "nicking x%.2f", (double)c->noiseX);
         else std::snprintf(b, sizeof b, "jet x%.2f", (double)c->gainX);
         if (!s.empty()) s += ", ";
         s += b;
@@ -267,7 +276,7 @@ static Outcome voiceFlue(Bench& b, const PipeRef& p, FluePipeSpec& spec) {
     return search<FluePipeSpec>(b, p, spec, flueChanges(p.rank, p.key), [&](const std::vector<const Change*>& cs, FluePipeSpec& out) {
         FluePipeSpec base = orig;
         PipeEdit e; for (auto* c : cs) for (auto& ed : c->edits) e.v[ed.first] *= ed.second;
-        float beard = -1; for (auto* c : cs) { base.y0b += c->y0b; base.gscale *= c->gainX; if (c->beard >= 0) beard = c->beard; }
+        float beard = -1; for (auto* c : cs) { base.y0b += c->y0b; base.gscale *= c->gainX; base.noise *= c->noiseX; if (c->beard >= 0) beard = c->beard; }
         if (beard >= 0) e.v[kEdBeard] = beard;
         out = base; std::string why;
         return !e.any() || edit::editFlue(p.rank, p.key, base, e, out, why);
