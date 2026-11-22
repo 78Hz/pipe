@@ -78,6 +78,7 @@ struct Tremulant {
                 v += h * (wv * wv * (force - x) - 2.f * kVentZeta * wv * v);
                 x += h * v;
                 if (x < 0.f) { x = 0.f; if (v < 0.f) v = 0.f; }   // the pallet on its seat
+                if (x > kVentLiftMax) { x = kVentLiftMax; if (v > 0.f) v = 0.f; }   // and against its stop
             }
             q += h * (pr - p - rTrunk * q * std::fabs(q) - kTrunkLin * (q - qAvg)) / tauL;
             qAvg += (q - qAvg) * std::min(1.f, h * 1.5f);
@@ -88,12 +89,14 @@ struct Tremulant {
     }
     float pAvg = 1.f, qAvg = 0.f;
     static constexpr float kTrunkReact = 2.0f;     // the trunk's reactance at the beat, relative (pressure / unit flow)
-    float kDouxArea = 0.074f;      // swept flow at full swing, per unit of depth
+    double unitFlowM3 = 0.036;   // the trunk's unit flow in m^3/s (kTrunkUnitFlow flow units)
+    float kDouxArea = 0.25f;       // swept flow at full swing, per unit of depth
     float kDouxBack = 0.02f;
     float kHelmDoux = 1.6f, kHelmVent = 0.5f;   // doux: works below the trunk-chest resonance; vent perdu: above it (the chest's compliance gives the lag)
     float kVentRate = 0.79f;   // the pallet's own frequency / the beat it gives (the loop pulls it up)
     float kTrunkLin = 0.6f;   // the trunk's viscous loss (pressure / unit flow): damps its Helmholtz ring
-    float kVentArea = 1.1f, kVentGain = 4.f, kVentSeat = 0.5f, kVentZeta = 0.1f;
+    float kVentArea = 2.0f, kVentGain = 4.f, kVentSeat = 0.5f, kVentZeta = 0.1f, kVentLiftMax = 1.f;
+    float kVentMu = 1.0f, kVentRateK = 1.07f;   // audio-rate model (DivisionWind): the motor's self-excitation, and its rate against the beat (mu 1 slows a beat by ~7 %)
 };
 
 } // namespace pipe

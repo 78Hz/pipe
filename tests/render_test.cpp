@@ -374,7 +374,10 @@ int main(int argc, char** argv) {
         chest(kTremVentPerdu, false, ppVL, hzVL); chest(kTremVentPerdu, true, ppVF, hzVF);
         printf("  DOUX       one stop %3.0f %% p-p %.2f Hz, full swell %3.0f %% p-p %.2f Hz\n", ppDL, hzDL, ppDF, hzDF);
         printf("  VENT PERDU one stop %3.0f %% p-p %.2f Hz, full swell %3.0f %% p-p %.2f Hz\n", ppVL, hzVL, ppVF, hzVF);
-        const bool ok = ppDL > 12 && ppDL < 40 && ppDF < 0.6 * ppDL && ppVF > 0.7 * ppVL && ppVL > 12 && ppVL < 75
+        // the vent perdu keeps working at full Swell (deeper than 12 %, well above the doux there, and losing less of
+        // its depth than the doux does); with one stop the regulator, its curtain valve nearly shut, bounces with
+        // the spill and adds to it, so the one-stop depth is the larger
+        const bool ok = ppDL > 12 && ppDL < 40 && ppDF < 0.6 * ppDL && ppVF > 12 && ppVF > 1.5 * ppDF && ppVF / ppVL > ppDF / ppDL && ppVL > 12 && ppVL < 75
                         && std::fabs(hzDL - 5.8) < 0.8 && std::fabs(hzVL - 5.8) < 0.8 && std::fabs(hzDF - 5.8) < 1.0 && std::fabs(hzVF - 5.8) < 1.0;
         if (!ok) { printf("  <-- FAIL\n"); ++failures; }
     }

@@ -30,6 +30,101 @@ constexpr float kBlowerCapacity = 260.f;   // flow units (Principal 8' C4 = 1)
 // what a division's full chorus draws, so full organ on it loads the tremulant about 1.5 x)
 constexpr float kTrunkUnitFlow = 80.f;
 
+// ---------------------------------------------------------------------------------------------------------
+// One division's wind at audio rate, in physical units: its regulator (a weighted bellows whose curtain valve
+// lets in wind from the main reservoir as its lid falls), the trunk to the chest (the air's inertia and its
+// losses), the wind chest (the air's springiness) and, when it is drawn on this division, the tremulant's
+// valve in it. The grooves and pipes (Engine::renderDivision) take their wind from the chest sample by
+// sample and the chest feels what they take.
+// ASSUMPTIONS (no Opus 14 drawings at hand; sizes typical of slider-chest organs - Audsley, Dom Bedos):
+// regulator lid 1.0 x 0.6 m working 80 mm open, curtain valve up to 0.03 m^2 closing over 40 mm; trunk 3 m
+// of 0.03 m^2 (loss coefficient 1.5); chest 0.21 m^3 (e.g. 2.4 x 0.6 x 0.15 m), which with the trunk sets
+// its Helmholtz resonance near 12 Hz, twice the tremulant's beat, as a builder sets a trunk up for it.
+struct DivisionWind {
+    static constexpr double kAr = 0.6, kXWork = 0.08, kXMax = 0.15, kInletMax = 0.03, kInletSpan = 0.04,
+                            kXRelief = 0.12, kReliefMax = 0.01;   // the waste (safety) valve: opens as the lid rises past 120 mm, 0.01 m^2 at the top
+    static constexpr double kTrunkLen = 3.0, kTrunkS = 0.03, kTrunkK = 1.5, kChestV = 0.21, kCd = 0.61, kChestQ = 2.0;
+    double Pnom = 774.7;          // the division's pressure (Pa)
+    double regMass = 20, regZeta = 0.3;
+    // state
+    double Pr = 0, x = kXWork, v = 0;   // regulator: pressure, lid height, lid speed
+    double q = 0, qAvg = 0;             // trunk flow, m^3/s, and its steady part
+    double Pc = 0;                      // chest pressure, Pa
+    double inSum = 0, outSum = 0, pcSum = 0, pcMean = 0; int nSum = 0;   // what came in from the reservoir / went to the grooves, over the block
+    // tremulant valve on this division (Tremulant.hpp sets kind, rate, depth)
+    double tx = 0.02, tv = 0, tAmt = 0, tAvg = 0;
+
+    void reset(double Pres) {
+        Pr = Pc = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
+        inSum = outSum = 0; nSum = 0;
+    }
+    // One sample. Pres: the main reservoir's pressure (Pa); qOut: what the grooves' pallets and the chest's
+    // other pipes take this sample (m^3/s). rho, c: the air. The tremulant: its kind, rate, depth, on.
+    void step(double dt, double Pres, double qOut, double rho, double c, const Tremulant* trem, bool tremOn) {
+        const double rc2 = rho * c * c;
+        // regulator: the lid carries its weights; the curtain valve opens as it falls below its working height
+        const double open = std::max(0.0, std::min(1.0, (kXWork + 0.5 * kInletSpan - x) / kInletSpan));
+        double qin = 0;
+        if (open > 0 && Pres > Pr) qin = kCd * kInletMax * open * std::sqrt(2.0 * (Pres - Pr) / rho);
+        // the lid rides on the air under it (a spring of rho c^2 Ar^2 / V): its damping is regZeta of critical
+        const double kAir = rc2 * kAr * kAr / (kAr * std::max(0.01, x));
+        const double force = (Pr - Pnom) * kAr - 2.0 * regZeta * std::sqrt(kAir * regMass) * v;
+        v += dt * force / regMass;
+        x += dt * v;
+        if (x < 0.002) { x = 0.002; if (v < 0) v = 0; }
+        if (x > kXMax) { x = kXMax; if (v > 0) v = 0; }
+        const double Vr = kAr * x;
+        // trunk: the air's inertia and its losses; the doux flap sits in it
+        const double L = rho * kTrunkLen / kTrunkS;
+        double qPiston = 0, qVent = 0;
+        if (trem) {
+            const double tw = 2.0 * M_PI * trem->rate, Q0 = trem->unitFlowM3;
+            tAmt += ((tremOn ? 1.0 : 0.0) - tAmt) * std::min(1.0, 8.0 * dt);
+            tAvg += (Pc - tAvg) * std::min(1.0, 2.0 * dt);
+            if (trem->kind == kTremDoux) {
+                const double mu = 0.35 * tAmt;
+                tv += dt * (-tw * tw * tx + mu * tw * (1.0 - tx * tx) * tv - trem->kDouxBack * tw * tw * (Pc - tAvg) / Pnom / std::max(1e-3, (double)trem->depth));
+                tx += dt * tv;
+                qPiston = trem->kDouxArea * trem->depth * tAmt * Q0 * tv / tw;
+            } else {
+                // the vent perdu's pallet is worked by its own motor (a small bellows on the chest's wind that the
+                // pallet's opening empties): a self-sustaining beat at the rate its weight and spring set, close to
+                // a relaxation (mu 1). Only the opening half of its swing lifts the pallet off its seat, so the
+                // spill comes in bursts: a deep, less sinusoidal beat. What it spills scales with the chest's
+                // pressure, not with what the pipes draw, so it keeps its depth with full organ (Pykett).
+                const double mu = trem->kVentMu * tAmt, wv = trem->kVentRateK * tw;
+                tv += dt * (-wv * wv * tx + mu * wv * (1.0 - tx * tx) * tv - (1.0 - tAmt) * 4.0 * wv * tv);
+                tx += dt * tv;
+                const double lift = std::max(0.0, std::min(1.0, tx));
+                qVent = trem->kVentArea * trem->depth * tAmt * lift * Q0 * std::sqrt(std::max(0.0, Pc / Pnom));
+                if (tAmt < 1e-3 && std::fabs(tx) < 1e-3) { tx = 0.02; tv = 0; }   // at rest, ready to start
+            }
+        }
+        // losses: the trunk's turbulence, and the damping of the trunk and chest's resonance by the chest's
+        // wooden walls, its slides' and pallets' leakage and the wind conductor's linings, taken together as a
+        // resistance that leaves that resonance a Q of kChestQ. ASSUMPTION: kChestQ = 2 (no measurement of a
+        // chest's wind resonance to hand; with the turbulent loss alone it rang for seconds and the reeds,
+        // which draw less as their pressure rises, kept it going).
+        const double Z0 = std::sqrt(L * rc2 / kChestV);
+        const double loss = kTrunkK * 0.5 * rho / (kTrunkS * kTrunkS) * std::fabs(q);
+        qAvg += (q - qAvg) * std::min(1.0, 2.0 * M_PI * 2.0 * dt);   // the steady flow (below 2 Hz): the damping acts on what moves
+        q += dt * (Pr - Pc - loss * q - Z0 / kChestQ * (q - qAvg)) / L;
+        // the waste valve: a lid that overshoots its working height (a sudden release of a full chord) lifts
+        // it and spills the excess rather than holding the regulator's air above its weights
+        double qWaste = 0;
+        if (x > kXRelief) qWaste = kCd * kReliefMax * std::min(1.0, (x - kXRelief) / (kXMax - kXRelief)) * std::sqrt(2.0 * Pr / rho);
+        // the regulator's air and the chest's air (their springiness)
+        Pr += dt * rc2 / Vr * (qin - q - qWaste - kAr * v);
+        Pr = std::max(0.0, Pr);
+        Pc += dt * rc2 / kChestV * (q - qOut - qVent + qPiston);
+        Pc = std::max(0.0, Pc);
+        inSum += qin; outSum += qOut; pcSum += Pc; ++nSum;
+    }
+    // what the regulator drew from the reservoir over the block (m^3/s), and reset
+    // (and the chest's mean pressure over the block, pcMean)
+    double takeInflow() { const double r = nSum ? inSum / nSum : 0.0; pcMean = nSum ? pcSum / nSum : Pc; inSum = outSum = pcSum = 0; nSum = 0; return r; }
+};
+
 enum ReservoirLoad { kLoadWeights = 0, kLoadSprings, kNumReservoirLoads };
 static const char* const kReservoirLoadLabels[kNumReservoirLoads] = { "WEIGHTS", "SPRINGS" };
 
@@ -47,6 +142,7 @@ struct WindSystem {
     float tremSpeed = 5.8f, tremDepth = 0.22f;
     Tremulant trem;
     float tremLoad = 0.f;
+    DivisionWind div[kNumDivisions];
     int tremTarget = kSwell;
     bool tremOn = false;
 
@@ -77,7 +173,7 @@ struct WindSystem {
         lid = blowerOn ? kWorkHeight : 0.f;
         reservoir = lidPressure(lid);
         sag = sagVel = 0.f;
-        for (int d = 0; d < kNumDivisions; ++d) chest[d] = blowerOn ? std::min(kChestNominal[d], reservoir) : 0.f;
+        for (int d = 0; d < kNumDivisions; ++d) { chest[d] = blowerOn ? std::min(kChestNominal[d], reservoir) : 0.f; div[d].Pnom = kChestNominal[d] * 9.80665; div[d].reset(reservoir * 9.80665); }
         trem.reset();
         secondsLeft = -1.f;
     }
@@ -120,26 +216,12 @@ struct WindSystem {
 
         reservoir = lidPressure(lid) * (1.f - sag);
 
+        // each division's regulator, trunk, chest and tremulant: DivisionWind, stepped at audio rate by the
+        // engine with the grooves on the chest (Engine::renderGrooves); the regulators' flexibility:
         for (int d = 0; d < kNumDivisions; ++d) {
-            // the regulator holds its set pressure while the reservoir is above it (less a
-            // small drop through the trunk), and passes the reservoir through below that
-            float p = std::min(kChestNominal[d], reservoir * 0.985f);
-            p *= 1.f - 0.6f * sag;      // flexible wind: part of the lid's bounce comes through
-            if (d == tremTarget) {
-                // the tremulant's valve, the trunk and the chest (Tremulant.hpp): the pipes speaking on the
-                // chest load it
-                trem.rate = tremSpeed; trem.depth = tremDepth;
-                const float load = divFlow ? divFlow[d] / kTrunkUnitFlow : 0.f;
-                const float pr = std::max(1e-3f, p / kChestNominal[d]);
-                // The pipes load it as a conductance: their real flow (the grooves' pallets, Engine::renderGrooves)
-                // over the chest pressure, averaged over 0.2 s. Taken block by block, that flow includes the
-                // grooves filling and emptying with the chest one block late, which undamps the beat; the
-                // chest, its grooves and the tremulant solved together at audio rate (stage 3) replace this.
-                tremLoad += (load / std::sqrt(pr) - tremLoad) * std::min(1.f, dt / 0.2f);
-                p = kChestNominal[d] * trem.step(dt, pr, tremLoad, tremOn);
-            }
-            if (d == tremTarget) chest[d] = std::max(0.f, p);   // the tremulant's model holds this chest's own dynamics
-            else chest[d] += (std::max(0.f, p) - chest[d]) * std::min(1.f, 60.f * dt);
+            div[d].Pnom = kChestNominal[d] * 9.80665;
+            div[d].regMass = 8.0 + 40.0 * flexibility;                       // a heavier lid answers slower
+            div[d].regZeta = 0.08 + 0.7 * (1.0 - flexibility) + 0.6 * concussion;
         }
     }
 };

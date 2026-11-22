@@ -286,7 +286,8 @@ private:
         auto F = [&](double P, double& dF) {
             double qi = 0, dqi = 0;
             const double dP = chest - P;
-            if (open && dP > 0) { const double r = std::sqrt(bb * bb + 4 * aa * dP); qi = (-bb + r) / (2 * aa); dqi = 1.0 / r; }
+            // both ways: a foot left above a falling groove (or chest) blows back through its toe
+            if (open) { const double r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); qi = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); dqi = 1.0 / r; }
             double qo = 0, dqo = 0;
             if (P > 0) { const double r = std::sqrt(windR * windR + 2.0 * rho * P); qo = hw * (r - windR) / rho; dqo = hw / r; }
             dF = 1.0 + k1 * (dqi + dqo);

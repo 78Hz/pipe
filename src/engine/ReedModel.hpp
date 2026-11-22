@@ -152,6 +152,8 @@ public:
     // the wind drawn into the boot over the last render, and its conductance (as FluePipeRT::inflow)
     double inflow() const { return inAcc; }
     double inflowConductance() const { return gAcc; }
+    // Stood on a groove (the slider chest): its boot is fed through a toe hole of this diameter (m); 0: its own pallet.
+    void setToe(double d) { toeD = d; }
 
     inline double tick() {
         // pallet and boot (inflow implicit, outflow = reed flow of the last step)
@@ -171,15 +173,19 @@ public:
             const double k1 = dt * c2rho / sp.bootVolume, P0 = boot;
             double P = P0, dq = 0;
             if (g > 1e-9) {
-                const double Ap = 0.61 * 0.150 * g, aa = rho / (2 * Ap * Ap), bb = 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
+                // on a groove the boot is fed through its toe hole (a hole of toeD, 5 mm deep); on its own chest through
+                // its own pallet (150 x 8 mm)
+                const double Ap = toeD > 0 ? 0.61 * M_PI * 0.25 * toeD * toeD * palletPos : 0.61 * 0.150 * g;
+                const double aa = rho / (2 * Ap * Ap);
+                const double bb = toeD > 0 ? 12.0 * 1.807e-5 * 0.005 / (toeD * toeD * toeD * std::max(1e-3, palletPos)) : 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
+                // both ways: a boot left above a falling groove blows back through its toe
+                auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chest - Pb_, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
                 for (int it = 0; it < 3; ++it) {
-                    const double dP = chest - P;
-                    double qi = 0; dq = 0;
-                    if (dP > 0) { const double r = std::sqrt(bb * bb + 4 * aa * dP); qi = (-bb + r) / (2 * aa); dq = 1.0 / r; }
+                    const double qi = inflowAt(P, dq);
                     const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq;
                     P = std::max(0.0, std::min(std::max(chest, P0), P - F / dF));
-                    qiLast = qi; dqLast = dq;
                 }
+                qiLast = inflowAt(P, dq); dqLast = dq;
             } else { P = P0 - k1 * U; qiLast = 0; dqLast = 0; }
             inAcc += qiLast; gAcc += dqLast;
             kb = k1 / (1.0 + k1 * dq);
@@ -279,7 +285,7 @@ private:
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
     PipeAir air;
-    double inAcc = 0, gAcc = 0, qiLast = 0, dqLast = 0;
+    double inAcc = 0, gAcc = 0, qiLast = 0, dqLast = 0, toeD = 0;
     double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;
