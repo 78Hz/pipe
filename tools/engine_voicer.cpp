@@ -140,6 +140,13 @@ static std::vector<Change> flueChanges(int rank) {
     for (float y : { -0.1f, 0.1f, -0.2f, 0.2f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
     for (float g : { 0.8f, 1.25f, 0.63f, 1.6f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
     for (float bd : string ? std::vector<float>{ 1.0f, 0.7f, 0.5f } : std::vector<float>{ 1.0f, 0.7f }) { Change c{ "beard", {} }; c.beard = bd; one.push_back(c); }
+    if (std::getenv("PASS2")) {   // the second pass, for the pipes the first could not voice: wider, and the mouth
+        for (float m : { 0.92f, 1.08f, 0.85f, 1.15f }) one.push_back({ "mouth", { { kEdMouthWidth, m } } });
+        for (float t : { 0.6f, 1.6f }) one.push_back({ "toe", { { kEdToe, t } } });
+        for (float c : { 0.8f, 1.2f }) one.push_back({ "cut-up", { { kEdCutup, c } } });
+        for (float g : { 0.5f, 2.0f }) { Change c{ "jet", {} }; c.gainX = g; one.push_back(c); }
+        for (float y : { -0.3f, 0.3f }) { Change c{ "languid", {} }; c.y0b = y; one.push_back(c); }
+    }
     return one;
 }
 static std::vector<Change> reedChanges() {
@@ -148,6 +155,14 @@ static std::vector<Change> reedChanges() {
     for (float c : { 1.08f, 0.93f, 1.16f, 0.86f, 1.25f }) one.push_back({ "curve", { { kEdTongueCurve, c } } });
     for (float w : { 0.9f, 1.1f, 0.8f }) one.push_back({ "width", { { kEdTongueWidth, w } } });
     for (float pr : { 0.92f, 1.08f }) one.push_back({ "boot", { { kEdBootPressure, pr } } });
+    if (std::getenv("PASS2")) {   // the tongue against its resonator (the trim then cuts the pipe back to pitch), the scroll
+        for (float l : { 0.97f, 1.03f, 0.94f, 1.06f }) one.push_back({ "tongue length", { { kEdTongueLength, l } } });
+        for (float t : { 0.95f, 1.05f }) one.push_back({ "tongue thickness", { { kEdTongueThick, t } } });
+        for (float r : { 0.98f, 1.02f, 0.96f, 1.04f }) one.push_back({ "resonator", { { kEdResLength, r } } });
+        for (float c : { 1.35f, 0.8f }) one.push_back({ "curve", { { kEdTongueCurve, c } } });
+        one.push_back({ "toe", { { kEdToe, 0.4f } } });
+        for (float pr : { 0.85f, 1.15f }) one.push_back({ "boot", { { kEdBootPressure, pr } } });
+    }
     return one;
 }
 static std::string label(const std::vector<const Change*>& cs) {
@@ -274,7 +289,7 @@ int main(int argc, char** argv) {
                     int r, k, ok, reed; if (std::fread(&r, 4, 1, f) != 1 || std::fread(&k, 4, 1, f) != 1 || std::fread(&ok, 4, 1, f) != 1 || std::fread(&reed, 4, 1, f) != 1) break;
                     if (reed) { ReedPipeSpec s; if (std::fread(&s, sizeof s, 1, f) != 1) break; const int i = organ::kOrganReedPipe[r][k]; if (i >= 0 && ok) bin.reeds[(size_t)i] = s; }
                     else { FluePipeSpec s; if (std::fread(&s, sizeof s, 1, f) != 1) break; const int i = organ::kOrganPipe[r][k]; if (i >= 0 && ok) bin.flues[(size_t)i] = s; }
-                    doneSet[{ r, k }] = ok != 0;
+                    if (ok || !std::getenv("REDO_FAILED")) doneSet[{ r, k }] = ok != 0; else doneSet.erase({ r, k });
                 }
                 std::fclose(f);
                 std::fprintf(stderr, "checkpoint: %zu pipes already voiced\n", doneSet.size());
