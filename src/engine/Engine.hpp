@@ -14,7 +14,10 @@
 #include "OrganPipes.hpp"
 #include "PipeEdit.hpp"
 #include "Air.hpp"
+#include "WorkerPool.hpp"
 #include <atomic>
+#include <cstdlib>
+#include <thread>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -161,6 +164,11 @@ public:
         reeds.reserve(kMaxReedVoices);
         for (int i = 0; i < kMaxReedVoices; ++i) reeds.emplace_back(new ReedPipeRT());
         voices.resize(kMaxFlueVoices + kMaxReedVoices);
+        {   // the pipes' worker threads: one fewer than the machine's cores (the host's audio thread is the other), at most 7
+            int w = (int)std::thread::hardware_concurrency() - 1;
+            if (const char* e = std::getenv("OPUSXIV_THREADS")) w = std::atoi(e) - 1;
+            pool.start(std::max(0, std::min(7, w)));
+        }
         voicing = std::make_unique<Voicing>();
         pendingVoicing = std::make_unique<Voicing>();
         voicing->setDefaults();
@@ -589,6 +597,14 @@ private:
     // The grooves of the slider chests, sample by sample with the pipes standing on them: each sample every
     // pipe on a groove speaks from the groove's pressure, then the groove is solved (implicitly, with the
     // pipes' own flow and conductance from that sample) for its pallet's inflow against what they took.
+    // The pipes, the grooves and the chests, one control block (n samples). Each groove (a key's channel in a
+    // division's slider chest) is solved sample by sample with the pipes standing on it: its pallet lets wind
+    // in from the chest, the pipes take it out, and each pipe hears its groove's pressure. The grooves are
+    // independent of one another within a block (they meet only in the chest), so they run in parallel on
+    // the worker threads, with the pipes that stand on chests of their own. Each groove sees its chest's
+    // pressure one block late (0.67 ms at 48 kHz): the chest is a box 2.4 m long, and a pressure wave takes
+    // 7 ms to cross it, so a lumped chest that answered every groove at once would be the less faithful.
+    // Then each division's chest, trunk, regulator and tremulant take the grooves' flow sample by sample.
     void renderGrooves(int n) {
         for (int d = 0; d < kNumDivisions; ++d) grooveFlow[d] = 0.0;
         int nG = 0;
@@ -600,66 +616,82 @@ private:
             if (j == nG) { if (nG >= kMaxGrooves) { v.groove = false; continue; } gId[nG] = g; gN[nG] = 0; ++nG; }
             if (gN[j] < kMaxPerGroove) gV[j][gN[j]++] = i; else v.groove = false;
         }
+        int nO = 0;
+        for (int i = 0; i < (int)voices.size(); ++i) if (voices[(size_t)i].active && !voices[(size_t)i].groove) ownV[nO++] = i;
         const double rho = 1.2041 * pipeAir.rhoRatio, c = 343.21 * pipeAir.cRatio, mu = 1.807e-5 * pipeAir.muRatio;
         const double dt = 1.0 / fs, k = dt * rho * c * c / kGrooveVolume;
         const double Pres = (double)wind.reservoir * (1.0 - wind.sag) * kMmToPa;
         const float boostSpan = (params[kParamPressMax] - 78.f) / 78.f;
         wind.trem.unitFlowM3 = kTrunkUnitFlow * kRefFlow;
+
+        auto task = [&](int idx) {
+            if (idx >= nG) {   // a pipe on a chest of its own
+                Voice& v = voices[(size_t)ownV[idx - nG]];
+                if (v.reed) reeds[(size_t)v.slot]->render(v.gm, n);
+                else flues[(size_t)v.slot]->render(v.gm, v.gt, n);
+                return;
+            }
+            const int j = idx, d = gId[j] / 128, key = gId[j] % 128;
+            const Pallet& pl = pallets[d][key];
+            const double ap0 = grooveAp[d][key], ap1 = pl.aperture, boostK = std::max(0.f, 1.f + pl.boost * boostSpan);
+            const double W = grooveW[d][key];
+            const int nPrev = pcPrevN[d];
+            double P = grooveP[d][key], sum = 0;
+            for (int t = 0; t < n; ++t) {
+                const double chestPa = (nPrev > 0 ? pcPrev[d][std::min(t, nPrev - 1)] : wind.div[d].Pc) * boostK;
+                const double ap = ap0 + (ap1 - ap0) * (t + 1) / n;   // the pallet's travel across the block
+                double qPipes = 0, gPipes = 0;
+                for (int m = 0; m < gN[j]; ++m) {
+                    Voice& v = voices[(size_t)gV[j][m]];
+                    if (v.reed) { ReedPipeRT& r = *reeds[(size_t)v.slot]; r.setChestPa(P); r.render(&v.gm[t], 1); qPipes += r.inflow(); gPipes += r.inflowConductance(); }
+                    else { FluePipeRT& f = *flues[(size_t)v.slot]; f.setChestPa(P); f.render(&v.gm[t], &v.gt[t], 1); qPipes += f.inflow(); gPipes += f.inflowConductance(); }
+#ifdef PIPE_VOICE_DEBUG
+                    PIPE_VOICE_DEBUG(d, v, m);
+#endif
+                }
+                // the pallet: an orifice (Bernoulli) in series with the laminar seal, both ways
+                // the lift under the key's travel: as a pipe's own pallet (FluePipeRT::wind), slow off its seat and
+                // into its stop, so the first part of the travel throttles the wind
+                const double gLift = kGroovePalletLift * (0.5 - 0.5 * std::cos(M_PI * std::max(0.0, std::min(1.0, ap))));
+                double Pn = P, q = 0;
+                if (gLift > 1e-9) {
+                    const double Ap = kGroovePalletCd * W * gLift, aa = rho / (2 * Ap * Ap), bb = 12.0 * mu * kGrooveSeal / (W * gLift * gLift * gLift);
+                    for (int it = 0; it < 4; ++it) {
+                        const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
+                        const double qq = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa), dq = 1.0 / r;
+                        const double F = Pn - P - k * (qq - (qPipes + gPipes * (Pn - P))), dF = 1.0 + k * (dq + gPipes);
+                        Pn -= F / dF;
+                    }
+                    const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
+                    q = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa);
+                } else Pn = (P + k * (-qPipes + gPipes * P)) / (1.0 + k * gPipes);
+                P = std::max(0.0, Pn); sum += P;
+                qG[j][t] = q;
+#ifdef PIPE_GROOVE_DEBUG
+                PIPE_GROOVE_DEBUG(d, key, t, chestPa, Pn, q, qPipes, gPipes, j);
+#endif
+            }
+            grooveP[d][key] = P; grooveMean[d][key] = sum / n; grooveAp[d][key] = ap1;
+        };
+        if (nG + nO >= kParallelMin) pool.run(nG + nO, task);
+        else for (int i = 0; i < nG + nO; ++i) task(i);
+
+        // the chests: what the pallets took, sample by sample; the regulator and trunk refill them
         for (int d = 0; d < kNumDivisions; ++d) {
             DivisionWind& dw = wind.div[d];
             const Tremulant* trem = d == wind.tremTarget ? &wind.trem : nullptr;
             if (trem) { wind.trem.rate = wind.tremSpeed; wind.trem.depth = wind.tremDepth; }
-            // this division's grooves
             int gs[kMaxGrooves], ng = 0;
             for (int j = 0; j < nG; ++j) if (gId[j] / 128 == d) gs[ng++] = j;
-            double ap0[kMaxGrooves], ap1[kMaxGrooves], boostK[kMaxGrooves], Pg[kMaxGrooves], PgSum[kMaxGrooves];
-            for (int u = 0; u < ng; ++u) {
-                const int key = gId[gs[u]] % 128; const Pallet& pl = pallets[d][key];
-                ap0[u] = grooveAp[d][key]; ap1[u] = pl.aperture; Pg[u] = grooveP[d][key]; PgSum[u] = 0;
-                boostK[u] = std::max(0.f, 1.f + pl.boost * boostSpan);
-            }
             double qBlock = 0;
             for (int t = 0; t < n; ++t) {
                 double qOut = 0;
-                for (int u = 0; u < ng; ++u) {
-                    const int j = gs[u];
-                    const double chestPa = dw.Pc * boostK[u];
-                    double P = Pg[u];
-                    const double ap = ap0[u] + (ap1[u] - ap0[u]) * (t + 1) / n;   // the pallet's travel across the block
-                    double qPipes = 0, gPipes = 0;
-                    for (int m = 0; m < gN[j]; ++m) {
-                        Voice& v = voices[(size_t)gV[j][m]];
-                        if (v.reed) { ReedPipeRT& r = *reeds[(size_t)v.slot]; r.setChestPa(P); r.render(&v.gm[t], 1); qPipes += r.inflow(); gPipes += r.inflowConductance(); }
-                        else { FluePipeRT& f = *flues[(size_t)v.slot]; f.setChestPa(P); f.render(&v.gm[t], &v.gt[t], 1); qPipes += f.inflow(); gPipes += f.inflowConductance(); }
-#ifdef PIPE_VOICE_DEBUG
-                        PIPE_VOICE_DEBUG(d, v, m);
-#endif
-                    }
-                    // the pallet: an orifice (Bernoulli) in series with the laminar seal, both ways
-                    const double gLift = kGroovePalletLift * ap;
-                    double Pn = P, q = 0;
-                    if (gLift > 1e-9) {
-                        const double Ap = kGroovePalletCd * grooveW[d][gId[j] % 128] * gLift, aa = rho / (2 * Ap * Ap), bb = 12.0 * mu * kGrooveSeal / (grooveW[d][gId[j] % 128] * gLift * gLift * gLift);
-                        for (int it = 0; it < 4; ++it) {
-                            const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
-                            const double qq = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa), dq = 1.0 / r;
-                            const double F = Pn - P - k * (qq - (qPipes + gPipes * (Pn - P))), dF = 1.0 + k * (dq + gPipes);
-                            Pn -= F / dF;
-                        }
-                        const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
-                        q = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa);
-                    } else Pn = (P + k * (-qPipes + gPipes * P)) / (1.0 + k * gPipes);
-                    Pg[u] = std::max(0.0, Pn); PgSum[u] += Pg[u];
-#ifdef PIPE_GROOVE_DEBUG
-                    PIPE_GROOVE_DEBUG(d, gId[j] % 128, t, chestPa, Pn, q, qPipes, gPipes, j);
-#endif
-                    qOut += q;
-                }
-                // the chest gives what the pallets took, the regulator and trunk refill it
+                for (int u = 0; u < ng; ++u) qOut += qG[gs[u]][t];
                 dw.step(dt, Pres, qOut, rho, c, trem, wind.tremOn);
+                pcPrev[d][t] = dw.Pc;
                 qBlock += qOut;
             }
-            for (int u = 0; u < ng; ++u) { const int key = gId[gs[u]] % 128; grooveP[d][key] = Pg[u]; grooveMean[d][key] = PgSum[u] / n; grooveAp[d][key] = ap1[u]; }
+            pcPrevN[d] = n;
             grooveFlow[d] = qBlock / n;
             divInflow[d] = dw.takeInflow();
             wind.chest[d] = (float)(dw.pcMean / kMmToPa);   // its mean over the block (the pipes' ripple is in it sample by sample)
@@ -691,6 +723,11 @@ private:
     int gId[kMaxGrooves], gN[kMaxGrooves], gV[kMaxGrooves][kMaxPerGroove];
     double grooveP[kNumDivisions][128] = {}, grooveMean[kNumDivisions][128] = {}, grooveAp[kNumDivisions][128] = {}, grooveFlow[kNumDivisions] = {}, divInflow[kNumDivisions] = {};
     double grooveW[kNumDivisions][128];   // each key's pallet width (sizePallets)
+    double qG[kMaxGrooves][kControlBlock];   // each groove's pallet flow, sample by sample, this block
+    double pcPrev[kNumDivisions][kControlBlock] = {}; int pcPrevN[kNumDivisions] = {};   // each chest's pressure, last block
+    int ownV[kMaxFlueVoices + kMaxReedVoices];   // pipes on chests of their own, this block
+    static constexpr int kParallelMin = 6;   // fewer tasks than this: not worth waking the workers
+    WorkerPool pool;
 
     void tunerUpdate(Voice& v) {
         const double re = v.accRe, im = v.accIm, e = v.accE; const int n = v.accN;
@@ -1102,9 +1139,7 @@ private:
             float rawEnv = v.rawEnv; const float rawCoef = std::min(1.f, 0.5f * v.freq / fs);   // averages over about two periods
             if (!v.reed) {
                 FluePipeRT& c = *flues[(size_t)v.slot];
-                float mm[kControlBlock], tt[kControlBlock];
-                if (!v.groove) c.render(mm, tt, n);
-                const float* m = v.groove ? v.gm : mm; const float* t = v.groove ? v.gt : tt;
+                const float* m = v.gm; const float* t = v.gt;   // rendered in renderGrooves (with its groove, or on its own chest)
                 const float g = v.gain;
                 for (int i = 0; i < n; ++i) {
                     const float xl = (m[i] * v.gL + t[i] * v.tL) * g, xr = (m[i] * v.gR + t[i] * v.tR) * g;
@@ -1123,9 +1158,7 @@ private:
                 continue;
             } else {
                 ReedPipeRT& c = *reeds[(size_t)v.slot];
-                float oo[kControlBlock];
-                if (!v.groove) c.render(oo, n);
-                const float* o = v.groove ? v.gm : oo;
+                const float* o = v.gm;
                 const float g = v.gain;
                 for (int i = 0; i < n; ++i) {
                     const float x = o[i] * g;

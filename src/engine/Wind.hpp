@@ -46,6 +46,9 @@ struct DivisionWind {
     static constexpr double kTrunkLen = 3.0, kTrunkS = 0.03, kTrunkK = 1.5, kChestV = 0.21, kCd = 0.61, kChestQ = 2.0;
     double Pnom = 774.7;          // the division's pressure (Pa)
     double regMass = 20, regZeta = 0.3;
+    double concussion = 0.4;      // the chest's concussion bellows, 0 (none or tied down) .. 1 (the largest)
+    double Pb = 0;                // the air in the concussion bellows (its spring's pressure), Pa
+    double leakM3 = 4.7e-4;       // the chest's leakage at its working pressure, m^3/s (WindSystem::update)
     // state
     double Pr = 0, x = kXWork, v = 0;   // regulator: pressure, lid height, lid speed
     double q = 0, qAvg = 0;             // trunk flow, m^3/s, and its steady part
@@ -55,7 +58,7 @@ struct DivisionWind {
     double tx = 0.02, tv = 0, tAmt = 0, tAvg = 0;
 
     void reset(double Pres) {
-        Pr = Pc = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
+        Pr = Pc = Pb = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
         inSum = outSum = 0; nSum = 0;
     }
     // One sample. Pres: the main reservoir's pressure (Pa); qOut: what the grooves' pallets and the chest's
@@ -116,7 +119,22 @@ struct DivisionWind {
         // the regulator's air and the chest's air (their springiness)
         Pr += dt * rc2 / Vr * (qin - q - qWaste - kAr * v);
         Pr = std::max(0.0, Pr);
-        Pc += dt * rc2 / kChestV * (q - qOut - qVent + qPiston);
+        // the concussion bellows on the chest: a spring-loaded bellows whose leather and hinges give it a
+        // resistance; it takes in a surge (a big chord let go, the trunk's wind still coming) and gives it back
+        // slowly. ASSUMPTION: at full size its springs give it 4 x the chest's own compliance, its resistance
+        // the trunk-chest resonance's own impedance (so it takes up a shock without ringing).
+        double qCb = 0;
+        if (concussion > 1e-3) {
+            const double Cc = concussion * 4.0 * kChestV / rc2;
+            qCb = (Pc - Pb) / Z0;
+            Pb += dt * qCb / Cc;
+        } else Pb = Pc;
+        // the chest's leaks: past its sliders and pallets and through its joints, laminar (as the pressure).
+        // As much as the Wind Leakage setting lets out of the reservoir (a share of the blower's output at the
+        // working pressure) leaks from each chest too. With the blower off this is what lets the chest's wind
+        // run out once the pipes have taken all they can.
+        const double qLeak = leakM3 * std::max(0.0, Pc) / Pnom;
+        Pc += dt * rc2 / kChestV * (q - qOut - qVent + qPiston - qCb - qLeak);
         Pc = std::max(0.0, Pc);
         inSum += qin; outSum += qOut; pcSum += Pc; ++nSum;
     }
@@ -221,7 +239,9 @@ struct WindSystem {
         for (int d = 0; d < kNumDivisions; ++d) {
             div[d].Pnom = kChestNominal[d] * 9.80665;
             div[d].regMass = 8.0 + 40.0 * flexibility;                       // a heavier lid answers slower
-            div[d].regZeta = 0.08 + 0.7 * (1.0 - flexibility) + 0.6 * concussion;
+            div[d].regZeta = 0.08 + 0.7 * (1.0 - flexibility);
+            div[d].concussion = concussion;
+            div[d].leakM3 = (double)leak * kBlowerCapacity * 4.5e-4;   // the blower's output in m^3/s (kRefFlow 4.5e-4 per flow unit)
         }
     }
 };

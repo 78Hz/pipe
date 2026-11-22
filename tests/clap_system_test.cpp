@@ -186,6 +186,41 @@ int main(int argc, char** argv) {
         check(dF > 3 * d1, "the blower feels what the pallets let in (demand, one stop / all)", dF, d1);
     }
 
+    // ---- the division's wind at audio rate: regulator, trunk and chest, and the tremulant's valve in them
+    {
+        auto swell = [&](int trem, bool full, double& mean, double& pp, double& hz, double& afterMax, double& afterMean) {
+            Instance s(fac, id); s.param("Room Mix", 0.0); s.param("Age Drift", 0);
+            auto* pp_ = (const clap_plugin_params_t*)s.p->get_extension(s.p, CLAP_EXT_PARAMS);
+            for (uint32_t i = 0; i < pp_->count(s.p); ++i) { clap_param_info_t info{}; if (!pp_->get_info(s.p, i, &info)) continue;
+                const std::string nm = info.name; const bool stop = nm.rfind("PEDAL ", 0) == 0 || nm.rfind("I ", 0) == 0 || nm.rfind("II ", 0) == 0 || nm.rfind("III ", 0) == 0;
+                if (nm.find("TREMULANT") != std::string::npos) s.param(info.name, trem >= 0 ? 1.0 : 0.0);
+                else if (stop) s.param(info.name, nm.rfind("III ", 0) == 0 && nm.find('/') == std::string::npos && (full || nm.find("GAMBA") != std::string::npos) ? 1.0 : 0.0); }
+            s.param("Lower Zone Plays", 2); s.param("Upper Zone Plays", 2);
+            if (trem >= 0) { s.param("Tremulant Division", 2); s.param("Tremulant Kind", trem); }
+            s.play(0.1);
+            for (int k : { 60, 64, 67, 72 }) s.note(CLAP_EVENT_NOTE_ON, k, 0, k, 0.8);
+            s.play(1.5);
+            std::vector<double> pc; for (int b = 0; b < 190; ++b) { s.play(512.0 / 48000); pc.push_back(s.get("III Unterwerk Chest")); }
+            double mn = 1e9, mx = -1e9; mean = 0; for (double v : pc) { mn = std::min(mn, v); mx = std::max(mx, v); mean += v; } mean /= pc.size();
+            int cr = 0; for (size_t i = 1; i < pc.size(); ++i) if (pc[i - 1] < mean && pc[i] >= mean) ++cr;
+            pp = mx - mn; hz = cr / (pc.size() * 512.0 / 48000);
+            for (int k : { 60, 64, 67, 72 }) s.note(CLAP_EVENT_NOTE_OFF, k, 0, k, 0.0);
+            afterMax = -1e9; afterMean = 0; int na = 0;
+            for (int b = 0; b < 94; ++b) { s.play(512.0 / 48000); const double v = s.get("III Unterwerk Chest"); afterMax = std::max(afterMax, v); if (b >= 47) { afterMean += v; ++na; } }
+            afterMean /= na;
+        };
+        const double s_reservoirMm = 96.0;   // the main reservoir (Reservoir Pressure default)
+        double m0, p0, h0, am0, aM0, m1, p1, h1, am1, aM1, m2, p2, h2, am2, aM2, x, g1, g2, hg;
+        swell(-1, true, m0, p0, h0, am0, aM0); swell(0, true, m1, p1, h1, am1, aM1); swell(1, true, m2, p2, h2, am2, aM2);
+        swell(0, false, x, g1, hg, x, x); swell(1, false, x, g2, hg, x, x);
+        check(p1 < 0.6 * g1, "doux: it weakens as the stops are drawn (mm p-p full Swell, Gamba alone)", p1, g1);
+        check(p2 / g2 > p1 / g1, "vent perdu: it loses less of its depth than the doux (mm p-p full Swell, Gamba alone)", p2, g2);
+        check(std::fabs(m0 - 79) < 2 && p0 < 2, "full Swell, 4-note chord: its regulator holds the chest steady (mm mean, mm p-p)", m0, p0);
+        check(am0 < s_reservoirMm && std::fabs(aM0 - 79) < 1.5, "the chord released: the trunk's wind surges into the chest (below the reservoir's pressure) and settles back within 0.5 s (mm peak, mm after)", am0, aM0);
+        check(p1 > 0.03 * m1 && p1 < 0.4 * m1 && std::fabs(h1 - 5.8) < 1.0, "tremulant (doux) on the full Swell: a gentle beat at its rate (mm p-p, Hz)", p1, h1);
+        check(p2 > 0.12 * m2 && p2 < 0.75 * m2 && p2 > 1.5 * p1 && std::fabs(h2 - 5.8) < 1.0, "tremulant (vent perdu) on the full Swell: deeper, it keeps working (mm p-p, Hz)", p2, h2);
+    }
+
     printf("%s\n", failures ? "SYSTEM FAILURES" : "SYSTEM CHECKS PASSED");
     return failures ? 1 : 0;
 }

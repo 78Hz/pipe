@@ -210,6 +210,8 @@ int main(int argc, char** argv) {
     }
     {   // the blower stops with a chord held, then starts again: through the plugin as a host drives it
         Instance s(fac, id); s.param("Room Mix", 0.0);
+        // equal temperament, so c sounds 130.81 Hz (the default, Wegscheider, has c 10 cents above it)
+        s.param("Tuning System", 0); s.param("Age Drift", 0);
         s.param("Reservoir Size", 1.0); s.param("Blower Coast-Down", 1.0); s.play(0.2);
         for (int k : { 48, 55, 60, 64 }) s.note(CLAP_EVENT_NOTE_ON, 1, 0, k);
         const double on = s.play(1.5);
