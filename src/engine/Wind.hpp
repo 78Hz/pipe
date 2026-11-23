@@ -67,10 +67,16 @@ struct DivisionWind {
         const double rc2 = rho * c * c;
         // regulator: the lid carries its weights; the curtain valve opens as it falls below its working height
         const double open = std::max(0.0, std::min(1.0, (kXWork + 0.5 * kInletSpan - x) / kInletSpan));
+        // the inlet: an opening, not a check valve (wind goes back through it when the regulator stands above the
+        // reservoir). Its flow is solved with the regulator's pressure below, implicitly: sqrt(dP) is infinitely
+        // stiff at dP = 0, and an empty regulator (its lid on its stops, a litre of air) stepped explicitly rang
+        // and pumped itself to twice its supply as the wind failed (the pipes jumping register).
+        const double G = open > 0 ? kCd * kInletMax * open * std::sqrt(2.0 / rho) : 0.0;
         double qin = 0;
-        if (open > 0 && Pres > Pr) qin = kCd * kInletMax * open * std::sqrt(2.0 * (Pres - Pr) / rho);
-        // the lid rides on the air under it (a spring of rho c^2 Ar^2 / V): its damping is regZeta of critical
-        const double kAir = rc2 * kAr * kAr / (kAr * std::max(0.01, x));
+        // the lid rides on the air under it (a spring of rho c^2 Ar^2 / V): its damping is regZeta of critical at
+        // its working height, where it rides. (Taken at the lid's own height it grew eightfold near the bottom, and an
+        // empty regulator took 8 s to rise when the blower started, its chest at the reservoir's 93 mm meanwhile.)
+        const double kAir = rc2 * kAr * kAr / (kAr * kXWork);
         const double force = (Pr - Pnom) * kAr - 2.0 * regZeta * std::sqrt(kAir * regMass) * v;
         v += dt * force / regMass;
         x += dt * v;
@@ -117,8 +123,14 @@ struct DivisionWind {
         double qWaste = 0;
         if (x > kXRelief) qWaste = kCd * kReliefMax * std::min(1.0, (x - kXRelief) / (kXMax - kXRelief)) * std::sqrt(2.0 * Pr / rho);
         // the regulator's air and the chest's air (their springiness)
-        Pr += dt * rc2 / Vr * (qin - q - qWaste - kAr * v);
-        Pr = std::max(0.0, Pr);
+        {
+            // Pr' = Pr + k (G sgn(u) sqrt|u| - o), u = Pres - Pr' (backward Euler in the inlet): u + k G sgn(u) sqrt|u| = R
+            const double k = dt * rc2 / Vr, o = q + qWaste + kAr * v, R = Pres - Pr + k * o, a = k * G;
+            const double r = (-a + std::sqrt(a * a + 4.0 * std::fabs(R))) / 2.0;   // sqrt|u|
+            const double u = R >= 0 ? r * r : -r * r;
+            qin = (u >= 0 ? 1.0 : -1.0) * G * r;
+            Pr = std::max(0.0, Pres - u);
+        }
         // the concussion bellows on the chest: a spring-loaded bellows whose leather and hinges give it a
         // resistance; it takes in a surge (a big chord let go, the trunk's wind still coming) and gives it back
         // slowly. ASSUMPTION: at full size its springs give it 4 x the chest's own compliance, its resistance

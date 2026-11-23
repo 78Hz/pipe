@@ -390,6 +390,7 @@ static void blowerOffOn() {
     };
     std::vector<double> path;
     const Trace one = shutdown(kLoadSprings, false, 0.5, &path);
+    if (std::getenv("PIPE_TEST_VERBOSE")) { std::printf("      one stop, C3 every 0.5 s (cents):"); for (double c : path) std::printf(" %.0f", c); std::printf("\n"); }
     const Trace full = shutdown(kLoadSprings, true, 0.1);
     check(one.silent && full.silent, "springs: the chord dies away on one stop (%.1f s) and on full organ (%.1f s)", one.seconds, full.seconds);
     check(one.seconds > 5 * full.seconds, "one stop lasts far longer than full organ (%.1f s against %.1f s)", one.seconds, full.seconds);
@@ -404,7 +405,8 @@ static void blowerOffOn() {
     path.clear();
     const Trace w = shutdown(kLoadWeights, true, 0.1, &path);
     double heldUntil = 0;
-    for (size_t i = 0; i < path.size(); ++i) { if (std::fabs(path[i]) > 3) break; heldUntil = (i + 1) * 0.1; }
+    // held: against its pitch when the blower stopped (on full organ the groove's sag already sets it a little flat)
+    for (size_t i = 0; i < path.size(); ++i) { if (std::fabs(path[i] - path[0]) > 3) break; heldUntil = (i + 1) * 0.1; }
     // Weights: the pressure stays while the lid falls, so the pitch holds until the reservoir is empty
     check(w.silent && w.emptyAt > 0 && heldUntil >= w.emptyAt - 0.2, "weights: pitch holds (within 3 cents for %.1f s, the reservoir empty at %.1f s), then the wind fails (silent at %.1f s)", heldUntil, w.emptyAt, w.seconds);
 
@@ -482,14 +484,17 @@ static void fullChord() {
 int main() {
     if (const char* e = std::getenv("PIPE_TEST_FS")) fs = std::max(22050, std::atoi(e));
     std::printf("sample rate %d Hz\n", fs);
-    everyPipe();
-    tuningSystems();
-    mpeTiming();
-    partTravel();
-    shortNotes();
-    fullChord();
-    blowerOffOn();
-    reedAttack();
+    // PIPE_TEST_SECTIONS=678: only those sections (the first takes an hour on a small machine)
+    const char* only = std::getenv("PIPE_TEST_SECTIONS");
+    auto run = [&](char n, void (*f)()) { if (!only || std::strchr(only, n)) f(); };
+    run('1', everyPipe);
+    run('2', tuningSystems);
+    run('3', mpeTiming);
+    run('4', partTravel);
+    run('5', shortNotes);
+    run('6', fullChord);
+    run('7', blowerOffOn);
+    run('8', reedAttack);
     std::printf(failures ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", failures);
     return failures ? 1 : 0;
 }

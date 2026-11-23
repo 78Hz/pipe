@@ -940,6 +940,9 @@ private:
 
         // voices: targets for this block
         const bool strict = params[kParamStrict] >= 0.5f;
+        // how many pipes speak on each groove: the tuner tunes a pipe only on its own there
+        uint8_t onGroove[kNumDivisions][kNumKeys] = {};
+        for (const auto& v : voices) if (v.active && v.groove && !v.stopClosed) { uint8_t& c = onGroove[v.division][v.key]; if (c < 255) ++c; }
         for (auto& v : voices) {
             if (!v.active) continue;
             const Pallet& p = pallets[v.division][v.key];
@@ -952,7 +955,10 @@ private:
                 float bend = p.bendCents;
                 if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
                 // the tuner listens only in the voiced state, and only to a pipe that has settled
-                const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f
+                // ... and alone on its groove, as on the tuner's ladder: other stops drawn on the key share its wind and
+                // sag it (the tuner had "corrected" a full chord's bass for that sag)
+                const bool alone = !v.groove || onGroove[v.division][v.key] <= 1;
+                const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f && alone
                                     && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
                 if ((voiced && (!v.reed || airAtTuning)) != v.tunable) { v.tunable = voiced && (!v.reed || airAtTuning); v.prevOk = false; v.winLen = v.winMin; }
                 // in tune at the tuning conditions: a flue's pitch follows the speed of sound (its body is fixed), so
