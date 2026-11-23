@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -30,12 +31,16 @@ enum PipeEditField {
     kEdBodyLength = 0, kEdBodyDiameter, kEdMouthWidth, kEdCutup, kEdFlue, kEdLanguid, kEdFootPressure, kEdBeard,
     // reed
     kEdTongueThick, kEdTongueLength, kEdTongueWidth, kEdTongueCurve, kEdResLength, kEdResDiameter, kEdBootPressure,
+    // both: the toe hole (the flue's foot, the reed's boot)
+    kEdToe,
+    // flue: a harmonic pipe's hole at half its length (its diameter)
+    kEdHole,
     kNumEditFields
 };
 // state text names, one per field
 static const char* const kEditFieldIds[kNumEditFields] = {
     "length", "diameter", "mouth", "cutup", "flue", "languid", "foot", "beard",
-    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot" };
+    "tongue_t", "tongue_l", "tongue_w", "curve", "res_length", "res_diameter", "boot", "toe", "hole" };
 
 // An edit is a ratio to the pipe as voiced (1 = unchanged), except the beard: its value in cut-ups
 // (negative = unchanged).
@@ -137,6 +142,22 @@ inline bool flueDesign(int rank, int key, const FluePipeSpec& base, flue::Design
     return true;
 }
 
+// The diameter of a harmonic pipe's hole as the voicer bored it (m), 0 for a pipe without one. Found once
+// per pipe (the rebuild searches for it) and kept.
+inline double harmonicHoleOf(int rank, int key) {
+    const opus14::Stop* s = stopFor(rank);
+    if (!s || key < flue::overblowFrom(*s)) return 0;
+    static std::mutex m; static std::map<int, double> known;
+    { std::lock_guard<std::mutex> lk(m); auto it = known.find(rank * 128 + key); if (it != known.end()) return it->second; }
+    double dia = 0;
+    if (const FluePipeSpec* b = organFlueSpec(rank, key)) {
+        flue::Design d; std::string why;
+        if (flueDesign(rank, key, *b, d, why) && !d.g.holes.empty()) dia = std::sqrt(4.0 * d.g.holes[0].area / M_PI);
+    }
+    std::lock_guard<std::mutex> lk(m); known[rank * 128 + key] = dia;
+    return dia;
+}
+
 inline flue::JetParams jetOf(const FluePipeSpec& b) {
     flue::JetParams jp;
     jp.y0b = b.y0b; jp.lpk = b.lpk; jp.gain = -(double)b.gscale; jp.kd = b.kd; jp.noise = b.noise; jp.sign = b.sign; jp.vortex = b.vortex; jp.beard = b.beard;
@@ -163,6 +184,21 @@ inline bool editFlue(int rank, int key, const FluePipeSpec& base, const PipeEdit
     d.flue *= e.v[kEdFlue];
     d.languid *= e.v[kEdLanguid];
     d.footPa *= e.v[kEdFootPressure];
+    if (d.toe > 0) d.toe *= e.v[kEdToe];   // an open foot (no toe hole) has nothing to bore
+    // the harmonic hole pierced wider: it sits where the pipe's even modes (the note and its octaves) have a
+    // pressure node and its odd ones (the octave below, the twelfth below the octave) a loop, so it is the
+    // odd ones it damps and pulls away
+    // A pipe whose hole is all but closed (under 5 % of its diameter: it was made to overblow by its jet alone)
+    // is first bored at a quarter of its diameter, as harmonic pipes are made (opus14_organ's hole), and that hole is
+    // then scaled.
+    if (std::fabs(e.v[kEdHole] - 1.f) > 1e-6f && d.speakMode == 2) {
+        const double dia = 2 * d.radius, L = d.g.body[0].L;
+        if (d.g.holes.empty()) d.g.holes = { { 0.5 * L, 0.0, d.g.wall } };
+        auto& h = d.g.holes[0];
+        const double hd = std::sqrt(4.0 * h.area / M_PI);
+        const double from = hd < 0.05 * dia ? 0.25 * dia : hd;
+        h.area = M_PI * 0.25 * (from * e.v[kEdHole]) * (from * e.v[kEdHole]);
+    }
     flue::recut(d, e.v[kEdBodyLength]);   // also finds the modes again after a diameter change
     flue::JetParams jp = jetOf(base);
     if (e.v[kEdBeard] >= 0.f) jp.beard = e.v[kEdBeard];
@@ -213,6 +249,12 @@ inline bool editReed(int rank, int key, const ReedPipeSpec& base, const PipeEdit
     out.w = (float)(base.w * e.v[kEdTongueWidth]);
     out.x0 = (float)(base.x0 * e.v[kEdTongueCurve]); out.xs = (float)(base.xs * e.v[kEdTongueCurve]);
     out.footPa = (float)(base.footPa * e.v[kEdBootPressure]);
+    // the toe hole: an open boot (0) narrowed is first given the hole that passes what the open boot does
+    // (ten times the tongue's largest opening, so the tongue, not the toe, limits the flow)
+    if (std::fabs(e.v[kEdToe] - 1.f) > 1e-6f) {
+        const double open = std::sqrt(4.0 * 10.0 * base.w * base.x0 / M_PI);
+        out.toe = (float)((base.toe > 0 ? base.toe : open) * e.v[kEdToe]);
+    }
     out.passR = (float)reedPassiveR(out);
     return true;
 }

@@ -43,6 +43,10 @@ struct ReedPipeSpec {
     int nModes = 0;
     float f[kReedMaxModes], Q[kReedMaxModes], pkRe[kReedMaxModes], pkIm[kReedMaxModes], topRe[kReedMaxModes], topIm[kReedMaxModes];
     float passR = -1;              // the fitted modes' most negative Re Z (reedPassiveR), for the record; not used in sound
+    // The toe hole the boot is fed through from the groove, as the voicer bored it to regulate the pipe
+    // (m, diameter). 0 = open: the boot takes the groove's wind through its own bore. (Last in the record:
+    // a record written before it was added is read with 0.)
+    float toe = 0;
 };
 
 // The resonator's input impedance as the sum of its modes, each fitted to the complex peak of the
@@ -91,14 +95,15 @@ public:
         reset();
     }
     void reset() {
+        inAcc = gAcc = qiLast = dqLast = 0;
         x = sp.x0; vx = 0; Us = 0; boot = 0; palletPhase = 0; palletPos = 0; palletTarget = 0; U = 0; p = 0; topPrev = 0;
         std::memset(z1, 0, sizeof z1); std::memset(z2, 0, sizeof z2); std::memset(yPrev, 0, sizeof yPrev);
         hz1 = hz2 = 0; std::memset(horn, 0, sizeof horn); hpos = 0; uhPrev = 0;
     }
     // The air (Air.hpp), relative to the air the pipe was voiced in: its density sets the flow through the
     // slit and the shallot's inertia, its speed of sound the resonator's modes and the horn's delay, rho c the
-    // resonator's impedance. The tongue is brass and does not follow the air. (The brass itself changes with
-    // temperature too - expansion and a softer modulus - which is not modelled yet.)
+    // resonator's impedance. The tongue is brass and does not follow the air's sound speed; it is as warm as the air
+    // though, and warm brass is softer (PipeAir::tongueRatio).
     void setAir(const PipeAir& a) {
         if (a == air) return;
         air = a; applyAir();
@@ -117,7 +122,7 @@ public:
         if (ratioIn == pitch) return;
         pitch = ratioIn;
         const double ratio = ratioIn * (sp.trim > 0 ? sp.trim : 1.f);
-        wrNow = wr * ratio;
+        wrNow = wr * ratio * air.tongueRatio;
         hornDelayScaled = hornDelay;
         nPad = std::min(kReedMaxModes, (sp.nModes + 3) & ~3);
         for (int i = 0; i < kReedMaxModes; ++i) {

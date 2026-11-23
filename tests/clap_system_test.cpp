@@ -158,7 +158,10 @@ int main(int argc, char** argv) {
         check(std::fabs(flueC - expectC) < 2.0, "flue (I Octave 8' c1) 10 C warmer: sharpens with the speed of sound (cents, expected)", flueC, expectC);
         const double fR0 = pitchIn("TRUMPET 8'", 18, 50, 101.325, l2), fR1 = pitchIn("TRUMPET 8'", 28, 50, 101.325, l3);
         const double reedC = 1200 * std::log2(fR1 / fR0);
-        check(reedC > -3.0 && reedC < 0.6 * flueC, "reed (I Trumpet 8' c1) 10 C warmer: its brass tongue holds it, it drifts from the flues (cents, flue cents)", reedC, flueC);
+        // The tongue hardly follows the air (warm brass is a little softer); the resonator does and pulls the
+        // tongue with it: typically about 70 % of the flues' rise, anywhere from 0 to 100 % with the design
+        // (Mechanical Music Digest, "Sound speed and pipe tuning"). So it rises, and less than the flues.
+        check(reedC > -3.0 && reedC < flueC - 1.0, "reed (I Trumpet 8' c1) 10 C warmer: its resonator pulls it up, less than the flues (cents, flue cents)", reedC, flueC);
         // thinner air (a town at ~1800 m): the speed of sound is the same, the jet faster
         double lA, lB;
         const double fP0 = pitchIn("OCTAVE 8'", 18, 50, 101.325, lA), fP1 = pitchIn("OCTAVE 8'", 18, 50, 81.5, lB);

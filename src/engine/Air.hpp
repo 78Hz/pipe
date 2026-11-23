@@ -50,13 +50,18 @@ struct PipeAir {
     double rhoRatio = 1.0;   // density: jet and reed flow, the windway's inertia
     double cRatio = 1.0;     // speed of sound: the resonances scale with it
     double muRatio = 1.0;    // viscosity: windway friction
+    // a brass reed tongue's frequency: the pipes are as warm as the air. f ~ (t / L^2) sqrt(E / rho_b): Young's
+    // modulus of 73/27 brass falls 2.97e-4 per C (Keulegan & Houseman, NBS J. Res. 10, 1933, RP531), the
+    // expansion (19e-6 per C) adds half its own: -1.39e-4 per C, about -0.24 cents per C
+    double tongueRatio = 1.0;
     double zRatio() const { return rhoRatio * cRatio; }   // rho c: the resonator's impedance
     static PipeAir of(const AirState& a) {
         const AirState& v = AirState::voiced();
         PipeAir p; p.rhoRatio = a.rho / v.rho; p.cRatio = a.c / v.c; p.muRatio = a.mu / v.mu;
+        p.tongueRatio = 1.0 + (0.5 * -2.97e-4 + 0.5 * 19e-6) * (a.tempC - v.tempC);
         return p;
     }
-    bool operator==(const PipeAir& o) const { return rhoRatio == o.rhoRatio && cRatio == o.cRatio && muRatio == o.muRatio; }
+    bool operator==(const PipeAir& o) const { return rhoRatio == o.rhoRatio && cRatio == o.cRatio && muRatio == o.muRatio && tongueRatio == o.tongueRatio; }
     bool operator!=(const PipeAir& o) const { return !(*this == o); }
 };
 
