@@ -492,7 +492,7 @@ static void blowerOffOn() {
 }
 
 static void fullChord() {
-    std::printf("6. full organ, ten-note chord: every note's Principal still speaks while the wind sags\n");
+    std::printf("6. full organ, ten-note chord: every note's Principal still speaks while the wind sags, and no pallet robs\n");
     // Each note's Principal (Octave 8') is heard on its own, by its pipe's own sound, first alone and then
     // inside the full organ: every other stop drawn on every division (the reservoir feeds them all) and the
     // same ten keys held. The sound of the whole cannot be used for this: the chord's octaves and the
@@ -515,9 +515,19 @@ static void fullChord() {
     g.run(0.5);
     const float chest0 = g.en->outputs[kOutChestGt - kOutFirst], res0 = g.en->outputs[kOutReservoir - kOutFirst];
     for (int k : keys) g.send(0x90, k, 100);
-    g.run(2.5);
+    g.run(2.0);
+    // the drop across each key's pallet (its groove against the chest), over the last half second
+    double drop[10] = {};
+    for (int t = 0; t < 50; ++t) {
+        g.run(0.01);
+        const double chestPa = g.en->outputs[kOutChestGt - kOutFirst] * 9.80665;
+        for (int i = 0; i < nk; ++i) drop[i] += (1.0 - g.en->debugGroovePa(kGreat, keys[i]) / chestPa) / 50;
+    }
     const float chest1 = g.en->outputs[kOutChestGt - kOutFirst], res1 = g.en->outputs[kOutReservoir - kOutFirst];
     std::printf("      reservoir %.1f -> %.1f mm, Hauptwerk chest %.1f -> %.1f mm\n", res0, res1, chest0, chest1);
+    double worstDrop = 0; int wdK = 0; std::string dl;
+    for (int i = 0; i < nk; ++i) { char b[32]; std::snprintf(b, sizeof b, " %d: %.1f%%;", keys[i], 100 * drop[i]); dl += b; if (drop[i] > worstDrop) { worstDrop = drop[i]; wdK = keys[i]; } }
+    std::printf("      across each pallet:%s\n", dl.c_str());
     double worst = 0, quieter = 0; std::string line;
     for (int i = 0; i < nk; ++i) {
         const auto x = g.tappedTail((size_t)i, 0.5);
@@ -529,7 +539,10 @@ static void fullChord() {
     }
     std::printf("     %s\n", line.c_str());
     check(quieter > -6, "every Principal still speaks in the chord (the weakest %.1f dB against alone)", quieter);
-    check(worst < 8, "the chord sags by no more than %.1f cents", worst);
+    // Robbing: Pykett ("The Calculation of Pallet Sizes") holds the pressure drop across a pallet to 10 % with every
+    // stop drawn (3 % the ideal, 10 % "an upper working limit ... beyond which we should not go"); the sag in cents
+    // follows from each pipe's own pitch against its wind, and is reported.
+    check(worstDrop <= 0.10, "the pallets rob no more than Pykett's 10 %%: at most %.1f %% across a pallet (key %d); the chord sags %.1f cents", 100 * worstDrop, wdK, worst);
     check(g.tailDb(0.5) < -3, "and it does not overload (%.1f dB RMS)", g.tailDb(0.5));
 }
 

@@ -84,10 +84,12 @@ constexpr double kRefFlow = 4.5e-4;
 // from the wind chest through that key's pallet, and every drawn stop's pipe on that key standing on it,
 // fed through its slider and toe. The pipes share the groove's wind: drawing more stops on a key takes more
 // from it, and what one pipe draws the others feel. ASSUMPTIONS (no Opus 14 drawings at hand; typical
-// slider-chest sizes, Audsley / Dom Bedos): a groove of 0.8 l (about 800 x 20 x 50 mm); a pallet opening
-// of 8 mm at full travel, its width sized to the pipes it feeds (sizePallets; discharge coefficient 0.61), with
-// the laminar seal of a 10 mm leather face.
-constexpr double kGrooveVolume = 0.8e-3, kGroovePalletW = 0.150, kGroovePalletLift = 0.008, kGroovePalletCd = 0.61, kGrooveSeal = 0.010;
+// slider-chest sizes, Audsley / Dom Bedos): a groove of 0.8 l (about 800 x 20 x 50 mm); the laminar seal of a
+// 10 mm leather face. The pallet as Pykett measured and designs it ("The Calculation of Pallet Sizes", 2001/2009):
+// its windway d (l + w) at a descent d of 8 mm (his 6 - 10), sized to the pipes it feeds (sizePallets), and a
+// discharge coefficient 0.56: on his rig a pallet passed 0.93 +- 0.14 of the flow of a sharp-edged load aperture
+// of the same area (fitted to his Tables 2 - 4, the pallets not self-throttled, w >= 2d), x 0.61 (the toe's).
+constexpr double kGrooveVolume = 0.8e-3, kGroovePalletW = 0.150, kGroovePalletLift = 0.008, kGroovePalletCd = 0.61 * 0.925, kGrooveSeal = 0.010;
 // A manual groove narrows up the compass as its pipes do: about 3/4 inch at the bottom C, 1/4 inch at the top,
 // the widths between them set by the pipes' scale (Dickson, Practical Organ Building, ch. on the sound-board),
 // so geometrically; same depth and length. (One 0.8 l groove for every key left a small treble pipe a groove
@@ -786,27 +788,44 @@ private:
                 if (!used) { grooveP[d][key] = grooveMean[d][key] = pallets[d][key].aperture > 0.f ? wind.div[d].Pc : 0.0; grooveAp[d][key] = pallets[d][key].aperture; }
             }
     }
-    // Each key's pallet sized to the pipes it feeds, as a builder does (the bass pallets larger): an opening
-    // of 1.5 x the combined inlets (toe holes; an open foot counted at half its bore; a reed's boot inlet
-    // as its toe) of every pipe of the division on that key, at the full 8 mm lift, 50 - 300 mm wide.
-    // ASSUMPTION: the factor 1.5 (the area in Audsley's rule of thumb is not to hand).
+    // Each key's pallet sized to the pipes it feeds, by Pykett's rule ("The Calculation of Pallet Sizes"): on his rig a
+    // pallet feeds a load aperture of only about a third of its geometric windway at a 10 % drop across it, the most
+    // he allows with every stop drawn, so its windway is made 3.5 x the load. His load apertures were sharp-edged
+    // slots (discharge 0.61); he estimates a note's load by the smaller of each pipe's toe hole and flue area, but a
+    // flue passes its wind as a nozzle (the jet's speed from the whole foot pressure, the toe in series:
+    // Af / sqrt(1 + (Af / (0.61 At))^2) of free area, within a few % of what each pipe here draws), half as much
+    // again as a slot of its area. So each pipe counts as the slot that passes its wind: that free area / 0.61.
+    // (A reed: its toe hole, a slot, or what an open boot's tongue lets through; "the total wind demand is usually
+    // dominated by the large flues".) At least 50 mm (a treble pallet, Dickson's smallest groove with its pallet's
+    // length: ASSUMPTION, it only keeps the smallest pallets from vanishing); above his largest (300 x 22 mm) as
+    // many pallets as the load needs ("more than one pallet was used if necessary"; a pedal bass under a 32' takes
+    // several).
+    static constexpr double kPalletLoadFactor = 3.5, kPalletWMin = 0.05, kSlotCd = 0.61;
+    static double pipeLoad(const FluePipeSpec& f) {
+        const double flue = (double)f.h * f.Wm;
+        double free = flue;
+        if (f.toe > 0) { const double r = flue / (kSlotCd * M_PI * 0.25 * f.toe * f.toe); free = flue / std::sqrt(1 + r * r); }
+        return free / kSlotCd;
+    }
     void sizePallets() {
         for (int d = 0; d < kNumDivisions; ++d)
             for (int key = 0; key < 128; ++key) {
                 double a = 0;
                 for (int r = 0; r < kNumRanks; ++r) {
                     if (kRanks[r].division != d) continue;
-                    if (const FluePipeSpec* f = organFlueSpec(r, key)) a += f->toe > 0 ? M_PI * 0.25 * f->toe * f->toe : 0.5 * M_PI * f->radius * f->radius;
-                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += q->toe > 0 ? M_PI * 0.25 * q->toe * q->toe : 3.0 * (double)q->w * q->x0;   // an open boot: what its tongue lets through, with room
+                    if (const FluePipeSpec* f = organFlueSpec(r, key)) a += pipeLoad(*f);
+                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += q->toe > 0 ? M_PI * 0.25 * q->toe * q->toe : 3.0 * (double)q->w * q->x0;
                 }
-                grooveW[d][key] = std::max(0.05, std::min(0.30, 1.5 * a / (kGroovePalletCd * kGroovePalletLift)));
+                grooveLoad[d][key] = a;
+                grooveW[d][key] = std::max(kPalletWMin, kPalletLoadFactor * a / kGroovePalletLift);
             }
     }
     static constexpr int kMaxGrooves = 128, kMaxPerGroove = 64;
     int gId[kMaxGrooves], gN[kMaxGrooves], gV[kMaxGrooves][kMaxPerGroove];
     double grooveStep[kNumDivisions][128] = {};   // the groove's last step (Pa per sample): where its next solve starts
     double grooveP[kNumDivisions][128] = {}, grooveMean[kNumDivisions][128] = {}, grooveAp[kNumDivisions][128] = {}, grooveFlow[kNumDivisions] = {}, divInflow[kNumDivisions] = {};
-    double grooveW[kNumDivisions][128];   // each key's pallet width (sizePallets)
+    double grooveW[kNumDivisions][128];   // each key's pallet windway / descent, l + w (sizePallets)
+    double grooveLoad[kNumDivisions][128] = {};   // each key's load aperture (m^2, sizePallets)
     double qG[kMaxGrooves][kControlBlock];   // each groove's pallet flow, sample by sample, this block
     double pcPrev[kNumDivisions][kControlBlock] = {}; int pcPrevN[kNumDivisions] = {};   // each chest's pressure, last block
     int ownV[kMaxFlueVoices + kMaxReedVoices];   // pipes on chests of their own, this block
