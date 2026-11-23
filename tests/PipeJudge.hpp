@@ -159,8 +159,8 @@ inline double pipeHz(int rank, int key) { return et(key) * rankRatio(rank, key) 
 // before the sound ceases altogether", over "tens of milliseconds" (Pykett, "The Physical Modelling of Organ
 // Flue Pipes - a Complete Picture"); then the body rings down at its own resonance. Read in windows of 8 ms (6
 // periods for a low pipe) every quarter window, the pitch the strongest component within 13 semitones of the
-// note (a Hann-windowed scan in 5 cent steps, refined on the peak): a pipe that leaves its note for the octave
-// or a fifth as it dies counts by how far it went. x from `up` (the key let go) on; the note's period f.
+// note (a Hann-windowed scan in 5 cent steps, refined on the peak), and held for a window's span: a pipe that
+// leaves its note for the octave or a fifth as it dies counts by how far it went. x from `up` (the key let go) on; the note's period f.
 inline double releaseGlide(const std::vector<float>& L, const std::vector<float>& R, size_t up, double f, double fs) {
     const int n = std::max((int)(0.008 * fs), (int)(6 * fs / f)), hop = std::max(48, n / 4);
     if (up < (size_t)n) return 0;
@@ -179,11 +179,16 @@ inline double releaseGlide(const std::vector<float>& L, const std::vector<float>
     };
     auto level = [&] { double e = 0; for (int i = 0; i < n; ++i) e += (double)x[(size_t)i] * x[(size_t)i]; return 10 * std::log10(e / n + 1e-30); };
     at(up - (size_t)n); const double d0 = level(), c0 = pitch();
-    double worst = 0;
+    std::vector<double> dev;
     for (size_t a = up - (size_t)n / 2; a + (size_t)n <= L.size(); a += (size_t)hop) {
         at(a); if (level() < d0 - 20) break;
-        worst = std::max(worst, std::fabs(pitch() - c0));
+        dev.push_back(std::fabs(pitch() - c0));
     }
+    // a pitch it holds: the deviation kept over a whole window's span (4 readings). One window across the instant
+    // a large pipe's wind collapses (a few ms) reads its shape, not a pitch.
+    const size_t span = (size_t)std::max(1, n / hop);
+    double worst = 0;
+    for (size_t i = 0; i + span <= dev.size(); ++i) { double m = 1e9; for (size_t j = i; j < i + span; ++j) m = std::min(m, dev[j]); worst = std::max(worst, m); }
     return worst;
 }
 constexpr double kReleaseLimit = 100.0;   // cents: Pykett's semitone
