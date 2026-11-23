@@ -1050,7 +1050,8 @@ private:
             // How a pipe answers its wind. More wind than it was voiced for: louder and, for a
             // flue, a few cents sharp. Less: quieter, flatter, duller and breathier, and near
             // its own threshold it wavers, then stops. A flue falls towards a semitone flat
-            // just before it stops (measured on real pipes as their wind decays); a reed
+            // just before it stops (Pykett: "towards a semitone (around 6% in frequency) before the sound
+            // ceases altogether"; the physical flues: FluePipeSpec::speak); a reed
             // keeps closer to pitch, held by its tongue, and its tone follows its blowing
             // pressure in the model itself.
             const float rT = v.speakMin;

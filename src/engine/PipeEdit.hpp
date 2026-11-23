@@ -160,7 +160,7 @@ inline double harmonicHoleOf(int rank, int key) {
 
 inline flue::JetParams jetOf(const FluePipeSpec& b) {
     flue::JetParams jp;
-    jp.y0b = b.y0b; jp.lpk = b.lpk; jp.gain = -(double)b.gscale; jp.kd = b.kd; jp.noise = b.noise; jp.sign = b.sign; jp.vortex = b.vortex; jp.beard = b.beard;
+    jp.y0b = b.y0b; jp.lpk = b.lpk; jp.gain = -(double)b.gscale; jp.kd = b.kd; jp.noise = b.noise; jp.sign = b.sign; jp.vortex = b.vortex; jp.beard = b.beard; jp.speak = b.speak;
     return jp;
 }
 

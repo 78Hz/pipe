@@ -114,9 +114,9 @@ static double et(int key) { return 440.0 * std::pow(2.0, (key - 69) / 12.0); }
 // re-strike, soft and hard strikes, a long hold and the tremulant. The ranks run in parallel, one engine
 // per thread.
 static void everyPipe() {
-    std::printf("1. every pipe of every rank: speaks promptly, right register, in tune (12-TET, a' = 440), holds, under the tremulant\n");
-    std::printf("   %-26s %5s %6s %6s %7s %7s %7s %6s %6s %7s %7s\n", "rank", "pipes", "fail", "first", "again", "hold c", "hold dB", "vel", "trem", "speech", "of");
-    struct Row { int pipes = 0, fail = 0; double first = 0, again = 0, hold = 0, holdDb = 0, vel = 0, trem = 0, speech = 0, speechLim = 0; std::string bad; };
+    std::printf("1. every pipe of every rank: speaks promptly, right register, in tune (12-TET, a' = 440), holds, under the tremulant, dies within a semitone\n");
+    std::printf("   %-26s %5s %6s %6s %7s %7s %7s %6s %6s %7s %7s %7s\n", "rank", "pipes", "fail", "first", "again", "hold c", "hold dB", "vel", "trem", "speech", "of", "let go");
+    struct Row { int pipes = 0, fail = 0; double first = 0, again = 0, hold = 0, holdDb = 0, vel = 0, trem = 0, speech = 0, speechLim = 0, rel = 0; std::string bad; };
     std::vector<Row> rows((size_t)kNumRanks);
     std::atomic<int> next{0};
     const bool verbose = std::getenv("PIPE_TEST_VERBOSE") != nullptr;
@@ -133,7 +133,7 @@ static void everyPipe() {
                 ++row.pipes;
                 row.first = std::max(row.first, std::fabs(v.first)); row.again = std::max(row.again, std::fabs(v.again));
                 row.hold = std::max(row.hold, v.holdWorst); row.holdDb = std::max(row.holdDb, v.holdLevel); row.vel = std::max(row.vel, v.velWorst);
-                row.trem = std::max(row.trem, std::fabs(v.tremCents));
+                row.trem = std::max(row.trem, std::fabs(v.tremCents)); row.rel = std::max(row.rel, v.release);
                 if (v.speechPeriods / v.speechLimit > row.speech / std::max(1e-9, row.speechLim)) { row.speech = v.speechPeriods; row.speechLim = v.speechLimit; }
                 if (!v.pass()) { ++row.fail; char b[120]; std::snprintf(b, sizeof b, " %d:%s;", key, v.fault().c_str()); row.bad += b; }
             }
@@ -145,9 +145,9 @@ static void everyPipe() {
     for (int r = 0; r < kNumRanks; ++r) {
         const Row& row = rows[(size_t)r];
         if (!row.pipes) continue;
-        std::printf("   %-26s %5d %6d %6.2f %7.2f %7.2f %7.2f %6.2f %6.1f %7.0f %7.0f\n", kRanks[r].name, row.pipes, row.fail, row.first, row.again, row.hold, row.holdDb, row.vel, row.trem, row.speech, row.speechLim);
+        std::printf("   %-26s %5d %6d %6.2f %7.2f %7.2f %7.2f %6.2f %6.1f %7.0f %7.0f %7.0f\n", kRanks[r].name, row.pipes, row.fail, row.first, row.again, row.hold, row.holdDb, row.vel, row.trem, row.speech, row.speechLim, row.rel);
         if (row.fail) std::printf("      %s\n", row.bad.substr(0, 600).c_str());
-        check(row.fail == 0, "%s: all %d pipes speak promptly in the right register, in tune, hold, and under the tremulant", kRanks[r].name, row.pipes);
+        check(row.fail == 0, "%s: all %d pipes speak promptly in the right register, in tune, hold, under the tremulant, and die within a semitone", kRanks[r].name, row.pipes);
     }
 }
 
@@ -344,8 +344,10 @@ static void strongest(const std::vector<float>& L, const std::vector<float>& R, 
 // groove, so it falls at rho c^2 Q / V: Q the wind its pipes draw, V its volume. Every flue rank alone, every
 // sixth key: over the 2 ms after the pallet has shut the groove falls at least 0.8 of that. (A pipe that told
 // the groove only its toe's conductance held the groove full: a small pipe went on speaking, 80 cents flat,
-// for a second after its key was up.) How far a pipe sinks as it dies is printed; reeds ring on their tongues
-// when the wind has gone, which is their own question.
+// for a second after its key was up.) And as it dies its pitch moves no more than a real pipe's, towards a
+// semitone (Pykett): each flue pipe stops speaking at its own threshold (FluePipeSpec::speak), and its body rings
+// down at its resonance. (Without it the jet drove the high pipes a fifth flat and into the octave: the mixtures
+// "detuned when a key was lifted".) Reeds ring on their tongues when the wind has gone, their own question.
 static void release() {
     std::printf("\n9. Release: the groove empties through its pipes and they stop\n");
     Rig g;
@@ -374,19 +376,13 @@ static void release() {
             if (std::getenv("PIPE_TEST_VERBOSE") && ratio < 0.8) std::printf("      %s key %d: groove %.1f -> %.1f Pa (held %.1f), drawn %.3g -> %.3g m3/s, expect %.1f Pa\n", kRanks[r].name, key, P0, P1, held, q0, q1, expect);
             if (ratio < worst) { worst = ratio; wR = r; wK = key; }
             g.run(0.3);
-            const auto& x = g.tapped[0];
-            const size_t w = (size_t)std::max(0.02 * fs, 6.0 * fs / f);
-            const double d0 = rmsDb(&x[up - w], (int)w), c0 = judge::centsRaw(&x[up - w], (int)w, f, fs);
-            double glide = 0;
-            for (size_t o = up; o + w <= x.size(); o += w / 2) {
-                if (rmsDb(&x[o], (int)w) < d0 - 20) break;
-                const double c = judge::centsRaw(&x[o], (int)w, f, fs); if (std::fabs(c) < 1200) glide = std::max(glide, std::fabs(c - c0));
-            }
+            const double glide = judge::releaseGlide(g.tapped[0], g.tapped[0], up, f, fs);   // the pipe's own sound
             if (glide > worstGlide) { worstGlide = glide; wgR = r; wgK = key; }
         }
     }
     check(worst >= 0.8, "with the pallet shut each groove falls as fast as its pipes draw it down (the least: %.2f of rho c^2 Q / V, %s key %d)", worst, wR >= 0 ? kRanks[wR].name : "-", wK);
-    std::printf("      the most a pipe sinks while it dies (within 20 dB of its level): %.0f cents (%s key %d)\n", worstGlide, wgR >= 0 ? kRanks[wgR].name : "-", wgK);
+    // as it dies its pitch keeps within a semitone (Pykett; PipeJudge.hpp releaseGlide), every rank on every sixth key
+    check(worstGlide <= judge::kReleaseLimit, "as a pipe dies its pitch moves at most %.0f cents (%s key %d; a real pipe falls towards a semitone)", worstGlide, wgR >= 0 ? kRanks[wgR].name : "-", wgK);
 }
 
 static void reedAttack() {

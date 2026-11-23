@@ -368,6 +368,7 @@ inline void recut(Design& d, double ratio, double tempC = 20.0, double fs = 4800
 struct JetParams { double vortex = 1.0; double lpk = 1.0; int ddRule = 0; bool turbulent = false; bool fitted = false; double beta = 0.3, gamma = 0.4, kd = 1.0, y0b = 0.25, sign = 1.0;
                    double noise = 0.0;
                    double beard = 0.0;   // the jet's outward swing at the lip limited to beard x cut-up (0: none)
+                   double speak = 0.0;   // speaking threshold, foot pressure / voiced (FluePipeSpec::speak; 0: none)
                    double gain = 0.0; };   // if > 0: jet amplification across the mouth (replaces exp(beta W/h))   // turbulence noise: rms of its pressure jump / (rho U^2 / 2)
 // Principal constants matched to the reference (Montre 8', GrandOrgue demo) on G2/G3/G4 over the full
 // spectrum, inter-harmonic noise and attack (tools/ref/match.py, data/reference/fit3_principal_matched.txt).
@@ -979,7 +980,7 @@ inline FluePipeSpec specOf(const Design& d, const JetParams& jp) {
     s.b = (float)sim.b; s.transit = (float)sim.transit; s.lipSpeed = (float)sim.lipSpeed;
     s.length = (float)d.g.body[0].L; s.shape = (float)d.shape; s.wood = d.wood ? 1.f : 0.f; s.valve = (float)d.valve;
     s.y0b = (float)jp.y0b; s.lpk = (float)jp.lpk; s.gscale = (float)(jp.gain < 0 ? -jp.gain : 1.0); s.kd = (float)jp.kd;
-    s.noise = (float)jp.noise; s.sign = (float)jp.sign; s.vortex = (float)jp.vortex; s.beard = (float)jp.beard;
+    s.noise = (float)jp.noise; s.sign = (float)jp.sign; s.vortex = (float)jp.vortex; s.beard = (float)jp.beard; s.speak = (float)jp.speak;
     s.nModes = (int)std::min<size_t>(kRtMaxModes, d.modes.size());
     for (int i = 0; i < s.nModes; ++i) {
         s.f[i] = (float)d.modes[i].f; s.Q[i] = (float)d.modes[i].Q;

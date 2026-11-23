@@ -47,6 +47,15 @@ struct FluePipeSpec {
     // from the upper lip and turns it back into the mouth (Pykett, "The physics of voicing organ flue pipes"):
     // the jet's outward excursion at the lip is limited to beard x the cut-up. 0 = no beard (the cut-up itself).
     float beard = 0;
+    // The pipe's speaking threshold: the foot pressure, as a fraction of footPa, below which its jet no longer
+    // drives the body and the body rings down at its own resonance. As the wind falls the jet's longer transit
+    // pulls the pitch flat, and a real pipe falls only "towards a semitone (around 6% in frequency) before the
+    // sound ceases altogether", over "tens of milliseconds" (Pykett, "The Physical Modelling of Organ Flue
+    // Pipes - a Complete Picture"); in the model the jet keeps driving far further, a fifth and more, then
+    // into the octave (Fletcher 1976: the low-pressure regimes his jet model gives are "much greater than
+    // that observed"). Set by the voicer where the pipe's own release reaches the semitone (engine_voicer
+    // speak). 0 = none. (Last in the record: a record written before it was added reads with 0.)
+    float speak = 0;
 };
 
 // tanh by its [9/8] continued-fraction (Lambert) approximant, limited to +-1: the approximant reaches
@@ -109,6 +118,7 @@ public:
         // noise band-pass (Verge St 0.05 on the jet at the lip, voiced pressure)
         const double hLip = sp.b / 0.4;
         const double U = jetSpeed(sp.footPa > 0 ? sp.footPa : 775.0);
+        U0 = U; ucache = -1;
         const double fc = std::min(0.4 * fs, 0.05 * sp.lipSpeed * U / hLip), Qn = 0.7, w0 = 2 * M_PI * fc / fs;
         const double al = std::sin(w0) / (2 * Qn), a0 = 1 + al;
         nb0 = al / a0; nb2 = -al / a0; na1 = -2 * std::cos(w0) / a0; na2 = (1 - al) / a0;
@@ -186,7 +196,7 @@ public:
                 tauS = transitS / Uj;
                 const double wc = sp.lpk * Vj / sp.b;
                 lpc = 1.0 - std::exp(-wc * dt);
-                ghU = sp.sign * Gh / Uj;
+                ghU = sp.sign * Gh / Uj * speakGate(Uj);
                 invB = 1.0 / sp.b;
                 const double Re = Uj * sp.h / 1.5e-5;
                 reGate = std::min(1.0, std::max(0.0, (Re - 600.0) / 200.0));
@@ -267,6 +277,7 @@ private:
     static constexpr double kW = 0.150, kGMax = 0.008, kSeal = 0.010, kCdd = 0.61;
     // jet
     double qjPrev = 0, qinPrev = 0, vPrev = 0, etaLP = 0, tauPrev = 1e9;
+    double U0 = 0;   // the jet's speed at the voiced foot pressure, in this air
     double ucache = -1, invB = 1, Vj = 0, tauS = 0, lpc = 0, ghU = 0, reGate = 0, dyn = 0; bool lowRe = false;
     struct LP { double b0, b1, b2, a1, a2, z1, z2; } lp{};
     double nb0 = 0, nb2 = 0, na1 = 0, na2 = 0, nnorm = 0, nz1 = 0, nz2 = 0;
@@ -277,6 +288,13 @@ private:
     alignas(32) double z1[kRtMaxModes], z2[kRtMaxModes], cA[kRtMaxModes], cI[kRtMaxModes], yPrev[kRtMaxModes];
     double qMouthPrev = 0, sTopPrev = 0;
 
+    // The jet's drive against its speaking threshold (FluePipeSpec::speak): whole above 1.15 x the threshold's
+    // pressure, none below 0.85 x, smooth between (the jet loses its hold on the body over a band, not at once).
+    double speakGate(double Uj) const {
+        if (!(sp.speak > 0) || !(U0 > 0)) return 1.0;
+        const double r = (Uj / U0) * (Uj / U0) / sp.speak, x = std::max(0.0, std::min(1.0, (r - 0.85) / 0.3));
+        return x * x * (3.0 - 2.0 * x);
+    }
     double jetSpeed(double P) const { return P <= 0 ? 0.0 : (std::sqrt(windR * windR + 2.0 * rho * P) - windR) / rho; }
 
     // The foot over one step, implicit in its pressure P: P - P0 = k1 (qi(P) - qo(P)), the toe (or pallet) and
