@@ -88,6 +88,15 @@ constexpr double kRefFlow = 4.5e-4;
 // of 8 mm at full travel, its width sized to the pipes it feeds (sizePallets; discharge coefficient 0.61), with
 // the laminar seal of a 10 mm leather face.
 constexpr double kGrooveVolume = 0.8e-3, kGroovePalletW = 0.150, kGroovePalletLift = 0.008, kGroovePalletCd = 0.61, kGrooveSeal = 0.010;
+// A manual groove narrows up the compass as its pipes do: about 3/4 inch at the bottom C, 1/4 inch at the top,
+// the widths between them set by the pipes' scale (Dickson, Practical Organ Building, ch. on the sound-board),
+// so geometrically; same depth and length. (One 0.8 l groove for every key left a small treble pipe a groove
+// three times too big to empty when its pallet shut.) Pedal grooves keep the bass size.
+inline double grooveVolume(int division, int key) {
+    if (division == kPedal) return kGrooveVolume;
+    const double t = std::max(0.0, std::min(1.0, (double)(key - kManualLow) / (double)(kManualHigh - kManualLow)));
+    return kGrooveVolume * std::pow(1.0 / 3.0, t);
+}
 constexpr int kMaxFlueVoices = 448;
 constexpr int kMaxReedVoices = 96;
 
@@ -212,7 +221,7 @@ public:
         prePeak = 0.f; minLimGain = 1.f;
         // the grooves empty, as on a new organ (a groove held the last note's wind into the next test)
         std::memset(grooveP, 0, sizeof grooveP); std::memset(grooveMean, 0, sizeof grooveMean); std::memset(grooveAp, 0, sizeof grooveAp);
-        std::memset(grooveFlow, 0, sizeof grooveFlow); std::memset(divInflow, 0, sizeof divInflow);
+        std::memset(grooveFlow, 0, sizeof grooveFlow); std::memset(divInflow, 0, sizeof divInflow); std::memset(grooveStep, 0, sizeof grooveStep);
         room.clear();
         for (int d = 0; d < kNumDivisions; ++d) { swellLpL = swellLpR = 0.f; }
     }
@@ -338,6 +347,13 @@ public:
     }
 
     // ------------------------------------------------------------ for tests
+    double debugGroovePa(int division, int key) const { return grooveP[division][key]; }
+    double debugGrooveVolume(int division, int key) const { return grooveVolume(division, key); }
+    // the wind a sounding pipe drew over the last block (m^3/s)
+    double debugPipeInflow(int rank, int key) const {
+        for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return v.reed ? reeds[(size_t)v.slot]->inflow() : flues[(size_t)v.slot]->inflow();
+        return 0.0;
+    }
     const Voice* debugVoice(int rank, int key) const { for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return &v; return nullptr; }
     float debugTrim(int rank, int key) const { for (const auto& v : voices) if (v.active && v.rank == rank && v.key == key) return v.trim; return trimValid[rank][key] ? trimCache[rank][key] : 0.f; }
     float debugAperture(int d, int k) const { return pallets[d][k].aperture; }
@@ -652,7 +668,7 @@ private:
         int nO = 0;
         for (int i = 0; i < (int)voices.size(); ++i) if (voices[(size_t)i].active && !voices[(size_t)i].groove) ownV[nO++] = i;
         const double rho = 1.2041 * pipeAir.rhoRatio, c = 343.21 * pipeAir.cRatio, mu = 1.807e-5 * pipeAir.muRatio;
-        const double dt = 1.0 / fs, k = dt * rho * c * c / kGrooveVolume;
+        const double dt = 1.0 / fs, kUnit = dt * rho * c * c;   // / the groove's volume
         const double Pres = (double)wind.reservoir * (1.0 - wind.sag) * kMmToPa;
         const float boostSpan = (params[kParamPressMax] - 78.f) / 78.f;
         wind.trem.unitFlowM3 = kTrunkUnitFlow * kRefFlow;
@@ -667,44 +683,78 @@ private:
             const int j = idx, d = gId[j] / 128, key = gId[j] % 128;
             const Pallet& pl = pallets[d][key];
             const double ap0 = grooveAp[d][key], ap1 = pl.aperture, boostK = std::max(0.f, 1.f + pl.boost * boostSpan);
-            const double W = grooveW[d][key];
+            const double W = grooveW[d][key], k = kUnit / grooveVolume(d, key);
             const int nPrev = pcPrevN[d];
-            double P = grooveP[d][key], sum = 0;
+            double P = grooveP[d][key], sum = 0, lastStep = grooveStep[d][key];
             for (int t = 0; t < n; ++t) {
                 const double chestPa = (nPrev > 0 ? pcPrev[d][std::min(t, nPrev - 1)] : wind.div[d].Pc) * boostK;
                 const double ap = ap0 + (ap1 - ap0) * (t + 1) / n;   // the pallet's travel across the block
-                double qPipes = 0, gPipes = 0;
-                for (int m = 0; m < gN[j]; ++m) {
-                    Voice& v = voices[(size_t)gV[j][m]];
-                    if (v.reed) { ReedPipeRT& r = *reeds[(size_t)v.slot]; r.setChestPa(P); r.render(&v.gm[t], 1); qPipes += r.inflow(); gPipes += r.inflowConductance(); }
-                    else { FluePipeRT& f = *flues[(size_t)v.slot]; f.setChestPa(P); f.render(&v.gm[t], &v.gt[t], 1); qPipes += f.inflow(); gPipes += f.inflowConductance(); }
-#ifdef PIPE_VOICE_DEBUG
-                    PIPE_VOICE_DEBUG(d, v, m);
-#endif
-                }
+                // The groove and the feet of its pipes solved together: at each trial pressure of the groove every
+                // pipe previews what it would draw over this sample from its state now (FluePipeRT::previewInflow),
+                // then each pipe draws at the pressure found, so the wind the groove gives is the wind the pipes take.
+                // (Rendered first at the old pressure, the pipes took one flow and the groove gave another, the
+                // difference air from nowhere: a groove under a pipe with a large foot fell at a third of the rate
+                // its pipe drew it down. A straight line through the toe's sqrt law misses it too, the foot all but
+                // at the groove's pressure.)
+                auto pipesAt = [&](double Pg, double& gSum) {
+                    double q = 0; gSum = 0;
+                    for (int m = 0; m < gN[j]; ++m) {
+                        const Voice& v = voices[(size_t)gV[j][m]]; double gg = 0;
+                        q += v.reed ? reeds[(size_t)v.slot]->previewInflow(Pg, gg) : flues[(size_t)v.slot]->previewInflow(Pg, gg);
+                        gSum += gg;
+                    }
+                    return q;
+                };
                 // the pallet: an orifice (Bernoulli) in series with the laminar seal, both ways
                 // the lift under the key's travel: as a pipe's own pallet (FluePipeRT::wind), slow off its seat and
                 // into its stop, so the first part of the travel throttles the wind
                 const double gLift = kGroovePalletLift * (0.5 - 0.5 * std::cos(M_PI * std::max(0.0, std::min(1.0, ap))));
-                double Pn = P, q = 0;
-                if (gLift > 1e-9) {
-                    const double Ap = kGroovePalletCd * W * gLift, aa = rho / (2 * Ap * Ap), bb = 12.0 * mu * kGrooveSeal / (W * gLift * gLift * gLift);
-                    for (int it = 0; it < 4; ++it) {
-                        const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
-                        const double qq = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa), dq = 1.0 / r;
-                        const double F = Pn - P - k * (qq - (qPipes + gPipes * (Pn - P))), dF = 1.0 + k * (dq + gPipes);
-                        Pn -= F / dF;
-                    }
-                    const double dP = chestPa - Pn, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
-                    q = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa);
-                } else Pn = (P + k * (-qPipes + gPipes * P)) / (1.0 + k * gPipes);
+                const double Ap = kGroovePalletCd * W * std::max(gLift, 1e-12), aa = rho / (2 * Ap * Ap);
+                const double bb = gLift > 1e-9 ? 12.0 * mu * kGrooveSeal / (W * gLift * gLift * gLift) : 0.0;
+                auto palletAt = [&](double Pg, double& dq) {
+                    if (gLift <= 1e-9) { dq = 0; return 0.0; }
+                    const double dP = chestPa - Pg, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP));
+                    dq = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa);
+                };
+                // F(Pn) = Pn - P - k (pallet(Pn) - pipes(Pn)) rises with Pn and has one root, between no wind and
+                // the most there is (the chest, or the groove itself): Newton kept inside that bracket, halving
+                // it when a step would leave it (unguarded, a step through the toe's sqrt law could throw the groove
+                // to many times its chest)
+                // started where the last step would carry it, and stepped along the secant of the last two trials once
+                // there are two (the pipes' own slopes are not exactly the slope of what an oversampled pipe draws
+                // over the sample, and Newton on them took three or four trials a sample)
+                double lo = 0.0, hi = std::max(P, chestPa) + 1.0, Pn = std::min(std::max(P + lastStep, lo + 1e-9), hi - 1e-9), q = 0;
+                double prevX = 0, prevF = 0; bool havePrev = false;
+                for (int it = 0; it < 12; ++it) {
+                    double dq, gp; const double qq = palletAt(Pn, dq), qp = pipesAt(Pn, gp);
+                    const double F = Pn - P - k * (qq - qp);
+                    double dF = 1.0 + k * (dq + gp);
+                    if (havePrev && Pn != prevX) { const double sec = (F - prevF) / (Pn - prevX); if (sec > 0) dF = sec; }
+                    prevX = Pn; prevF = F; havePrev = true;
+                    if (F > 0) hi = Pn; else lo = Pn;
+                    double nx = Pn - F / dF;
+                    if (!(nx > lo && nx < hi)) nx = 0.5 * (lo + hi);
+                    const bool done = std::fabs(nx - Pn) < 1e-3;   // a thousandth of a pascal: the air the groove and its pipes disagree on
+                    Pn = nx;
+                    if (done) break;
+                }
+                { double dq; q = palletAt(Pn, dq); }
+                lastStep = std::max(0.0, Pn) - P;
                 P = std::max(0.0, Pn); sum += P;
                 qG[j][t] = q;
+                for (int m = 0; m < gN[j]; ++m) {
+                    Voice& v = voices[(size_t)gV[j][m]];
+                    if (v.reed) { ReedPipeRT& r = *reeds[(size_t)v.slot]; r.setChestPa(P); r.render(&v.gm[t], 1); }
+                    else { FluePipeRT& f = *flues[(size_t)v.slot]; f.setChestPa(P); f.render(&v.gm[t], &v.gt[t], 1); }
+#ifdef PIPE_VOICE_DEBUG
+                    PIPE_VOICE_DEBUG(d, v, m);
+#endif
+                }
 #ifdef PIPE_GROOVE_DEBUG
-                PIPE_GROOVE_DEBUG(d, key, t, chestPa, Pn, q, qPipes, gPipes, j);
+                PIPE_GROOVE_DEBUG(d, key, t, chestPa, Pn, q, 0.0, 0.0, j);
 #endif
             }
-            grooveP[d][key] = P; grooveMean[d][key] = sum / n; grooveAp[d][key] = ap1;
+            grooveP[d][key] = P; grooveStep[d][key] = lastStep; grooveMean[d][key] = sum / n; grooveAp[d][key] = ap1;
         };
         if (nG + nO >= kParallelMin) pool.run(nG + nO, task);
         else for (int i = 0; i < nG + nO; ++i) task(i);
@@ -754,6 +804,7 @@ private:
     }
     static constexpr int kMaxGrooves = 128, kMaxPerGroove = 64;
     int gId[kMaxGrooves], gN[kMaxGrooves], gV[kMaxGrooves][kMaxPerGroove];
+    double grooveStep[kNumDivisions][128] = {};   // the groove's last step (Pa per sample): where its next solve starts
     double grooveP[kNumDivisions][128] = {}, grooveMean[kNumDivisions][128] = {}, grooveAp[kNumDivisions][128] = {}, grooveFlow[kNumDivisions] = {}, divInflow[kNumDivisions] = {};
     double grooveW[kNumDivisions][128];   // each key's pallet width (sizePallets)
     double qG[kMaxGrooves][kControlBlock];   // each groove's pallet flow, sample by sample, this block
@@ -940,9 +991,14 @@ private:
 
         // voices: targets for this block
         const bool strict = params[kParamStrict] >= 0.5f;
-        // how many pipes speak on each groove: the tuner tunes a pipe only on its own there
-        uint8_t onGroove[kNumDivisions][kNumKeys] = {};
-        for (const auto& v : voices) if (v.active && v.groove && !v.stopClosed) { uint8_t& c = onGroove[v.division][v.key]; if (c < 255) ++c; }
+        // which stop speaks on each groove (-1 none, -2 more than one): a tuner draws one stop at a time, so it
+        // tunes a pipe only when its own stop has the groove (a mixture's ranks together, as it tunes them)
+        int16_t grooveStop[kNumDivisions][kNumKeys];
+        for (auto& row : grooveStop) for (auto& x : row) x = -1;
+        for (const auto& v : voices) if (v.active && v.groove && !v.stopClosed) {
+            int16_t& s = grooveStop[v.division][v.key]; const int16_t mine = (int16_t)stopForRank(v.rank);
+            s = (s == -1 || s == mine) ? mine : (int16_t)-2;
+        }
         for (auto& v : voices) {
             if (!v.active) continue;
             const Pallet& p = pallets[v.division][v.key];
@@ -955,9 +1011,9 @@ private:
                 float bend = p.bendCents;
                 if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
                 // the tuner listens only in the voiced state, and only to a pipe that has settled
-                // ... and alone on its groove, as on the tuner's ladder: other stops drawn on the key share its wind and
-                // sag it (the tuner had "corrected" a full chord's bass for that sag)
-                const bool alone = !v.groove || onGroove[v.division][v.key] <= 1;
+                // ... and with only its own stop on its groove, as on the tuner's ladder: other stops drawn on the key
+                // share its wind and sag it (the tuner had "corrected" a full chord's bass for that sag)
+                const bool alone = !v.groove || grooveStop[v.division][v.key] == (int16_t)stopForRank(v.rank);
                 const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f && alone
                                     && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
                 if ((voiced && (!v.reed || airAtTuning)) != v.tunable) { v.tunable = voiced && (!v.reed || airAtTuning); v.prevOk = false; v.winLen = v.winMin; }

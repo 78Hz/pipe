@@ -338,6 +338,57 @@ static void strongest(const std::vector<float>& L, const std::vector<float>& R, 
 
 // Known limit, guarded so it cannot get worse unnoticed: a reed in the model speaks flat
 // while its tone builds from silence (about 45 cents at first; within 5 cents after about 60 periods).
+// 9. Release: when a key comes up its pallet shuts and the groove under it empties through the pipes standing
+// on it (Dickson's grooves: about 3/4 inch wide at the bottom, 1/4 inch at the top; the ISMA 2010 study of
+// mechanical actions: the sound starts to die as the pallet closes). With the pallet shut nothing else feeds the
+// groove, so it falls at rho c^2 Q / V: Q the wind its pipes draw, V its volume. Every flue rank alone, every
+// sixth key: over the 2 ms after the pallet has shut the groove falls at least 0.8 of that. (A pipe that told
+// the groove only its toe's conductance held the groove full: a small pipe went on speaking, 80 cents flat,
+// for a second after its key was up.) How far a pipe sinks as it dies is printed; reeds ring on their tongues
+// when the wind has gone, which is their own question.
+static void release() {
+    std::printf("\n9. Release: the groove empties through its pipes and they stop\n");
+    Rig g;
+    double worst = 1e9, worstGlide = 0; int wR = -1, wK = -1, wgR = -1, wgK = -1;
+    for (int r = 0; r < kNumRanks; ++r) {
+        if (kRanks[r].kind == kKindReed) continue;
+        const bool ped = kRanks[r].division == kPedal;
+        for (int key = ped ? kPedalLow : kManualLow; key <= (ped ? kPedalHigh : kManualHigh); key += 6) {
+            if (organ::kOrganPipe[r][key] < 0) continue;
+            const double f = judge::pipeHz(r, key);
+            g.reset(); g.taps.clear(); g.tapped.clear(); g.draw(r); g.tap(r, key);
+            g.run(0.05); g.send(0x90, key, 100); g.run(std::max(1.0, 60.0 / f));
+            { const Voice* v = g.en->debugVoice(r, key); if (!v || !v->groove) continue; }   // on an offset chest of its own
+            const int d = kRanks[r].division;
+            const size_t up = g.tapped[0].size();
+            const double held = g.en->debugGroovePa(d, key);
+            g.send(0x80, key, 0);
+            g.run(0.025);   // the pallet shuts (20 ms)
+            // every pipe of the stop on this key draws on the groove: a mixture's ranks together
+            auto drawn = [&] { double q = 0; for (int rr = 0; rr < kNumRanks; ++rr) if (stopForRank(rr) == stopForRank(r)) q += g.en->debugPipeInflow(rr, key); return q; };
+            const double P0 = g.en->debugGroovePa(d, key), q0 = drawn();
+            g.run(0.002);
+            const double P1 = g.en->debugGroovePa(d, key), q1 = drawn();
+            const double expect = 1.4e5 * 0.5 * (q0 + q1) / g.en->debugGrooveVolume(d, key) * 0.002;   // Pa over the 2 ms
+            const double ratio = (P0 < 0.2 * held || expect < 1e-3) ? 1.0 : (P0 - P1) / expect;   // already all but empty: it did
+            if (std::getenv("PIPE_TEST_VERBOSE") && ratio < 0.8) std::printf("      %s key %d: groove %.1f -> %.1f Pa (held %.1f), drawn %.3g -> %.3g m3/s, expect %.1f Pa\n", kRanks[r].name, key, P0, P1, held, q0, q1, expect);
+            if (ratio < worst) { worst = ratio; wR = r; wK = key; }
+            g.run(0.3);
+            const auto& x = g.tapped[0];
+            const size_t w = (size_t)std::max(0.02 * fs, 6.0 * fs / f);
+            const double d0 = rmsDb(&x[up - w], (int)w), c0 = judge::centsRaw(&x[up - w], (int)w, f, fs);
+            double glide = 0;
+            for (size_t o = up; o + w <= x.size(); o += w / 2) {
+                if (rmsDb(&x[o], (int)w) < d0 - 20) break;
+                const double c = judge::centsRaw(&x[o], (int)w, f, fs); if (std::fabs(c) < 1200) glide = std::max(glide, std::fabs(c - c0));
+            }
+            if (glide > worstGlide) { worstGlide = glide; wgR = r; wgK = key; }
+        }
+    }
+    check(worst >= 0.8, "with the pallet shut each groove falls as fast as its pipes draw it down (the least: %.2f of rho c^2 Q / V, %s key %d)", worst, wR >= 0 ? kRanks[wR].name : "-", wK);
+    std::printf("      the most a pipe sinks while it dies (within 20 dB of its level): %.0f cents (%s key %d)\n", worstGlide, wgR >= 0 ? kRanks[wgR].name : "-", wgK);
+}
+
 static void reedAttack() {
     std::printf("8. reed attack from silence (known limit of the reed model)\n");
     Rig g; g.draw(rankOf("i_trumpet_8")); g.run(0.05);
@@ -495,6 +546,7 @@ int main() {
     run('6', fullChord);
     run('7', blowerOffOn);
     run('8', reedAttack);
+    run('9', release);
     std::printf(failures ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", failures);
     return failures ? 1 : 0;
 }
