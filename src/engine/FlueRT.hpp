@@ -47,6 +47,15 @@ struct FluePipeSpec {
     // from the upper lip and turns it back into the mouth (Pykett, "The physics of voicing organ flue pipes"):
     // the jet's outward excursion at the lip is limited to beard x the cut-up. 0 = no beard (the cut-up itself).
     float beard = 0;
+    // The pipe's speaking threshold: the foot pressure, as a fraction of footPa, below which its jet no longer
+    // drives the body and the body rings down at its own resonance. As the wind falls the jet's longer transit
+    // pulls the pitch flat, and a real pipe falls only "towards a semitone (around 6% in frequency) before the
+    // sound ceases altogether", over "tens of milliseconds" (Pykett, "The Physical Modelling of Organ Flue
+    // Pipes - a Complete Picture"); in the model the jet keeps driving far further, a fifth and more, then
+    // into the octave (Fletcher 1976: the low-pressure regimes his jet model gives are "much greater than
+    // that observed"). Set by the voicer where the pipe's own release reaches the semitone (engine_voicer
+    // speak). 0 = none. (Last in the record: a record written before it was added reads with 0.)
+    float speak = 0;
 };
 
 // tanh by its [9/8] continued-fraction (Lambert) approximant, limited to +-1: the approximant reaches
@@ -109,6 +118,7 @@ public:
         // noise band-pass (Verge St 0.05 on the jet at the lip, voiced pressure)
         const double hLip = sp.b / 0.4;
         const double U = jetSpeed(sp.footPa > 0 ? sp.footPa : 775.0);
+        U0 = U; ucache = -1;
         const double fc = std::min(0.4 * fs, 0.05 * sp.lipSpeed * U / hLip), Qn = 0.7, w0 = 2 * M_PI * fc / fs;
         const double al = std::sin(w0) / (2 * Qn), a0 = 1 + al;
         nb0 = al / a0; nb2 = -al / a0; na1 = -2 * std::cos(w0) / a0; na2 = (1 - al) / a0;
@@ -153,6 +163,19 @@ public:
     // pressure there (m^3/s per Pa, the foot held): what a shared groove needs from its pipes.
     double inflow() const { return inAcc; }
     double inflowConductance() const { return gAcc; }
+    // What this pipe will draw over its next sample if the chest (groove) stands at chestPa, from its state now,
+    // and how that draw moves with chestPa (its toe in series with its foot and flue): the groove is solved with
+    // it before the pipe takes its wind, so the two agree. (A preview: nothing changes.)
+    double previewInflow(double chestPa, double& g) const {
+        // over the engine's sample as one implicit step (the foot, stable at any step, carried across the whole
+        // sample): an oversampled pipe's os steps draw about what this one does. (Its first step alone, the foot
+        // catching up with its groove, overstated the draw threefold.)
+        const double phase = palletPhase != palletTarget ? (palletPhase < palletTarget ? std::min(palletTarget, palletPhase + os * dt / tOpen) : std::max(palletTarget, palletPhase - os * dt / tClose)) : palletPhase;
+        const double pos = phase != palletPhase ? 0.5 - 0.5 * std::cos(M_PI * phase) : palletPos;
+        double P, qi;
+        solveFootFrom(chestPa, pos, footP, qiLast, P, qi, g, os * dt);
+        return qi;
+    }
     // Fed from a groove shared with the other drawn stops on its key (the engine's slider chest): its own
     // valve is then the slider and toe, and its foot no longer includes a groove of its own.
     void setGrooveFed(bool g) { if (g == grooveFed) return; grooveFed = g; volume = (grooveFed ? 0.0 : 0.3e-3) + footCone; }
@@ -173,7 +196,7 @@ public:
                 tauS = transitS / Uj;
                 const double wc = sp.lpk * Vj / sp.b;
                 lpc = 1.0 - std::exp(-wc * dt);
-                ghU = sp.sign * Gh / Uj;
+                ghU = sp.sign * Gh / Uj * speakGate(Uj);
                 invB = 1.0 / sp.b;
                 const double Re = Uj * sp.h / 1.5e-5;
                 reGate = std::min(1.0, std::max(0.0, (Re - 600.0) / 200.0));
@@ -254,6 +277,7 @@ private:
     static constexpr double kW = 0.150, kGMax = 0.008, kSeal = 0.010, kCdd = 0.61;
     // jet
     double qjPrev = 0, qinPrev = 0, vPrev = 0, etaLP = 0, tauPrev = 1e9;
+    double U0 = 0;   // the jet's speed at the voiced foot pressure, in this air
     double ucache = -1, invB = 1, Vj = 0, tauS = 0, lpc = 0, ghU = 0, reGate = 0, dyn = 0; bool lowRe = false;
     struct LP { double b0, b1, b2, a1, a2, z1, z2; } lp{};
     double nb0 = 0, nb2 = 0, na1 = 0, na2 = 0, nnorm = 0, nz1 = 0, nz2 = 0;
@@ -264,7 +288,73 @@ private:
     alignas(32) double z1[kRtMaxModes], z2[kRtMaxModes], cA[kRtMaxModes], cI[kRtMaxModes], yPrev[kRtMaxModes];
     double qMouthPrev = 0, sTopPrev = 0;
 
+    // The jet's drive against its speaking threshold (FluePipeSpec::speak): whole above 1.15 x the threshold's
+    // pressure, none below 0.85 x, smooth between (the jet loses its hold on the body over a band, not at once).
+    double speakGate(double Uj) const {
+        if (!(sp.speak > 0) || !(U0 > 0)) return 1.0;
+        const double r = (Uj / U0) * (Uj / U0) / sp.speak, x = std::max(0.0, std::min(1.0, (r - 0.85) / 0.3));
+        return x * x * (3.0 - 2.0 * x);
+    }
     double jetSpeed(double P) const { return P <= 0 ? 0.0 : (std::sqrt(windR * windR + 2.0 * rho * P) - windR) / rho; }
+
+    // The foot over one step, implicit in its pressure P: P - P0 = k1 (qi(P) - qo(P)), the toe (or pallet) and
+    // its seal in, the flue out. G(P) rises with P and changes sign between no wind and the most there is (the
+    // chest or the foot as it was), so Newton is kept inside that bracket and halves it when a step would leave
+    // it: an open toe on a slider is so free (its sqrt law all but vertical with the foot at the groove's pressure)
+    // that three plain steps did not converge, and the pipe's draw jumped about with every pascal of the groove.
+    // Returns the foot's pressure, the wind drawn in, and how that wind moves with the chest's pressure over the
+    // step (the toe in series with the foot and flue): what a shared groove needs from its pipes.
+    inline void solveFoot(double chestPa, double pos, double& P, double& qi, double& g) const { solveFootFrom(chestPa, pos, footP, qiLast, P, qi, g, dt); }
+    // Solved for the wind through the toe q rather than the foot's pressure: P = chest - (aa q|q| + bb q) is a
+    // smooth function of q, where q(P) has the sqrt's vertical tangent at P = chest, so Newton from the last
+    // sample's q settles in two or three steps (in P it crawled, and bisection took forty).
+    inline void solveFootFrom(double chestPa, double pos, double P0, double qStart, double& P, double& qi, double& g, double h) const {
+        const double k1 = h * c2rho / volume, hw = (double)sp.h * sp.Wm;
+        auto out = [&](double Pf, double& dqo) { if (Pf <= 0) { dqo = 0; return 0.0; } const double ro = std::sqrt(windR * windR + 2.0 * rho * Pf); dqo = hw / ro; return hw * (ro - windR) / rho; };
+        const double gl = kGMax * pos;
+        double dqo = 0;
+        if (gl <= 1e-9) {   // shut: the foot only empties through its flue
+            P = P0; qi = 0; g = 0;
+            for (int it = 0; it < 8; ++it) { const double qo = out(P, dqo), G = P - P0 + k1 * qo, dG = 1.0 + k1 * dqo; const double nx = std::max(0.0, P - G / dG); if (std::fabs(nx - P) < 1e-10 * (P0 + 1.0)) { P = nx; break; } P = nx; }
+            return;
+        }
+        const double Ap = sp.valve > 0 ? (double)sp.valve * sp.h * sp.Wm * pos : kCdd * kW * gl;
+        double aa = rho / (2 * Ap * Ap);
+        if (toeArea > 0) aa += rho / (2 * (kCdd * toeArea) * (kCdd * toeArea));
+        const double bb = 12.0 * mu * kSeal / (kW * gl * gl * gl);
+        auto qOfU = [&](double u) { const double r = std::sqrt(bb * bb + 4 * aa * std::fabs(u)); return (u >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
+        auto Gat = [&](double q, double& dG) {
+            const double Pf = chestPa - (aa * q * std::fabs(q) + bb * q);
+            const double qo = out(Pf, dqo);
+            dG = -(2 * aa * std::fabs(q) + bb) * (1.0 + k1 * dqo) - k1;   // < 0: G falls with q
+            return Pf - P0 - k1 * (q - qo);
+        };
+        // plain Newton from the last sample's wind first (it settles in one or two steps); kept to a bracket only
+        // if it will not (the bracket costs two square roots, so it is found only then)
+        double q = qStart; bool ok = false;
+        for (int it = 0; it < 4; ++it) {
+            double dG; const double G = Gat(q, dG);
+            const double nx = q - G / dG;
+            if (std::fabs(nx - q) <= 1e-13 + 1e-9 * std::fabs(q)) { q = nx; ok = true; break; }
+            q = nx;
+        }
+        if (!ok || !std::isfinite(q)) {
+            double qlo = qOfU(chestPa - std::max(chestPa, P0)), qhi = qOfU(chestPa);
+            q = std::min(std::max(std::isfinite(q) ? q : qStart, qlo), qhi);
+            for (int it = 0; it < 40; ++it) {
+                double dG; const double G = Gat(q, dG);
+                if (G > 0) qlo = q; else qhi = q;
+                double nx = q - G / dG;
+                if (!(nx > qlo && nx < qhi)) nx = 0.5 * (qlo + qhi);
+                if (std::fabs(nx - q) <= 1e-13 + 1e-9 * std::fabs(q) || qhi - qlo <= 1e-13 + 1e-9 * std::fabs(q)) { q = nx; break; }
+                q = nx;
+            }
+        }
+        qi = q; P = std::max(0.0, chestPa - (aa * q * std::fabs(q) + bb * q));
+        out(P, dqo);
+        const double dqi = 1.0 / (2 * aa * std::fabs(q) + bb);
+        g = dqi * (1.0 + k1 * dqo) / (1.0 + k1 * (dqi + dqo));
+    }
 
     // Chest -> pallet -> foot volume -> flue, implicit in the foot pressure (as FlueSim::tickKey).
     inline void wind() {
@@ -275,39 +365,13 @@ private:
             palletPos = 0.5 - 0.5 * std::cos(M_PI * palletPhase);
             steadyCount = 0;
         }
-        const double g = kGMax * palletPos;
-        // inflow(dP) = (-bb + sqrt(bb^2 + 4 aa dP)) / (2 aa); outflow(P) = h Wm (sqrt(R^2 + 2 rho P) - R)/rho
-        double aa = 0, bb = 0; const bool open = g > 1e-9;
-        if (open) {
-            const double Ap = sp.valve > 0 ? (double)sp.valve * sp.h * sp.Wm * palletPos : kCdd * kW * g;
-            aa = rho / (2 * Ap * Ap);
-            if (toeArea > 0) aa += rho / (2 * (kCdd * toeArea) * (kCdd * toeArea));
-            bb = 12.0 * mu * kSeal / (kW * g * g * g);
-        }
-        const double k1 = dt * c2rho / volume, P0 = footP, hw = (double)sp.h * sp.Wm;
-        auto F = [&](double P, double& dF) {
-            double qi = 0, dqi = 0;
-            const double dP = chest - P;
-            // both ways: a foot left above a falling groove (or chest) blows back through its toe
-            if (open) { const double r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); qi = (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); dqi = 1.0 / r; }
-            double qo = 0, dqo = 0;
-            if (P > 0) { const double r = std::sqrt(windR * windR + 2.0 * rho * P); qo = hw * (r - windR) / rho; dqo = hw / r; }
-            dF = 1.0 + k1 * (dqi + dqo);
-            qiLast = qi; dqiLast = dqi;
-            return P - P0 - k1 * (qi - qo);
-        };
         if (steadyCount < 64) {
-            double P = P0, dF;
-            double r = F(P, dF);
-            const double tol = 1e-9 * (chest + 1.0);
-            if (std::fabs(r) > tol) {
-                for (int it = 0; it < 3; ++it) {
-                    P = std::max(0.0, std::min(std::max(chest, P0), P - r / dF));
-                    r = F(P, dF);
-                    if (std::fabs(r) < tol) break;
-                }
-                steadyCount = 0;
-            } else ++steadyCount;
+            double P, qi, gq;
+            solveFoot(chest, palletPos, P, qi, gq);
+            // still: the foot and its wind as they were (nothing then moves until the chest or the pallet does)
+            const bool still = std::fabs(P - footP) <= 1e-9 * (chest + 1.0) && std::fabs(qi - qiLast) <= 1e-12 + 1e-9 * std::fabs(qi);
+            steadyCount = still ? steadyCount + 1 : 0;
+            qiLast = qi; dqiLast = gq;
             footP = P;
             // windway inertia: rho lc dU/dt + rho U^2/2 + R U = P
             const double B = rho * lc * fs + windR, Cq = footP + rho * lc * fs * Uslot;

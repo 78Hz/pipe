@@ -6,6 +6,8 @@
 //   engine_voicer survey <in.bin> <report.txt>                  judge every pipe as it is
 //   engine_voicer voice  <in.bin> <out.bin> <report.txt>        cut every pipe to pitch on the engine and
 //                                                               re-voice the ones that fail
+//   engine_voicer speak  <in.bin> <out.bin> <report.txt>        set every flue pipe's speaking threshold (the
+//                                                               least that keeps its pitch within a semitone as it dies)
 //
 // Environment: ONLY=<rank name part> KEYS=a-b  THREADS=n  RATES=48000,44100  CHECKPOINT=<file> (voice:
 // each finished pipe is appended, so a stopped run resumes).
@@ -79,8 +81,8 @@ static std::string describe(const std::vector<judge::Verdict>& v) {
     std::string s; const auto rs = rates();
     for (size_t i = 0; i < v.size(); ++i) {
         char b[300];
-        std::snprintf(b, sizeof b, "%s%d: %s [level %.1f dB first %+.2f again %+.2f hold %.2f c %.1f dB vel %.2f trem %+.1f c %+.1f dB speech %.0f per]",
-            i ? " | " : "", rs[i] / 1000, v[i].fault().c_str(), v[i].level, v[i].first, v[i].again, v[i].holdWorst, v[i].holdLevel, v[i].velWorst, v[i].tremCents, v[i].tremLevel, v[i].speechPeriods);
+        std::snprintf(b, sizeof b, "%s%d: %s [level %.1f dB first %+.2f again %+.2f hold %.2f c %.1f dB vel %.2f trem %+.1f c %+.1f dB speech %.0f per let go %.0f c]",
+            i ? " | " : "", rs[i] / 1000, v[i].fault().c_str(), v[i].level, v[i].first, v[i].again, v[i].holdWorst, v[i].holdLevel, v[i].velWorst, v[i].tremCents, v[i].tremLevel, v[i].speechPeriods, v[i].release);
         s += b;
     }
     return s;
@@ -363,6 +365,52 @@ int main(int argc, char** argv) {
         std::fclose(rep);
         if (!bin.write(argv[3])) { std::fprintf(stderr, "cannot write %s\n", argv[3]); return 1; }
         std::fprintf(stderr, "voiced: %zu of %zu pipes could not be voiced\n", bad.load(), pipes.size());
+        return 0;
+    }
+    // speak: each flue pipe's speaking threshold (FluePipeSpec::speak), the least that keeps its pitch within the
+    // judge's limit as it dies (judge::releaseGlide, Pykett's semitone) at every rate, found by halving; the
+    // rest of the pipe is not touched. A pipe that keeps within it with no threshold has none.
+    if (mode == "speak" && argc >= 5) {
+        FILE* rep = std::fopen(argv[4], "w");
+        constexpr double kAim = 0.95 * judge::kReleaseLimit;   // a margin for the other rate's reading
+        auto work = [&] {
+            Bench b;
+            for (size_t i; (i = next++) < pipes.size();) {
+                const PipeRef& p = pipes[i];
+                if (p.reed) continue;
+                const double f = judge::pipeHz(p.rank, p.key);
+                FluePipeSpec sp = bin.flues[(size_t)p.idx];
+                auto glide = [&](double speak) {
+                    sp.speak = (float)speak; b.install(p, &sp, nullptr);
+                    double worst = 0;
+                    for (auto& g : b.rigs) {
+                        if (f > 0.42 * g->fs) continue;
+                        g->reset(); g->draw(p.rank); g->run(0.05);
+                        g->send(0x90, p.key, 100); g->run(judge::holdFor(f));
+                        const size_t up = g->L.size();
+                        g->send(0x80, p.key, 64); g->run(0.4);
+                        worst = std::max(worst, judge::releaseGlide(g->L, g->R, up, f, g->fs));
+                    }
+                    return worst;
+                };
+                const double g0 = glide(0);
+                double lo = 0, hi = 0, gh = g0; bool ok = g0 <= kAim;
+                if (!ok) {
+                    for (double t : { 0.5, 0.7, 0.9 }) { const double gt = glide(t); if (gt <= kAim) { hi = t; gh = gt; ok = true; break; } lo = t; }
+                    if (ok) for (int it = 0; it < 6; ++it) { const double m = 0.5 * (lo + hi), gm = glide(m); if (gm <= kAim) { hi = m; gh = gm; } else lo = m; }
+                    else { hi = 0.9; gh = glide(hi); }
+                }
+                sp.speak = (float)hi;
+                std::lock_guard<std::mutex> lk(io);
+                bin.flues[(size_t)p.idx] = sp; if (!ok) ++bad;
+                std::fprintf(rep, "%s\t%d\t%s\tspeak %.3f\tlet go %.0f c -> %.0f c\n", kRanks[p.rank].name, p.key, ok ? "ok" : "FAIL", hi, g0, gh); std::fflush(rep);
+                const size_t d = ++done; if (d % 50 == 0) std::fprintf(stderr, "  %zu flue pipes, %zu not within the limit\n", d, bad.load());
+            }
+        };
+        std::vector<std::thread> t; for (int i = 0; i < threads(); ++i) t.emplace_back(work); for (auto& x : t) x.join();
+        std::fclose(rep);
+        if (!bin.write(argv[3])) { std::fprintf(stderr, "cannot write %s\n", argv[3]); return 1; }
+        std::fprintf(stderr, "speak: %zu flue pipes not within the limit\n", bad.load());
         return 0;
     }
     std::fprintf(stderr, "unknown mode\n");

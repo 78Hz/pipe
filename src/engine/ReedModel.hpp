@@ -157,6 +157,30 @@ public:
     // the wind drawn into the boot over the last render, and its conductance (as FluePipeRT::inflow)
     double inflow() const { return inAcc; }
     double inflowConductance() const { return gAcc; }
+    // What the boot will draw over its next step with the groove at chestPa, from its state now, and how that
+    // moves with chestPa (FluePipeRT::previewInflow): the groove is solved with it before the pipe takes its wind.
+    double previewInflow(double chestPa, double& gOut) const {
+        // over the engine's sample: the os steps of the reed's own rate, the boot carried from one to the next,
+        // the tongue's flow as it is now
+        double phase = palletPhase, P0 = boot, qSum = 0, gSum = 0;
+        for (int j = 0; j < os; ++j) {
+            if (phase != palletTarget) phase = phase < palletTarget ? std::min(palletTarget, phase + dt / tOpen) : std::max(palletTarget, phase - dt / tClose);
+            const double pos = phase != palletPhase || palletPhase != palletTarget ? 0.5 - 0.5 * std::cos(M_PI * phase) : palletPos;
+            const double g = 0.008 * pos;
+            const double k1 = dt * c2rho / sp.bootVolume;
+            if (g <= 1e-9) { P0 = std::max(0.0, P0 - k1 * U); continue; }
+            const double Ap = toeD > 0 ? 0.61 * M_PI * 0.25 * toeD * toeD * pos : 0.61 * 0.150 * g;
+            const double aa = rho / (2 * Ap * Ap);
+            const double bb = toeD > 0 ? 12.0 * 1.807e-5 * 0.005 / (toeD * toeD * toeD * std::max(1e-3, pos)) : 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
+            auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chestPa - Pb_, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
+            double P = P0, dq = 0;
+            for (int it = 0; it < 3; ++it) { const double qi = inflowAt(P, dq); const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq; P = std::max(0.0, std::min(std::max(chestPa, P0), P - F / dF)); }
+            const double q = inflowAt(P, dq);
+            qSum += q; gSum += dq / (1.0 + k1 * dq); P0 = P;
+        }
+        gOut = gSum / os;
+        return qSum / os;
+    }
     // Stood on a groove (the slider chest): its boot is fed through a toe hole of this diameter (m); 0: its own pallet.
     void setToe(double d) { toeD = d; }
 
@@ -190,7 +214,7 @@ public:
                     const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq;
                     P = std::max(0.0, std::min(std::max(chest, P0), P - F / dF));
                 }
-                qiLast = inflowAt(P, dq); dqLast = dq;
+                qiLast = inflowAt(P, dq); dqLast = dq / (1.0 + k1 * dq);   // the toe in series with the boot, as the groove feels it (FlueRT)
             } else { P = P0 - k1 * U; qiLast = 0; dqLast = 0; }
             inAcc += qiLast; gAcc += dqLast;
             kb = k1 / (1.0 + k1 * dq);

@@ -153,6 +153,46 @@ struct Rig {
 // The pitch the rank plays on a key (12-TET, its foot, its detune).
 inline double pipeHz(int rank, int key) { return et(key) * rankRatio(rank, key) * std::pow(2.0, kRanks[rank].detuneCents / 1200.0); }
 
+// Let go: how far a flue pipe's pitch moves while it dies (cents, the furthest from where it stood, while the
+// sound is within 20 dB of its level). The pallet shuts, the groove empties through the pipes and the jet slows:
+// its longer transit pulls the pitch flat, and a real pipe falls "towards a semitone (around 6% in frequency)
+// before the sound ceases altogether", over "tens of milliseconds" (Pykett, "The Physical Modelling of Organ
+// Flue Pipes - a Complete Picture"); then the body rings down at its own resonance. Read in windows of 8 ms (6
+// periods for a low pipe) every quarter window, the pitch the strongest component within 13 semitones of the
+// note (a Hann-windowed scan in 5 cent steps, refined on the peak), and held for a window's span: a pipe that
+// leaves its note for the octave or a fifth as it dies counts by how far it went. x from `up` (the key let go) on; the note's period f.
+inline double releaseGlide(const std::vector<float>& L, const std::vector<float>& R, size_t up, double f, double fs) {
+    const int n = std::max((int)(0.008 * fs), (int)(6 * fs / f)), hop = std::max(48, n / 4);
+    if (up < (size_t)n) return 0;
+    std::vector<float> x((size_t)n);
+    auto at = [&](size_t a) { for (int i = 0; i < n; ++i) x[(size_t)i] = 0.5f * (L[a + (size_t)i] + R[a + (size_t)i]); };
+    auto goertzel = [&](double fr) {
+        const double w = 2 * M_PI * fr / fs, c = 2 * std::cos(w); double s1 = 0, s2 = 0;
+        for (int i = 0; i < n; ++i) { const double h = 0.5 - 0.5 * std::cos(2 * M_PI * i / (n - 1)), s0 = x[(size_t)i] * h + c * s1 - s2; s2 = s1; s1 = s0; }
+        return 10 * std::log10(s1 * s1 + s2 * s2 - c * s1 * s2 + 1e-30);
+    };
+    auto pitch = [&] {
+        double best = -1e9, bc = 0;
+        for (double c = -1300; c <= 1300; c += 5) { const double d = goertzel(f * std::pow(2.0, c / 1200)); if (d > best) { best = d; bc = c; } }
+        const double a = goertzel(f * std::pow(2.0, (bc - 5) / 1200)), b = goertzel(f * std::pow(2.0, (bc + 5) / 1200)), den = a - 2 * best + b;
+        return bc + (den < 0 ? 2.5 * (a - b) / den : 0.0);
+    };
+    auto level = [&] { double e = 0; for (int i = 0; i < n; ++i) e += (double)x[(size_t)i] * x[(size_t)i]; return 10 * std::log10(e / n + 1e-30); };
+    at(up - (size_t)n); const double d0 = level(), c0 = pitch();
+    std::vector<double> dev;
+    for (size_t a = up - (size_t)n / 2; a + (size_t)n <= L.size(); a += (size_t)hop) {
+        at(a); if (level() < d0 - 20) break;
+        dev.push_back(std::fabs(pitch() - c0));
+    }
+    // a pitch it holds: the deviation kept over a whole window's span (4 readings). One window across the instant
+    // a large pipe's wind collapses (a few ms) reads its shape, not a pitch.
+    const size_t span = (size_t)std::max(1, n / hop);
+    double worst = 0;
+    for (size_t i = 0; i + span <= dev.size(); ++i) { double m = 1e9; for (size_t j = i; j < i + span; ++j) m = std::min(m, dev[j]); worst = std::max(worst, m); }
+    return worst;
+}
+constexpr double kReleaseLimit = 100.0;   // cents: Pykett's semitone
+
 struct Verdict {
     bool played = false;          // the rank has a pipe here (in the compass, within the model's range)
     bool silent = false, wrongFirst = false, wrongAgain = false, wrongHold = false, wrongVel = false, wrongTrem = false;
@@ -162,6 +202,7 @@ struct Verdict {
     double velWorst = 0;          // worst |cents| of the soft and hard strikes
     double tremCents = 0;         // mean pitch under the tremulant (cents)
     double tremLevel = 0;         // its level against the pipe's own (dB)
+    double release = 0;           // let go: the furthest its pitch moves while it dies (cents; flues, releaseGlide)
     double level = -300;          // the pipe's level (dB RMS)
     double rawFirst = 9999;       // first strike: the strongest partial near the note (cents), register aside
     double speechPeriods = 0;      // to its level and its note, whichever is later
@@ -176,7 +217,8 @@ struct Verdict {
     double speechLimit = 1e9;     // periods
     bool speechOk() const { return speechPeriods <= speechLimit; }
     bool tremOk() const { return std::fabs(tremCents) <= 10.0 && tremLevel > -6.0; }
-    bool pass() const { return played && registerOk() && firstOk() && againOk() && speechOk() && holdOk() && velOk() && tremOk(); }
+    bool releaseOk() const { return release <= kReleaseLimit; }
+    bool pass() const { return played && registerOk() && firstOk() && againOk() && speechOk() && holdOk() && velOk() && tremOk() && releaseOk(); }
     // how far from passing (0 = passes): register faults count most, then each margin exceeded
     double badness() const {
         if (!played) return 0;
@@ -185,7 +227,7 @@ struct Verdict {
         if (wrongHold || wrongVel || wrongTrem) return 300;
         auto over = [](double x, double lim) { return std::max(0.0, x / lim - 1.0); };
         return over(std::fabs(first), 3.0) + over(std::fabs(again), reed ? 3.0 : 1.5) + over(holdWorst, 3.0) + over(holdLevel, 2.0)
-             + over(speechPeriods, speechLimit) + over(velWorst, reed ? 3.0 : 1.5) + over(std::fabs(tremCents), 10.0) + over(-tremLevel, 6.0);
+             + over(speechPeriods, speechLimit) + over(velWorst, reed ? 3.0 : 1.5) + over(std::fabs(tremCents), 10.0) + over(-tremLevel, 6.0) + over(release, kReleaseLimit);
     }
     // the first thing wrong, for a report
     std::string fault() const {
@@ -203,6 +245,7 @@ struct Verdict {
         if (!holdOk()) { std::snprintf(b, sizeof b, "while held: pitch %.1f c, level %.1f dB", holdWorst, holdLevel); return b; }
         if (!velOk()) { std::snprintf(b, sizeof b, "soft/hard strike %.1f c", velWorst); return b; }
         if (!tremOk()) { std::snprintf(b, sizeof b, "under the tremulant %+.1f c, %+.1f dB", tremCents, tremLevel); return b; }
+        if (!releaseOk()) { std::snprintf(b, sizeof b, "let go: its pitch moves %.0f c as it dies", release); return b; }
         return "ok";
     }
 };
@@ -307,8 +350,11 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
         if (o.stopEarly && !v.holdOk()) return v;
     }
     // let go, strike again: the pipe has to be in tune from the start now
+    bool measured = false;
     auto restrike = [&](int vel, double& c) {
+        const size_t up = g.L.size();
         g.send(0x80, key, 64); g.run(0.4);
+        if (!measured && !v.reed) { v.release = releaseGlide(g.L, g.R, up, f, fs); measured = true; }
         g.send(0x90, key, vel);
         // A reed struck from silence starts flat and takes about 40 periods to settle; its settled pitch
         // is what is compared.

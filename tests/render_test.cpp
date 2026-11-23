@@ -377,7 +377,9 @@ int main(int argc, char** argv) {
         // the vent perdu keeps working at full Swell (deeper than 12 %, well above the doux there, and losing less of
         // its depth than the doux does); with one stop the regulator, its curtain valve nearly shut, bounces with
         // the spill and adds to it, so the one-stop depth is the larger
-        const bool ok = ppDL > 12 && ppDL < 40 && ppDF < 0.6 * ppDL && ppVF > 12 && ppVF > 1.5 * ppDF && ppVF / ppVL > ppDF / ppDL && ppVL > 12 && ppVL < 75
+        // (the doux weakens with the wind its pipes draw, held towards its stop: four notes of full Swell under 0.8 of
+        // one stop; ten notes all but stop it, as Pykett says it can - clap_system_test)
+        const bool ok = ppDL > 12 && ppDL < 40 && ppDF < 0.8 * ppDL && ppVF > 12 && ppVF > 1.5 * ppDF && ppVF / ppVL > ppDF / ppDL && ppVL > 12 && ppVL < 75
                         && std::fabs(hzDL - 5.8) < 0.8 && std::fabs(hzVL - 5.8) < 0.8 && std::fabs(hzDF - 5.8) < 1.0 && std::fabs(hzVF - 5.8) < 1.0;
         if (!ok) { printf("  <-- FAIL\n"); ++failures; }
     }
