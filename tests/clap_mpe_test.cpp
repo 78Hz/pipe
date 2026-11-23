@@ -217,8 +217,12 @@ int main(int argc, char** argv) {
         const double on = s.play(1.5);
         const double c3 = 130.813, f0 = s.peakHz(0.5, 110, 140);
         s.param("Blower", 0.0);
-        double flattest = 0; double t = 0; double lvl = on;
-        while (t < 60 && lvl > on - 50) { lvl = s.play(1.0); t += 1.0; const double f = s.peakHz(0.5, 110, 140); if (lvl > on - 30) flattest = std::min(flattest, 1200 * std::log2(f / c3)); }
+        // the reservoir (1 s of the blower's output here) and the four regulators (60 l each above their stops, which
+        // give theirs back through their inlets once the reservoir falls to their weights) feed the chord: it lasts
+        // about a minute and a half
+        double flattest = 0; double t = 0; double lvl = on, left10 = -1;
+        while (t < 180 && lvl > on - 50) { lvl = s.play(1.0); t += 1.0; if (t == 10) left10 = s.value("Wind Left"); const double f = s.peakHz(0.5, 110, 140); if (lvl > on - 30) flattest = std::min(flattest, 1200 * std::log2(f / c3)); }
+        check(left10 > 20 && left10 < 180, "blower stopped, 10 s on: the wind-left output counts down what the reservoir and regulators hold (seconds)", left10);
         check(std::fabs(1200 * std::log2(f0 / c3)) < 2 && flattest < -30, "blower stopped: the chord sinks flat before it dies (start, flattest cents)", 1200 * std::log2(f0 / c3), flattest);
         check(lvl < on - 50 && s.value("Reservoir Lid") < 0.03, "and the wind runs out: the reservoir lid output reads empty (seconds, lid)", t, s.value("Reservoir Lid"));
         s.param("Blower", 1.0);

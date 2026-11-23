@@ -54,12 +54,13 @@ struct DivisionWind {
     double q = 0, qAvg = 0;             // trunk flow, m^3/s, and its steady part
     double Pc = 0;                      // chest pressure, Pa
     double inSum = 0, outSum = 0, pcSum = 0, pcMean = 0; int nSum = 0;   // what came in from the reservoir / went to the grooves, over the block
+    double drawSum = 0, drawMean = 0, inMean = 0;   // what left the division for good (pipes, tremulant's vent, leaks), m^3/s
     // tremulant valve on this division (Tremulant.hpp sets kind, rate, depth)
     double tx = 0.02, tv = 0, tAmt = 0, tAvg = 0;
 
     void reset(double Pres) {
         Pr = Pc = Pb = std::min(Pres, Pnom); x = Pres >= Pnom ? kXWork + 0.5 * kInletSpan : 0.0; v = 0; q = qAvg = 0; tx = 0.02; tv = 0; tAmt = 0; tAvg = Pc;
-        inSum = outSum = pcSum = 0; pcMean = Pc; nSum = 0;   // all of it: a reset wind is the wind of a new organ
+        inSum = outSum = pcSum = drawSum = drawMean = inMean = 0; pcMean = Pc; nSum = 0;   // all of it: a reset wind is the wind of a new organ
     }
     // One sample. Pres: the main reservoir's pressure (Pa); qOut: what the grooves' pallets and the chest's
     // other pipes take this sample (m^3/s). rho, c: the air. The tremulant: its kind, rate, depth, on.
@@ -91,9 +92,18 @@ struct DivisionWind {
             tAmt += ((tremOn ? 1.0 : 0.0) - tAmt) * std::min(1.0, 8.0 * dt);
             tAvg += (Pc - tAvg) * std::min(1.0, 2.0 * dt);
             if (trem->kind == kTremDoux) {
-                const double mu = 0.35 * tAmt;
-                tv += dt * (-tw * tw * tx + mu * tw * (1.0 - tx * tx) * tv - trem->kDouxBack * tw * tw * (Pc - tAvg) / Pnom / std::max(1e-3, (double)trem->depth));
+                // the wind passing through the trunk pushes the flap against its spring (as its dynamic pressure, the
+                // flow squared), leaving it less of its travel to swing in; at the trunk's rated flow (a full chorus
+                // on the division) it is held on its stop and the beat dies. Pykett: the doux's effect depends 'on
+                // the volume and speed of the wind passing through' and 'can sometimes vanish altogether if too many
+                // stops are drawn'. ASSUMPTION: it vanishes at kDouxHold x the trunk's unit flow. (The pipes' own load
+                // on the chest, which this model once took to weaken it, damps the trunk-chest resonance by a few
+                // per cent only, a full chord's conductance against the chest's compliance at the beat.)
+                const double qr = std::fabs(qAvg) / (trem->kDouxHold * Q0), room = std::max(0.0, 1.0 - qr * qr);
+                const double mu = 0.35 * tAmt, xr = tx / std::max(1e-3, room);
+                tv += dt * (-tw * tw * tx + mu * tw * (1.0 - xr * xr) * tv - trem->kDouxBack * tw * tw * (Pc - tAvg) / Pnom / std::max(1e-3, (double)trem->depth));
                 tx += dt * tv;
+                if (room < 1e-3) { tx *= 0.999; tv *= 0.999; }   // held on its stop
                 qPiston = trem->kDouxArea * trem->depth * tAmt * Q0 * tv / tw;
             } else {
                 // the vent perdu's pallet is worked by its own motor (a small bellows on the chest's wind that the
@@ -148,11 +158,14 @@ struct DivisionWind {
         const double qLeak = leakM3 * std::max(0.0, Pc) / Pnom;
         Pc += dt * rc2 / kChestV * (q - qOut - qVent + qPiston - qCb - qLeak);
         Pc = std::max(0.0, Pc);
-        inSum += qin; outSum += qOut; pcSum += Pc; ++nSum;
+        inSum += qin; outSum += qOut; pcSum += Pc; drawSum += qOut + qVent + qLeak; ++nSum;
     }
     // what the regulator drew from the reservoir over the block (m^3/s), and reset
     // (and the chest's mean pressure over the block, pcMean)
-    double takeInflow() { const double r = nSum ? inSum / nSum : 0.0; pcMean = nSum ? pcSum / nSum : Pc; inSum = outSum = pcSum = 0; nSum = 0; return r; }
+    double takeInflow() { const double r = nSum ? inSum / nSum : 0.0; pcMean = nSum ? pcSum / nSum : Pc; drawMean = nSum ? drawSum / nSum : 0.0; inMean = r; inSum = outSum = pcSum = drawSum = 0; nSum = 0; return r; }
+    // the air the regulator holds above its lid's stops (m^3): it gives this back to the chest, or through its
+    // inlet to the others, once the reservoir falls below its weights
+    double storedM3() const { return kAr * std::max(0.0, x - 0.002); }
 };
 
 enum ReservoirLoad { kLoadWeights = 0, kLoadSprings, kNumReservoirLoads };
@@ -231,8 +244,19 @@ struct WindSystem {
         // In the last part of the travel the lid sits on its stops: the space left is
         // small and the pressure follows the air within it.
         lid = std::max(0.f, std::min(1.f, lid + net * dt / std::max(0.5f, sizeSeconds)));
-        const float outflow = demand + leakFlow;
-        secondsLeft = (net < -1e-4f && outflow > 1e-4f) ? lid * sizeSeconds / std::max(1e-4f, outflow - inflow) : -1.f;
+        // how long the wind lasts: all the air stored (the reservoir's and the regulators', which feed the chests
+        // and, through their inlets, each other once the reservoir falls to their weights) over what leaves the
+        // system for good (the chests' pipes and leaks, the reservoir's leak) less what the blower brings. Taken from
+        // the reservoir's own balance alone it read 'keeping up' with the blower stopped while the regulators fed it.
+        {
+            constexpr double kCapM3 = 4.5e-4 * kBlowerCapacity;   // the blower's full output, m^3/s (Engine kRefFlow per flow unit)
+            double stored = (double)lid * std::max(0.5f, sizeSeconds), used = leakFlow + demand;   // seconds of the blower's output; its share
+            // (demand: what the regulators drew from the reservoir, and the pipes standing on it directly; the
+            // regulators' part is taken out and what left their chests put in its place)
+            for (int d = 0; d < kNumDivisions; ++d) { stored += div[d].storedM3() / kCapM3; used += (div[d].drawMean - div[d].inMean) / kCapM3; }
+            const double drain = used - inflow;
+            secondsLeft = drain > 1e-4 ? (float)(stored / drain) : -1.f;
+        }
 
         // Lid inertia: the reservoir sags under sudden demand and bounces back.
         const float flex = flexibility;

@@ -7,7 +7,8 @@
 //    lead weight. The wind blows it towards closing; as it closes the chest pressure falls, the flow
 //    behind it builds up in the trunk and pushes it open again. Nothing is let out of the organ. It
 //    gives a gentle, nearly sinusoidal beat, and its effect weakens as more stops are drawn (the
-//    pipes drawing wind damp the trunk-chest resonance it works through) and can vanish at full organ.
+//    wind passing through holds the flap towards its stop, leaving it less travel to swing in) and
+//    can vanish at full organ (Pykett: it depends 'on the volume and speed of the wind passing through').
 //  - tremblant a vent perdu (spilled wind, "tremblant fort"): a weighted pallet on the chest's wind
 //    that opens outward when the pressure lifts it and lets wind escape; the pressure falls, the
 //    pallet drops back, the pressure rebuilds. Deeper and less sinusoidal; up to about 75 % peak to
@@ -92,6 +93,7 @@ struct Tremulant {
     double unitFlowM3 = 0.036;   // the trunk's unit flow in m^3/s (kTrunkUnitFlow flow units)
     float kDouxArea = 0.45f;       // swept flow at full swing, per unit of depth
     float kDouxBack = 0.02f;
+    float kDouxHold = 1.0f;   // the trunk flow (x unit flow) that holds the doux's flap on its stop (DivisionWind)
     float kHelmDoux = 1.6f, kHelmVent = 0.5f;   // doux: works below the trunk-chest resonance; vent perdu: above it (the chest's compliance gives the lag)
     float kVentRate = 0.79f;   // the pallet's own frequency / the beat it gives (the loop pulls it up)
     float kTrunkLin = 0.6f;   // the trunk's viscous loss (pressure / unit flow): damps its Helmholtz ring
