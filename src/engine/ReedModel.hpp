@@ -162,7 +162,8 @@ public:
     double previewInflow(double chestPa, double& gOut) const {
         // over the engine's sample: the os steps of the reed's own rate, the boot carried from one to the next,
         // the tongue's flow as it is now
-        double phase = palletPhase, P0 = boot, qSum = 0, gSum = 0;
+        double phase = palletPhase, P0 = boot, qSum = 0, gSum = 0, qp = qiLast;
+        const double Lh = passL / dt;
         for (int j = 0; j < os; ++j) {
             if (phase != palletTarget) phase = phase < palletTarget ? std::min(palletTarget, phase + dt / tOpen) : std::max(palletTarget, phase - dt / tClose);
             const double pos = phase != palletPhase || palletPhase != palletTarget ? 0.5 - 0.5 * std::cos(M_PI * phase) : palletPos;
@@ -172,17 +173,22 @@ public:
             const double Ap = toeD > 0 ? 0.61 * M_PI * 0.25 * toeD * toeD * pos : 0.61 * 0.150 * g;
             const double aa = rho / (2 * Ap * Ap);
             const double bb = toeD > 0 ? 12.0 * 1.807e-5 * 0.005 / (toeD * toeD * toeD * std::max(1e-3, pos)) : 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
-            auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chestPa - Pb_, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
+            // the passage's air (setPassage): aa q|q| + (bb + L/h) q = dP + (L/h) q_prev
+            const double bL = bb + Lh;
+            auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chestPa - Pb_ + Lh * qp, r = std::sqrt(bL * bL + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bL + r) / (2 * aa); };
             double P = P0, dq = 0;
             for (int it = 0; it < 3; ++it) { const double qi = inflowAt(P, dq); const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq; P = std::max(0.0, std::min(std::max(chestPa, P0), P - F / dF)); }
             const double q = inflowAt(P, dq);
-            qSum += q; gSum += dq / (1.0 + k1 * dq); P0 = P;
+            qSum += q; gSum += dq / (1.0 + k1 * dq); P0 = P; qp = q;
         }
         gOut = gSum / os;
         return qSum / os;
     }
     // Stood on a groove (the slider chest): its boot is fed through a toe hole of this diameter (m); 0: its own pallet.
     void setToe(double d) { toeD = d; }
+    // The passage the wind climbs from the groove to the boot (table, slider, upper board): its air's inertance,
+    // rho l_eff / A (kg/m^4; Engine::passageL). 0: none.
+    void setPassage(double L) { passL = std::max(0.0, L); }
 
     inline double tick() {
         // pallet and boot (inflow implicit, outflow = reed flow of the last step)
@@ -207,8 +213,10 @@ public:
                 const double Ap = toeD > 0 ? 0.61 * M_PI * 0.25 * toeD * toeD * palletPos : 0.61 * 0.150 * g;
                 const double aa = rho / (2 * Ap * Ap);
                 const double bb = toeD > 0 ? 12.0 * 1.807e-5 * 0.005 / (toeD * toeD * toeD * std::max(1e-3, palletPos)) : 12.0 * 1.807e-5 * 0.010 / (0.150 * g * g * g);
-                // both ways: a boot left above a falling groove blows back through its toe
-                auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chest - Pb_, r = std::sqrt(bb * bb + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
+                // both ways: a boot left above a falling groove blows back through its toe; the air of the passage
+                // up from the groove to be set moving (setPassage): aa q|q| + (bb + L/h) q = dP + (L/h) q_prev
+                const double Lh = passL / dt, bL = bb + Lh, qPrev = qiLast;
+                auto inflowAt = [&](double Pb_, double& dq_) { const double dP = chest - Pb_ + Lh * qPrev, r = std::sqrt(bL * bL + 4 * aa * std::fabs(dP)); dq_ = 1.0 / r; return (dP >= 0 ? 1.0 : -1.0) * (-bL + r) / (2 * aa); };
                 for (int it = 0; it < 3; ++it) {
                     const double qi = inflowAt(P, dq);
                     const double F = P - P0 - k1 * (qi - U), dF = 1.0 + k1 * dq;
@@ -314,7 +322,7 @@ private:
     int os = 2, nPad = 0, hornDelayScaled = 1;
     double fs = 96000, dt = 1.0 / 96000, rho = 1.2, c2rho = 1.4e5;
     PipeAir air;
-    double inAcc = 0, gAcc = 0, qiLast = 0, dqLast = 0, toeD = 0;
+    double inAcc = 0, gAcc = 0, qiLast = 0, dqLast = 0, toeD = 0, passL = 0;
     double wr = 0, wrNow = 0, accK = 0, Sr = 0, pitch = 0, Ls = 0, Us = 0;
     double x = 0, vx = 0, boot = 0, U = 0, p = 0, topPrev = 0;
     static constexpr int kHorn = 8192;

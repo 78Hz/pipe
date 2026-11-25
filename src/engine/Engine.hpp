@@ -99,6 +99,21 @@ inline double grooveVolume(int division, int key) {
     const double t = std::max(0.0, std::min(1.0, (double)(key - kManualLow) / (double)(kManualHigh - kManualLow)));
     return kGrooveVolume * std::pow(1.0 / 3.0, t);
 }
+// The passage each pipe's wind climbs from its groove: bored through the table (3/4 in), the slider (3/8 in)
+// and the upper board (1 1/4 in), 60 mm (Dickson, Practical Organ Building, ch. III), the bores "as large as the
+// grooves will allow" in the bass and small in the treble (ch. IV): here as wide as the key's groove (3/4 in at
+// the bottom, 1/4 in at the top), and never narrower than the pipe's own toe hole. ASSUMPTION: Opus 14's own
+// board thicknesses are not known; Dickson's are a builder's ordinary ones. What matters is the air in it: at a
+// pipe's frequencies its inertance rho (l + 2 x 0.85 r) / (pi r^2) (an end correction at each end) stands far
+// above the groove's own impedance, so a pipe neither feels the others' pulses through the groove nor sends its
+// own (a reed's boot pulses at its note) into it; steady wind it does not touch. Without it the lumped groove
+// passed a Trumpet's boot pulses straight to the open-footed flues on its key, and drew a Principal +-50 c.
+constexpr double kPassageLength = 0.060, kGrooveWidthBass = 0.020;
+inline double grooveWidth(int division, int key) { return kGrooveWidthBass * grooveVolume(division, key) / kGrooveVolume; }
+inline double passageL(int division, int key, double toe, double rho = 1.2) {
+    const double r = 0.5 * std::max(grooveWidth(division, key), toe > 0 ? toe : 0.0);
+    return rho * (kPassageLength + 1.7 * r) / (M_PI * r * r);
+}
 constexpr int kMaxFlueVoices = 448;
 constexpr int kMaxReedVoices = 96;
 
@@ -585,6 +600,7 @@ private:
             v.groove = false;   // diagnostics: every pipe on a chest of its own, as the voicer voiced it
 #endif
             core.setGrooveFed(v.groove);
+            core.setPassage(v.groove ? passageL(rd.division, k, sp->toe) : 0.0);
             core.setPallet(0.002, 0.002);   // its valve (the slider and toe, or its own) follows in 2 ms
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -613,6 +629,7 @@ private:
 #endif
             // its toe hole, as the voicer bored it (0: an open boot)
             core.setToe(sp->toe);
+            core.setPassage(v.groove ? passageL(rd.division, k, sp->toe) : 0.0);
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);

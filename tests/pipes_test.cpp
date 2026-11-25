@@ -370,11 +370,15 @@ static void release() {
             g.run(0.025);   // the pallet shuts (20 ms)
             // every pipe of the stop on this key draws on the groove: a mixture's ranks together
             auto drawn = [&] { double q = 0; for (int rr = 0; rr < kNumRanks; ++rr) if (stopForRank(rr) == stopForRank(r)) q += g.en->debugPipeInflow(rr, key); return q; };
+            // the wind drawn, sample by sample over the 2 ms (the air of a pipe's passage swings: it can run back
+            // from the foot into the groove, so the ends of the interval do not tell what went)
             const double P0 = g.en->debugGroovePa(d, key), q0 = drawn();
-            g.run(0.002);
+            double vol = 0;
+            for (int i = 0; i < (int)(0.002 * fs); ++i) { g.run(1.0 / fs); vol += drawn() / fs; }
             const double P1 = g.en->debugGroovePa(d, key), q1 = drawn();
-            const double expect = 1.4e5 * 0.5 * (q0 + q1) / g.en->debugGrooveVolume(d, key) * 0.002;   // Pa over the 2 ms
-            const double ratio = (P0 < 0.2 * held || expect < 1e-3) ? 1.0 : (P0 - P1) / expect;   // already all but empty: it did
+            const double expect = 1.4e5 * vol / g.en->debugGrooveVolume(d, key);   // Pa over the 2 ms
+            // already all but empty, or emptied within the 2 ms: it fell as fast as it could
+            const double ratio = (P0 < 0.2 * held || P1 < 0.02 * held || expect < 1e-3) ? 1.0 : (P0 - P1) / expect;
             if (std::getenv("PIPE_TEST_VERBOSE") && ratio < 0.8) std::printf("      %s key %d: groove %.1f -> %.1f Pa (held %.1f), drawn %.3g -> %.3g m3/s, expect %.1f Pa\n", kRanks[r].name, key, P0, P1, held, q0, q1, expect);
             if (ratio < worst) { worst = ratio; wR = r; wK = key; }
             g.run(0.3);
