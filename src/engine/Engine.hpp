@@ -209,7 +209,7 @@ public:
         outputs[kOutBendLo - kOutFirst] = 48.f;
         outputs[kOutBendHi - kOutFirst] = 48.f;
         for (int d = 0; d < kNumDivisions; ++d) outputs[kOutChestPd - kOutFirst + d] = kChestNominal[d];
-        outputs[kOutReservoir - kOutFirst] = 96.f;
+        outputs[kOutReservoir - kOutFirst] = 80.f;
     }
 
     void prepare(double sampleRate) {
