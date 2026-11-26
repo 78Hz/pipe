@@ -103,7 +103,7 @@ inline const ParamInfo& paramInfo(int id) {
         set(kParamTremDepth,   { "trem_depth", "Tremulant Depth", 0.f, 0.5f, 0.22f, kPFloat, "", 0, nullptr });
         set(kParamTremTarget,  { "trem_target", "Tremulant Division", 0.f, 3.f, 2.f, kPEnum, "", 4, kTremTargetLabels });
         set(kParamStability,   { "wind_flex", "Wind Flexibility", 0.f, 1.f, 1.f, kPFloat, "", 0, nullptr });
-        set(kParamReservoir,   { "reservoir", "Reservoir Pressure", 60.f, 140.f, 80.f, kPFloat, "mm", 0, nullptr });
+        set(kParamReservoir,   { "reservoir", "Reservoir Pressure", 60.f, 140.f, 79.f, kPFloat, "mm", 0, nullptr });
         set(kParamBlowerNoise, { "blower_noise", "Blower Noise", -90.f, -30.f, -62.f, kPFloat, "dB", 0, nullptr });
         set(kParamConcussion,  { "concussion", "Concussion Bellows", 0.f, 1.f, 0.4f, kPFloat, "", 0, nullptr });
         set(kParamResLoad,     { "res_load", "Reservoir Load", 0.f, 1.f, 0.f, kPEnum, "", kNumReservoirLoads, kReservoirLoadLabels });

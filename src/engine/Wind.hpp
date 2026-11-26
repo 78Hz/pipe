@@ -62,7 +62,11 @@ struct DivisionWind {
     double Pb = 0;                // the air in the concussion bellows (its spring's pressure), Pa
     double leakM3 = 4.7e-4;       // the chest's leakage at its working pressure, m^3/s (WindSystem::update)
     // the line: in each section a wave running to the chest (fwd) and one running back (bwd), as delay lines
-    struct Section { std::vector<double> fwd, bwd; int n = 1, pos = 0; double Z = 1, g = 1; };
+    struct Section { std::vector<double> fwd, bwd; int n = 1, pos = 0; double Z = 1, g = 1, dcF = 0, dcB = 0; };
+    double dcK = 1e-4;            // the slow part of each wave: a one-pole follower, its coefficient per sample (buildLine)
+    // a wave as it arrives: its slow part untouched (the walls' loss is a boundary layer's, nothing at a steady flow:
+    // attenuating the whole wave would lose air from the line), its moving part attenuated by the walls
+    static double arrive(double raw, double dc, double g) { return dc + g * (raw - dc); }
     Section sec[kSections];
     double lineFs = 0, lineRho = 0, lineC = 0;
     // state
@@ -89,8 +93,9 @@ struct DivisionWind {
             const double alpha = std::sqrt(M_PI * f * nu) / (0.5 * side * c) * (1.0 + 0.4 / std::sqrt(0.71));
             s.g = std::exp(-alpha * len);
         }
+        dcK = 1.0 - std::exp(-2.0 * M_PI * 0.1 * f / fs);   // a tenth of the lowest resonance
     }
-    void fillLine(double P) { for (auto& s : sec) { std::fill(s.fwd.begin(), s.fwd.end(), 0.5 * P); std::fill(s.bwd.begin(), s.bwd.end(), 0.5 * P); } }
+    void fillLine(double P) { for (auto& s : sec) { std::fill(s.fwd.begin(), s.fwd.end(), 0.5 * P); std::fill(s.bwd.begin(), s.bwd.end(), 0.5 * P); s.dcF = s.dcB = 0.5 * P; } }
     // the line's impedance at the chest end, rho c / S
     double lineZ() const { return sec[kSections - 1].Z; }
 
@@ -99,14 +104,26 @@ struct DivisionWind {
         inSum = outSum = pcSum = drawSum = drawMean = inMean = 0; pcMean = Pc; nSum = 0;   // all of it: a reset wind is the wind of a new organ
         fillLine(regulated ? Pres : Pc);
     }
+    // What the line will draw from the bellows this sample, as a function of their pressure: q = G Pres - J (the
+    // wave arriving at the bellows end is known before the sample is stepped). The bellows solve against it.
+    void bellowsNorton(double dt, double Pres, double rho, double c, double& G, double& J) {
+        if (lineFs != 1.0 / dt || lineRho != rho || lineC != c) { buildLine(1.0 / dt, rho, c); fillLine(regulated ? Pres : Pc); }
+        const Section& s = sec[0];
+        G = 1.0 / s.Z; J = 2.0 * arrive(s.bwd[(size_t)s.pos], s.dcB, s.g) / s.Z;
+    }
     // One sample. Pres: the bellows' pressure (Pa); qOut: what the grooves' pallets and the chest's other pipes
     // take this sample (m^3/s). rho, c: the air. The tremulant: its kind, rate, depth, on.
-    void step(double dt, double Pres, double qOut, double rho, double c, const Tremulant* trem, bool tremOn) {
+    // Returns what the line drew from the bellows this sample (m^3/s).
+    double step(double dt, double Pres, double qOut, double rho, double c, const Tremulant* trem, bool tremOn) {
         const double rc2 = rho * c * c;
         if (lineFs != 1.0 / dt || lineRho != rho || lineC != c) { buildLine(1.0 / dt, rho, c); fillLine(regulated ? Pres : Pc); }
         // the line: the waves arriving at each end of each section this sample, then the junctions
         double arrF[kSections], arrB[kSections];
-        for (int k = 0; k < kSections; ++k) { Section& s = sec[k]; arrF[k] = s.fwd[(size_t)s.pos] * s.g; arrB[k] = s.bwd[(size_t)s.pos] * s.g; }
+        for (int k = 0; k < kSections; ++k) {
+            Section& s = sec[k]; const double rf = s.fwd[(size_t)s.pos], rb = s.bwd[(size_t)s.pos];
+            arrF[k] = arrive(rf, s.dcF, s.g); arrB[k] = arrive(rb, s.dcB, s.g);
+            s.dcF += dcK * (rf - s.dcF); s.dcB += dcK * (rb - s.dcB);
+        }
         double sendF[kSections], sendB[kSections];
         // at the bellows: their pressure holds the line's end (their air is far larger than the line's)
         sendF[0] = Pres - arrB[0];
@@ -222,6 +239,7 @@ struct DivisionWind {
         sendB[kSections - 1] = Pend - arrF[kSections - 1];
         for (int k = 0; k < kSections; ++k) { Section& s = sec[k]; s.fwd[(size_t)s.pos] = sendF[k]; s.bwd[(size_t)s.pos] = sendB[k]; s.pos = (s.pos + 1) % s.n; }
         inSum += qBellows; outSum += qOut; pcSum += Pc; drawSum += qOut + qVent + qLeak; ++nSum;
+        return qBellows;
     }
     // what the line drew from the bellows over the block (m^3/s), and reset
     // (and the chest's mean pressure over the block, pcMean)
@@ -236,7 +254,7 @@ static const char* const kReservoirLoadLabels[kNumReservoirLoads] = { "WEIGHTS",
 
 struct WindSystem {
     // settings
-    float reservoirTarget = 80.f;   // the bellows' pressure at their working height, mm (Opus 14: the chests' 79 mm, the lines' loss on top)
+    float reservoirTarget = 79.f;   // the bellows' pressure at their working height, mm (Opus 14 has no regulators: the weights are set so the chests stand at the 79 mm the pipes were voiced on; the lines lose a fraction of a mm at a few pipes' flow)
     float flexibility = 1.f;        // 1: Opus 14's wind, the bellows alone; below 1 a regulator at each chest, steadier towards 0
     float concussion = 0.4f;
     bool blowerOn = true;
@@ -269,6 +287,8 @@ struct WindSystem {
     float lid = 0.f;            // lid height, 0 (empty) .. 1 (full travel)
     double lidVel = 0;          // its speed, travel / s
     double airPa = 0;           // the air under the lid, Pa
+    double qExtern = 0;         // what reaches the bellows other than through the wind lines, m^3/s (update)
+    double directM3 = 0;        // the pipes on chests of their own: what they drew (the engine sets it), m^3/s
     float fan = 0.f;            // blower speed, 0 .. 1
     float reservoir = 0.f;      // the bellows' pressure, mm
     float sag = 0.f;            // (kept for the engine's outputs: the lid's own motion is in the pressure now)
@@ -285,7 +305,7 @@ struct WindSystem {
             loadAt = (float)(std::cos(deg * h) / std::cos(deg * kWorkHeight));
         } else
             loadAt = kSpringAtBottom + (1.f - kSpringAtBottom) * std::min(1.f, h / kWorkHeight) + (h > kWorkHeight ? 0.3f * (h - kWorkHeight) : 0.f);
-        return reservoirTarget * loadAt * std::min(1.f, h / kStops);
+        return reservoirTarget * loadAt;   // the weights press all the way down: the lid on its stops is the air running out
     }
     // the lid's area and the mass its load stands for: weights weigh what they press; springs, ASSUMPTION, a
     // quarter of that (the lid and its folds)
@@ -303,13 +323,39 @@ struct WindSystem {
         fan = blowerOn ? 1.f : 0.f;
         lid = blowerOn ? kWorkHeight : 0.f;
         lidVel = 0;
-        reservoir = lidPressure(lid);
+        reservoir = blowerOn ? lidPressure(lid) : 0.f;
         airPa = reservoir * 9.80665;
         sag = 0.f; demand = 0.f; tremLoad = 0.f;
         setLines();
         for (int d = 0; d < kNumDivisions; ++d) { chest[d] = blowerOn ? std::min(kChestNominal[d], reservoir) : 0.f; div[d].Pnom = kChestNominal[d] * 9.80665; div[d].lineFs = 0; div[d].reset(reservoir * 9.80665); }
         trem.reset();
         secondsLeft = -1.f;
+    }
+
+    // One sample of the bellows: their air and their lid, against what the wind lines draw (q = G P - J, each
+    // line's bellowsNorton summed) and what update() found reaches them otherwise. Stepped with the lines, sample
+    // by sample, and solved implicitly (backward Euler) for the air and the lid together: a small bellows, or one
+    // whose lid has come down on its stops, is a stiff spring of air against the lines, and stepped explicitly it
+    // rang and ran away.
+    void stepBellows(double dt, double G, double J) {
+        const double rc2 = 1.2041 * 343.21 * 343.21, A = bellowsArea(), m = lidMass(), Vmax = maxVolume();
+        // ASSUMPTION: what stays below the lid on its stops (the bottom board's depth, the feeders' trunk), 5 % of the travel
+        const double V = std::max(0.05 * Vmax, Vmax * (double)lid);
+        const double Pload = lidPressure(lid) * 9.80665, kAir = rc2 * A * A / V, wn = std::sqrt(kAir / m);
+        const double K = rc2 / V;                        // dP = K (q - dV/dt)
+        double vy = lidVel * Vmax / A;                   // the lid's speed, m/s (its swept volume A vy)
+        const double damp = 1.0 + 2.0 * kLidZeta * wn * dt, a = dt * A / (m * damp);
+        // the lid: vy' = vy / damp + a (P' - Pload); the air: P' = P + dt K (qExtern - (G P' - J) - A vy')
+        double P = (airPa + dt * K * (qExtern + J - A * (vy / damp - a * Pload))) / (1.0 + dt * K * (G + A * a));
+        vy = vy / damp + a * (P - Pload);
+        // on its stops the lid stands: the air alone answers
+        if ((lid <= 0.f && vy < 0) || (lid >= 1.f && vy > 0)) { vy = 0; P = (airPa + dt * K * (qExtern + J)) / (1.0 + dt * K * G); }
+        airPa = std::max(0.0, P);
+        lidVel = vy * A / Vmax;
+        lid += (float)(dt * lidVel);
+        if (lid <= 0.f) { lid = 0.f; if (lidVel < 0) lidVel = 0; }
+        if (lid >= 1.f) { lid = 1.f; if (lidVel > 0) lidVel = 0; }
+        reservoir = (float)(airPa / 9.80665);
     }
 
     // Advance by dt seconds given total flow demand (pipe flow units: what the wind lines and the pipes standing
@@ -322,7 +368,6 @@ struct WindSystem {
         if (!blowerOn && fan < 1e-3f) fan = 0.f;
 
         const float Pw = std::max(1.f, reservoirTarget);
-        const double rho = 1.2041, rc2 = rho * 343.21 * 343.21, A = bellowsArea(), m = lidMass(), Vmax = maxVolume();
         const float Pmm = (float)(airPa / 9.80665);
         // Blower: a fan's pressure goes with its speed squared; flow through it with the square root of the
         // pressure it has to spare. The inlet valve closes as the lid reaches its working height. A check valve
@@ -332,31 +377,9 @@ struct WindSystem {
         const float spare = std::max(0.f, head - Pmm) / ((kFanHead - 1.f) * Pw);
         const float inflow = 1.15f * fan * std::sqrt(spare) * valve;
         const float leakFlow = leak * std::sqrt(std::max(0.f, Pmm) / Pw);
-        // The lid: its load and mass against the air under it; the air: what comes in and goes out, and the
-        // lid's motion. Stepped in small steps (the lid and its air ring near 15 Hz).
-        const double qNet = ((double)inflow - demand - leakFlow) * kCapM3;   // m^3/s
-        const int sub = 8; const double h = dt / sub;
-        const double kAir = rc2 * A * A / std::max(0.05 * Vmax, Vmax * lid), wn = std::sqrt(kAir / m);
-        for (int i = 0; i < sub; ++i) {
-            const double V = std::max(0.01 * Vmax, Vmax * (double)lid);
-            const double Pload = lidPressure(lid) * 9.80665;
-            // the air: dP = rho c^2 / V (q - dV/dt)
-            airPa += h * rc2 / V * (qNet - Vmax * lidVel);
-            airPa = std::max(0.0, airPa);
-            // the lid (its height in m = V / A): accel = (P - Pload) A / m - 2 zeta wn v
-            double vy = lidVel * Vmax / A;
-            vy += h * ((airPa - Pload) * A / m - 2.0 * kLidZeta * wn * vy);
-            lidVel = vy * A / Vmax;
-            lid += (float)(h * lidVel);
-            if (lid <= kStops) {
-                // on its stops: the folds closing, the air alone (its pressure follows what is left in it)
-                if (lid < 0.f) lid = 0.f;
-                if (lidVel < 0 && airPa < Pload) lidVel = 0;
-                if (lid <= 0.f) lidVel = std::max(0.0, lidVel);
-            }
-            if (lid > 1.f) { lid = 1.f; if (lidVel > 0) lidVel = 0; }
-        }
-        reservoir = (float)(airPa / 9.80665);
+        // what reaches the bellows other than the wind lines (stepBellows takes those sample by sample): the
+        // blower, the leak, and the pipes standing on chests of their own
+        qExtern = ((double)inflow - leakFlow) * kCapM3 - directM3;
         // how long the wind lasts: all the air stored (the bellows' and the regulators', which feed the chests)
         // over what leaves the system for good (the chests' pipes and leaks, the bellows' leak) less what the blower brings.
         {

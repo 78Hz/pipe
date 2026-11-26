@@ -209,7 +209,7 @@ public:
         outputs[kOutBendLo - kOutFirst] = 48.f;
         outputs[kOutBendHi - kOutFirst] = 48.f;
         for (int d = 0; d < kNumDivisions; ++d) outputs[kOutChestPd - kOutFirst + d] = kChestNominal[d];
-        outputs[kOutReservoir - kOutFirst] = 80.f;
+        outputs[kOutReservoir - kOutFirst] = 79.f;
     }
 
     void prepare(double sampleRate) {
@@ -688,7 +688,6 @@ private:
         for (int i = 0; i < (int)voices.size(); ++i) if (voices[(size_t)i].active && !voices[(size_t)i].groove) ownV[nO++] = i;
         const double rho = 1.2041 * pipeAir.rhoRatio, c = 343.21 * pipeAir.cRatio, mu = 1.807e-5 * pipeAir.muRatio;
         const double dt = 1.0 / fs, kUnit = dt * rho * c * c;   // / the groove's volume
-        const double Pres = (double)wind.reservoir * (1.0 - wind.sag) * kMmToPa;
         const float boostSpan = (params[kParamPressMax] - 78.f) / 78.f;
         wind.trem.unitFlowM3 = kTrunkUnitFlow * kRefFlow;
 
@@ -778,21 +777,31 @@ private:
         if (nG + nO >= kParallelMin) pool.run(nG + nO, task);
         else for (int i = 0; i < nG + nO; ++i) task(i);
 
-        // the chests: what the pallets took, sample by sample; the regulator and trunk refill them
-        for (int d = 0; d < kNumDivisions; ++d) {
-            DivisionWind& dw = wind.div[d];
-            const Tremulant* trem = d == wind.tremTarget ? &wind.trem : nullptr;
-            if (trem) { wind.trem.rate = wind.tremSpeed; wind.trem.depth = wind.tremDepth; }
-            int gs[kMaxGrooves], ng = 0;
-            for (int j = 0; j < nG; ++j) if (gId[j] / 128 == d) gs[ng++] = j;
-            double qBlock = 0;
-            for (int t = 0; t < n; ++t) {
+        // the chests: what the pallets took, sample by sample; the wind lines refill them from the bellows, and the
+        // bellows feel the lines sample by sample
+        int gsd[kNumDivisions][kMaxGrooves], ngd[kNumDivisions] = {};
+        double qBlockD[kNumDivisions] = {};
+        for (int j = 0; j < nG; ++j) { const int d = gId[j] / 128; gsd[d][ngd[d]++] = j; }
+        for (int d = 0; d < kNumDivisions; ++d) if (d == wind.tremTarget) { wind.trem.rate = wind.tremSpeed; wind.trem.depth = wind.tremDepth; }
+        for (int t = 0; t < n; ++t) {
+            // the bellows first, against what each line will draw at their pressure; then the lines at that pressure
+            double G = 0, J = 0;
+            for (int d = 0; d < kNumDivisions; ++d) { double g, j; wind.div[d].bellowsNorton(dt, wind.airPa, rho, c, g, j); G += g; J += j; }
+            wind.stepBellows(dt, G, J);
+            const double Pres = wind.airPa;
+            for (int d = 0; d < kNumDivisions; ++d) {
+                DivisionWind& dw = wind.div[d];
+                const Tremulant* trem = d == wind.tremTarget ? &wind.trem : nullptr;
                 double qOut = 0;
-                for (int u = 0; u < ng; ++u) qOut += qG[gs[u]][t];
+                for (int u = 0; u < ngd[d]; ++u) qOut += qG[gsd[d][u]][t];
                 dw.step(dt, Pres, qOut, rho, c, trem, wind.tremOn);
                 pcPrev[d][t] = dw.Pc;
-                qBlock += qOut;
+                qBlockD[d] += qOut;
             }
+        }
+        for (int d = 0; d < kNumDivisions; ++d) {
+            DivisionWind& dw = wind.div[d];
+            const double qBlock = qBlockD[d];
             pcPrevN[d] = n;
             grooveFlow[d] = qBlock / n;
             divInflow[d] = dw.takeInflow();
@@ -946,6 +955,7 @@ private:
         }
         // the grooves: what their pallets actually let in (renderGrooves, the last block)
         // the regulators: what they drew from the main reservoir (renderGrooves, the last block)
+        wind.directM3 = (double)flow * kRefFlow;
         for (int d = 0; d < kNumDivisions; ++d) { const float f = (float)(divInflow[d] / kRefFlow); flow += f; divFlow[d] += f; }
         wind.update(dt, flow, divFlow);
         windLive = true;
