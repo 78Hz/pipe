@@ -100,7 +100,7 @@ inline const ParamInfo& paramInfo(int id) {
         auto set = [](int i, ParamInfo p) { table[i] = p; };
         set(kParamSwell,       { "swell", "Swell Shutters", 0.f, 1.f, 0.64f, kPFloat, "", 0, nullptr });
         set(kParamTremSpeed,   { "trem_speed", "Tremulant Speed", 3.f, 9.f, 5.8f, kPFloat, "Hz", 0, nullptr });
-        set(kParamTremDepth,   { "trem_depth", "Tremulant Depth", 0.f, 0.5f, 0.22f, kPFloat, "", 0, nullptr });
+        set(kParamTremDepth,   { "trem_depth", "Tremulant Depth", 0.f, 0.5f, 0.12f, kPFloat, "", 0, nullptr });
         set(kParamTremTarget,  { "trem_target", "Tremulant Division", 0.f, 3.f, 2.f, kPEnum, "", 4, kTremTargetLabels });
         set(kParamStability,   { "wind_flex", "Wind Flexibility", 0.f, 1.f, 1.f, kPFloat, "", 0, nullptr });
         set(kParamReservoir,   { "reservoir", "Reservoir Pressure", 60.f, 140.f, 79.f, kPFloat, "mm", 0, nullptr });

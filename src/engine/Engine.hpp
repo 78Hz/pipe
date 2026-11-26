@@ -1057,11 +1057,13 @@ private:
                 float bend = p.bendCents;
                 if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
                 // the tuner listens only in the voiced state, and only to a pipe that has settled
+                // (the chest within 1.5 mm of its 79 mm: with no regulator Opus 14's chest moves by a few Pa as a groove
+                // fills and the line rings; a pipe's pitch moves about 0.06 c per Pa, so the tuner hears it within a cent)
                 // ... and with only its own stop on its groove, as on the tuner's ladder: other stops drawn on the key
                 // share its wind and sag it (the tuner had "corrected" a full chord's bass for that sag)
                 const bool alone = !v.groove || grooveStop[v.division][v.key] == (int16_t)stopForRank(v.rank);
                 const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f && alone
-                                    && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
+                                    && std::fabs(chestMm - kChestNominal[v.division]) < 1.5f && p.sinceOn * v.freq > 60.f;
                 if ((voiced && (!v.reed || airAtTuning)) != v.tunable) { v.tunable = voiced && (!v.reed || airAtTuning); v.prevOk = false; v.winLen = v.winMin; }
                 // in tune at the tuning conditions: a flue's pitch follows the speed of sound (its body is fixed), so
                 // its target moves with it; a reed's does not follow simply, so it is only tuned in that air
