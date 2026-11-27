@@ -278,7 +278,7 @@ struct WindSystem {
     // Opus 14's four wedge bellows, each 4 x 8 ft (Pasi): 11.9 m^2 of lid between them, at 18 s of the blower's output.
     // ASSUMPTIONS: a wedge opens to 12 degrees at the top of its travel (its pressure, from weights, goes with the
     // cosine of its tilt); the friction of its leather folds and hinge damps its lid at 0.1 of critical.
-    static constexpr double kBellowsArea = 4 * 1.219 * 2.438, kBellowsSize = 18.0, kWedgeMaxDeg = 12.0, kLidZeta = 0.1;
+    static constexpr double kBellowsArea = 4 * 1.219 * 2.438, kBellowsSize = 18.0, kWedgeMaxDeg = 12.0, kLidZeta = 0.1, kLidSlowS = 1.0;
     static constexpr double kCapM3 = 4.5e-4 * kBlowerCapacity;   // the blower's full output, m^3/s (Engine kRefFlow per flow unit)
     // the wind lines' lengths: Pedal, Hauptwerk, Unterwerk (Sw), Oberwerk (Pos) (DivisionWind)
     static constexpr double kLineLen[kNumDivisions] = { 12.0, 12.0, 10.0, 15.0 };
@@ -286,6 +286,7 @@ struct WindSystem {
     // state
     float lid = 0.f;            // lid height, 0 (empty) .. 1 (full travel)
     double lidVel = 0;          // its speed, travel / s
+    double lidVelSlow = 0;      // its slow travel, m/s (stepBellows)
     double airPa = 0;           // the air under the lid, Pa
     double qExtern = 0;         // what reaches the bellows other than through the wind lines, m^3/s (update)
     double directM3 = 0;        // the pipes on chests of their own: what they drew (the engine sets it), m^3/s
@@ -322,7 +323,7 @@ struct WindSystem {
     void reset() {
         fan = blowerOn ? 1.f : 0.f;
         lid = blowerOn ? kWorkHeight : 0.f;
-        lidVel = 0;
+        lidVel = 0; lidVelSlow = 0;
         reservoir = blowerOn ? lidPressure(lid) : 0.f;
         airPa = reservoir * 9.80665;
         sag = 0.f; demand = 0.f; tremLoad = 0.f;
@@ -344,13 +345,18 @@ struct WindSystem {
         const double Pload = lidPressure(lid) * 9.80665, kAir = rc2 * A * A / V, wn = std::sqrt(kAir / m);
         const double K = rc2 / V;                        // dP = K (q - dV/dt)
         double vy = lidVel * Vmax / A;                   // the lid's speed, m/s (its swept volume A vy)
-        const double damp = 1.0 + 2.0 * kLidZeta * wn * dt, a = dt * A / (m * damp);
-        // the lid: vy' = vy / damp + a (P' - Pload); the air: P' = P + dt K (qExtern - (G P' - J) - A vy')
-        double P = (airPa + dt * K * (qExtern + J - A * (vy / damp - a * Pload))) / (1.0 + dt * K * (G + A * a));
-        vy = vy / damp + a * (P - Pload);
+        // ASSUMPTION: the lid's losses (its leather folds and hinges) damp its swing about its slow travel, not the
+        // travel itself: a dashpot on its whole speed held a falling lid's pressure 1-10 % below its weights' (the
+        // faster it fell, the more), which a weighted bellows does not do. The slow travel: its speed over 1 s.
+        const double cz = 2.0 * kLidZeta * wn * dt, damp = 1.0 + cz, a = dt * A / (m * damp);
+        const double vFree = (vy + cz * lidVelSlow) / damp;
+        // the lid: vy' = vFree + a (P' - Pload); the air: P' = P + dt K (qExtern - (G P' - J) - A vy')
+        double P = (airPa + dt * K * (qExtern + J - A * (vFree - a * Pload))) / (1.0 + dt * K * (G + A * a));
+        vy = vFree + a * (P - Pload);
         // on its stops the lid stands: the air alone answers
         if ((lid <= 0.f && vy < 0) || (lid >= 1.f && vy > 0)) { vy = 0; P = (airPa + dt * K * (qExtern + J)) / (1.0 + dt * K * G); }
         airPa = std::max(0.0, P);
+        lidVelSlow += std::min(1.0, dt / kLidSlowS) * (vy - lidVelSlow);
         lidVel = vy * A / Vmax;
         lid += (float)(dt * lidVel);
         if (lid <= 0.f) { lid = 0.f; if (lidVel < 0) lidVel = 0; }

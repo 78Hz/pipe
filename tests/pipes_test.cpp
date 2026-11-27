@@ -419,10 +419,10 @@ static void blowerOffOn() {
     // The Principal's C3 is followed by its pipe's own sound (Rig::tap): on full organ the chord's other
     // ranks put partials of their own beside it.
     const int principal = rankOf("i_octave_8");
-    auto shutdown = [&](int load, bool fullOrgan, double step, std::vector<double>* cents = nullptr) {
+    auto shutdown = [&](int load, bool fullOrgan, double step, std::vector<double>* cents = nullptr, float size = 1.f) {
         Rig g; g.tap(principal, 48);
         // a short coast-down, so what is measured is the reservoir, not the blower slowing
-        g.en->setParameter(kParamResLoad, (float)load); g.en->setParameter(kParamResSize, 1.f); g.en->setParameter(kParamSpinDown, 1.f);
+        g.en->setParameter(kParamResLoad, (float)load); g.en->setParameter(kParamResSize, size); g.en->setParameter(kParamSpinDown, 1.f);
         if (fullOrgan) { for (int st = 0; st < kNumStops; ++st) if (kStops[st].type == kStopRank || kStops[st].type == kStopMixture) g.en->setParameter(st, 1.f); }
         else g.draw(rankOf("i_octave_8"));
         g.en->setParameter(kParamZoneLoDiv, (float)kGreat);
@@ -446,7 +446,8 @@ static void blowerOffOn() {
     if (std::getenv("PIPE_TEST_VERBOSE")) { std::printf("      one stop, C3 every 0.5 s (cents):"); for (double c : path) std::printf(" %.0f", c); std::printf("\n"); }
     const Trace full = shutdown(kLoadSprings, true, 0.1);
     check(one.silent && full.silent, "springs: the chord dies away on one stop (%.1f s) and on full organ (%.1f s)", one.seconds, full.seconds);
-    check(one.seconds > 5 * full.seconds, "one stop lasts far longer than full organ (%.1f s against %.1f s)", one.seconds, full.seconds);
+    // the chests' leaks (no regulator holds them: 2 % of the blower's output in all) are part of one stop's draw
+    check(one.seconds > 3 * full.seconds, "one stop lasts far longer than full organ (%.1f s against %.1f s)", one.seconds, full.seconds);
     // Springs: the pressure falls with the lid, so the pitch slides flat as the reservoir empties. One stop
     // lets it fall slowly, through the pipe's last speaking pressure; full organ empties it in a few seconds and
     // the wind collapses with the lid on its stops, the pipe still sliding.
@@ -459,16 +460,21 @@ static void blowerOffOn() {
     for (size_t i = 1; i < path.size() / 2; ++i) { worstStep = std::max(worstStep, std::fabs(path[i] - path[i - 1])); if (std::fabs(path[i] - path[i - 1]) > 6) gradual = false; }
     check(gradual, "springs, one stop: the first half of the slide is gradual (largest move %.1f cents per half second)", worstStep);
     path.clear();
-    const Trace w = shutdown(kLoadWeights, true, 0.1, &path);
+    // Weights, with bellows of 4 s: the lid has to start falling when the blower stops, and its losses (ASSUMED, Wind.hpp)
+    // hold it back while it gathers speed; on bellows of 1 s, full organ sends it down so fast that this costs 10 %
+    // of the pressure for a second, on 4 s a quarter of that (Opus 14's are 18 s)
+    const Trace w = shutdown(kLoadWeights, true, 0.1, &path, 4.f);
     double heldUntil = 0;
     // held: against its pitch when the blower stopped (on full organ the groove's sag already sets it a little flat)
     for (size_t i = 0; i < path.size(); ++i) { if (std::fabs(path[i] - path[0]) > 3) break; heldUntil = (i + 1) * 0.1; }
     // Weights: the pressure stays while the lid falls, so the pitch holds until the reservoir is empty
     check(w.silent && w.emptyAt > 0 && heldUntil >= w.emptyAt - 0.2, "weights: pitch holds (within 3 cents for %.1f s, the reservoir empty at %.1f s), then the wind fails (silent at %.1f s)", heldUntil, w.emptyAt, w.seconds);
 
-    // nothing played: only leakage draws on the reservoir
+    // nothing played: only leakage draws on the bellows. With no regulators the chests' leaks (each as much as the
+    // bellows' own) draw on them too: five leaks of 0.4 % of the blower's output empty Opus 14's bellows (18 s, the
+    // default) in about 12 minutes, a 1 s bellows in under a minute
     {
-        Rig g; g.en->setParameter(kParamResSize, 1.f); g.draw(rankOf("i_octave_8")); g.run(0.1);
+        Rig g; g.draw(rankOf("i_octave_8")); g.run(0.1);
         g.en->setParameter(kParamBlowerOn, 0.f); g.run(60.0);
         const float lid = g.en->outputs[kOutLid - kOutFirst];
         g.send(0x90, 60, 100); g.run(1.0);
