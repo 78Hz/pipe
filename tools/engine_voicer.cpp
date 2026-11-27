@@ -256,6 +256,13 @@ static std::string label(const std::vector<const Change*>& cs) {
 
 struct Outcome { bool ok = false; std::string how, verdict; };
 
+// What the last pipe voiced in each rank needed, tried first on the next: a voicer works along a rank, and
+// neighbouring pipes mostly want the same change (each single change by its label).
+static std::mutex gHintM;
+static std::map<int, std::vector<std::string>> gHint;
+static std::vector<std::string> hintFor(int rank) { std::lock_guard<std::mutex> lk(gHintM); auto it = gHint.find(rank); return it == gHint.end() ? std::vector<std::string>{} : it->second; }
+static void setHint(int rank, const std::vector<std::string>& h) { std::lock_guard<std::mutex> lk(gHintM); gHint[rank] = h; }
+
 // Try the pipe as it is (cut to pitch), then each single change, then pairs of the six single changes
 // that came nearest to passing (of different kinds). The first that passes is kept.
 // fix: given a candidate that fails, may change it (a flue's speaking threshold) and judge it again; returns the
@@ -283,10 +290,18 @@ static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<
         if (!allPass(v)) { note(cs, bad, describe(v)); return false; }
         // (a pipe that passes is heard in full: the quick judge stops only at a fault)
         spec = s; res.ok = true; res.how = label(cs); res.verdict = describe(v);
+        std::vector<std::string> h; for (auto* c : cs) h.push_back(label({ c })); setHint(p.rank, h);
         return true;
     };
     double bad;
-    if (attempt({}, bad)) return res;
+    if (attempt({}, bad)) { setHint(p.rank, {}); return res; }
+    // the change its neighbour in the rank needed, first
+    {
+        const auto h = hintFor(p.rank);
+        std::vector<const Change*> cs;
+        for (const auto& l : h) for (const Change& c : ch) if (label({ &c }) == l) { cs.push_back(&c); break; }
+        if (!cs.empty() && cs.size() == h.size() && attempt(cs, bad)) return res;
+    }
     std::vector<std::pair<double, size_t>> near;
     for (size_t i = 0; i < ch.size(); ++i) { if (attempt({ &ch[i] }, bad)) return res; near.push_back({ bad, i }); }
     std::sort(near.begin(), near.end());
