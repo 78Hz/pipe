@@ -512,6 +512,7 @@ int main(int argc, char** argv) {
                 for (size_t j; (j = nv++) < jobs.size();) {
                     Result& out = res[j]; const double hz = jobs[j].hz;
                     if (skip(jobs[j].rank)) continue;
+                    if (getenv("REEDS_ONLY")) continue;   // only the reeds made now: the flue pipes taken as they are
                     const Heard a = hearFlue(out.spec, 0.012), b = hearFlue(out.spec, 0.002);
                     out.centsEnd = a.speaks ? 1200 * std::log2(a.f / hz) : 1e9;
                     const double lim = limitFor(*jobs[j].s, hz);

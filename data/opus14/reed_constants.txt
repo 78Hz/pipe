@@ -14,6 +14,10 @@
 #           (tools/ref/match.py features, keys 42 43 54 55 66 67 79) it scores as well as the fitted 61 / 96 or better:
 #           trumpet 6317 against 6496, oboe 10173 against 18473. The beating on the shallot is the contact's own loss
 #           (a stiff, critically damped face: the impact is inelastic), already in the model.
+# Refitted 2026-11-27 with the tongue's Q held at 130 (tools/ref/match.py MODE=reed FIXQ=130 MAXFEV=120
+#           STABKEYS="36 43", three starts): against the references, keys 42 43 54 55 66 67 79, the trumpets score
+#           4694 (6317 with the old constants at Q 130), the oboes 4679 (10173); both bottom Cs speak on their
+#           fundamental and keys 36 and 43 hold one pitch struck fast and slow.
 # family   width/lowerD  gamma    tongue-Q  boot-litres(8')  closure/x0  shallot  zetaMin
-trumpet    0.6266        0.529    130       0.5789           0.5777      2.0      0
-oboe       0.5655        0.685    130       0.8926           0.5278      2.0      0
+trumpet    0.8055        0.7127   130       0.8241           0.2592      2.0      0
+oboe       0.9125        0.6844   130       0.9122           0.5317      2.0      0
