@@ -84,10 +84,12 @@ constexpr double kRefFlow = 4.5e-4;
 // from the wind chest through that key's pallet, and every drawn stop's pipe on that key standing on it,
 // fed through its slider and toe. The pipes share the groove's wind: drawing more stops on a key takes more
 // from it, and what one pipe draws the others feel. ASSUMPTIONS (no Opus 14 drawings at hand; typical
-// slider-chest sizes, Audsley / Dom Bedos): a groove of 0.8 l (about 800 x 20 x 50 mm); a pallet opening
-// of 8 mm at full travel, its width sized to the pipes it feeds (sizePallets; discharge coefficient 0.61), with
-// the laminar seal of a 10 mm leather face.
-constexpr double kGrooveVolume = 0.8e-3, kGroovePalletW = 0.150, kGroovePalletLift = 0.008, kGroovePalletCd = 0.61, kGrooveSeal = 0.010;
+// slider-chest sizes, Audsley / Dom Bedos): a groove of 0.8 l (about 800 x 20 x 50 mm); the laminar seal of a
+// 10 mm leather face. The pallet as Pykett measured and designs it ("The Calculation of Pallet Sizes", 2001/2009):
+// its windway d (l + w) at a descent d of 8 mm (his 6 - 10), sized to the pipes it feeds (sizePallets), and a
+// discharge coefficient 0.56: on his rig a pallet passed 0.93 +- 0.14 of the flow of a sharp-edged load aperture
+// of the same area (fitted to his Tables 2 - 4, the pallets not self-throttled, w >= 2d), x 0.61 (the toe's).
+constexpr double kGrooveVolume = 0.8e-3, kGroovePalletW = 0.150, kGroovePalletLift = 0.008, kGroovePalletCd = 0.61 * 0.925, kGrooveSeal = 0.010;
 // A manual groove narrows up the compass as its pipes do: about 3/4 inch at the bottom C, 1/4 inch at the top,
 // the widths between them set by the pipes' scale (Dickson, Practical Organ Building, ch. on the sound-board),
 // so geometrically; same depth and length. (One 0.8 l groove for every key left a small treble pipe a groove
@@ -96,6 +98,21 @@ inline double grooveVolume(int division, int key) {
     if (division == kPedal) return kGrooveVolume;
     const double t = std::max(0.0, std::min(1.0, (double)(key - kManualLow) / (double)(kManualHigh - kManualLow)));
     return kGrooveVolume * std::pow(1.0 / 3.0, t);
+}
+// The passage each pipe's wind climbs from its groove: bored through the table (3/4 in), the slider (3/8 in)
+// and the upper board (1 1/4 in), 60 mm (Dickson, Practical Organ Building, ch. III), the bores "as large as the
+// grooves will allow" in the bass and small in the treble (ch. IV): here as wide as the key's groove (3/4 in at
+// the bottom, 1/4 in at the top), and never narrower than the pipe's own toe hole. ASSUMPTION: Opus 14's own
+// board thicknesses are not known; Dickson's are a builder's ordinary ones. What matters is the air in it: at a
+// pipe's frequencies its inertance rho (l + 2 x 0.85 r) / (pi r^2) (an end correction at each end) stands far
+// above the groove's own impedance, so a pipe neither feels the others' pulses through the groove nor sends its
+// own (a reed's boot pulses at its note) into it; steady wind it does not touch. Without it the lumped groove
+// passed a Trumpet's boot pulses straight to the open-footed flues on its key, and drew a Principal +-50 c.
+constexpr double kPassageLength = 0.060, kGrooveWidthBass = 0.020;
+inline double grooveWidth(int division, int key) { return kGrooveWidthBass * grooveVolume(division, key) / kGrooveVolume; }
+inline double passageL(int division, int key, double toe, double rho = 1.2) {
+    const double r = 0.5 * std::max(grooveWidth(division, key), toe > 0 ? toe : 0.0);
+    return rho * (kPassageLength + 1.7 * r) / (M_PI * r * r);
 }
 constexpr int kMaxFlueVoices = 448;
 constexpr int kMaxReedVoices = 96;
@@ -192,7 +209,7 @@ public:
         outputs[kOutBendLo - kOutFirst] = 48.f;
         outputs[kOutBendHi - kOutFirst] = 48.f;
         for (int d = 0; d < kNumDivisions; ++d) outputs[kOutChestPd - kOutFirst + d] = kChestNominal[d];
-        outputs[kOutReservoir - kOutFirst] = 96.f;
+        outputs[kOutReservoir - kOutFirst] = 79.f;
     }
 
     void prepare(double sampleRate) {
@@ -583,6 +600,7 @@ private:
             v.groove = false;   // diagnostics: every pipe on a chest of its own, as the voicer voiced it
 #endif
             core.setGrooveFed(v.groove);
+            core.setPassage(v.groove ? passageL(rd.division, k, sp->toe) : 0.0);
             core.setPallet(0.002, 0.002);   // its valve (the slider and toe, or its own) follows in 2 ms
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -611,6 +629,7 @@ private:
 #endif
             // its toe hole, as the voicer bored it (0: an open boot)
             core.setToe(sp->toe);
+            core.setPassage(v.groove ? passageL(rd.division, k, sp->toe) : 0.0);
             core.setPallet(0.002, 0.002);
             core.setChestPa(wind.chest[d] * kMmToPa);
             v.pitchRatio = (float)(f / sp->target);
@@ -669,7 +688,6 @@ private:
         for (int i = 0; i < (int)voices.size(); ++i) if (voices[(size_t)i].active && !voices[(size_t)i].groove) ownV[nO++] = i;
         const double rho = 1.2041 * pipeAir.rhoRatio, c = 343.21 * pipeAir.cRatio, mu = 1.807e-5 * pipeAir.muRatio;
         const double dt = 1.0 / fs, kUnit = dt * rho * c * c;   // / the groove's volume
-        const double Pres = (double)wind.reservoir * (1.0 - wind.sag) * kMmToPa;
         const float boostSpan = (params[kParamPressMax] - 78.f) / 78.f;
         wind.trem.unitFlowM3 = kTrunkUnitFlow * kRefFlow;
 
@@ -759,21 +777,31 @@ private:
         if (nG + nO >= kParallelMin) pool.run(nG + nO, task);
         else for (int i = 0; i < nG + nO; ++i) task(i);
 
-        // the chests: what the pallets took, sample by sample; the regulator and trunk refill them
-        for (int d = 0; d < kNumDivisions; ++d) {
-            DivisionWind& dw = wind.div[d];
-            const Tremulant* trem = d == wind.tremTarget ? &wind.trem : nullptr;
-            if (trem) { wind.trem.rate = wind.tremSpeed; wind.trem.depth = wind.tremDepth; }
-            int gs[kMaxGrooves], ng = 0;
-            for (int j = 0; j < nG; ++j) if (gId[j] / 128 == d) gs[ng++] = j;
-            double qBlock = 0;
-            for (int t = 0; t < n; ++t) {
+        // the chests: what the pallets took, sample by sample; the wind lines refill them from the bellows, and the
+        // bellows feel the lines sample by sample
+        int gsd[kNumDivisions][kMaxGrooves], ngd[kNumDivisions] = {};
+        double qBlockD[kNumDivisions] = {};
+        for (int j = 0; j < nG; ++j) { const int d = gId[j] / 128; gsd[d][ngd[d]++] = j; }
+        for (int d = 0; d < kNumDivisions; ++d) if (d == wind.tremTarget) { wind.trem.rate = wind.tremSpeed; wind.trem.depth = wind.tremDepth; }
+        for (int t = 0; t < n; ++t) {
+            // the bellows first, against what each line will draw at their pressure; then the lines at that pressure
+            double G = 0, J = 0;
+            for (int d = 0; d < kNumDivisions; ++d) { double g, j; wind.div[d].bellowsNorton(dt, wind.airPa, rho, c, g, j); G += g; J += j; }
+            wind.stepBellows(dt, G, J);
+            const double Pres = wind.airPa;
+            for (int d = 0; d < kNumDivisions; ++d) {
+                DivisionWind& dw = wind.div[d];
+                const Tremulant* trem = d == wind.tremTarget ? &wind.trem : nullptr;
                 double qOut = 0;
-                for (int u = 0; u < ng; ++u) qOut += qG[gs[u]][t];
+                for (int u = 0; u < ngd[d]; ++u) qOut += qG[gsd[d][u]][t];
                 dw.step(dt, Pres, qOut, rho, c, trem, wind.tremOn);
                 pcPrev[d][t] = dw.Pc;
-                qBlock += qOut;
+                qBlockD[d] += qOut;
             }
+        }
+        for (int d = 0; d < kNumDivisions; ++d) {
+            DivisionWind& dw = wind.div[d];
+            const double qBlock = qBlockD[d];
             pcPrevN[d] = n;
             grooveFlow[d] = qBlock / n;
             divInflow[d] = dw.takeInflow();
@@ -786,27 +814,44 @@ private:
                 if (!used) { grooveP[d][key] = grooveMean[d][key] = pallets[d][key].aperture > 0.f ? wind.div[d].Pc : 0.0; grooveAp[d][key] = pallets[d][key].aperture; }
             }
     }
-    // Each key's pallet sized to the pipes it feeds, as a builder does (the bass pallets larger): an opening
-    // of 1.5 x the combined inlets (toe holes; an open foot counted at half its bore; a reed's boot inlet
-    // as its toe) of every pipe of the division on that key, at the full 8 mm lift, 50 - 300 mm wide.
-    // ASSUMPTION: the factor 1.5 (the area in Audsley's rule of thumb is not to hand).
+    // Each key's pallet sized to the pipes it feeds, by Pykett's rule ("The Calculation of Pallet Sizes"): on his rig a
+    // pallet feeds a load aperture of only about a third of its geometric windway at a 10 % drop across it, the most
+    // he allows with every stop drawn, so its windway is made 3.5 x the load. His load apertures were sharp-edged
+    // slots (discharge 0.61); he estimates a note's load by the smaller of each pipe's toe hole and flue area, but a
+    // flue passes its wind as a nozzle (the jet's speed from the whole foot pressure, the toe in series:
+    // Af / sqrt(1 + (Af / (0.61 At))^2) of free area, within a few % of what each pipe here draws), half as much
+    // again as a slot of its area. So each pipe counts as the slot that passes its wind: that free area / 0.61.
+    // (A reed: its toe hole, a slot, or what an open boot's tongue lets through; "the total wind demand is usually
+    // dominated by the large flues".) At least 50 mm (a treble pallet, Dickson's smallest groove with its pallet's
+    // length: ASSUMPTION, it only keeps the smallest pallets from vanishing); above his largest (300 x 22 mm) as
+    // many pallets as the load needs ("more than one pallet was used if necessary"; a pedal bass under a 32' takes
+    // several).
+    static constexpr double kPalletLoadFactor = 3.5, kPalletWMin = 0.05, kSlotCd = 0.61;
+    static double pipeLoad(const FluePipeSpec& f) {
+        const double flue = (double)f.h * f.Wm;
+        double free = flue;
+        if (f.toe > 0) { const double r = flue / (kSlotCd * M_PI * 0.25 * f.toe * f.toe); free = flue / std::sqrt(1 + r * r); }
+        return free / kSlotCd;
+    }
     void sizePallets() {
         for (int d = 0; d < kNumDivisions; ++d)
             for (int key = 0; key < 128; ++key) {
                 double a = 0;
                 for (int r = 0; r < kNumRanks; ++r) {
                     if (kRanks[r].division != d) continue;
-                    if (const FluePipeSpec* f = organFlueSpec(r, key)) a += f->toe > 0 ? M_PI * 0.25 * f->toe * f->toe : 0.5 * M_PI * f->radius * f->radius;
-                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += q->toe > 0 ? M_PI * 0.25 * q->toe * q->toe : 3.0 * (double)q->w * q->x0;   // an open boot: what its tongue lets through, with room
+                    if (const FluePipeSpec* f = organFlueSpec(r, key)) a += pipeLoad(*f);
+                    else if (const ReedPipeSpec* q = organReedSpec(r, key)) a += q->toe > 0 ? M_PI * 0.25 * q->toe * q->toe : 3.0 * (double)q->w * q->x0;
                 }
-                grooveW[d][key] = std::max(0.05, std::min(0.30, 1.5 * a / (kGroovePalletCd * kGroovePalletLift)));
+                grooveLoad[d][key] = a;
+                grooveW[d][key] = std::max(kPalletWMin, kPalletLoadFactor * a / kGroovePalletLift);
             }
     }
     static constexpr int kMaxGrooves = 128, kMaxPerGroove = 64;
     int gId[kMaxGrooves], gN[kMaxGrooves], gV[kMaxGrooves][kMaxPerGroove];
     double grooveStep[kNumDivisions][128] = {};   // the groove's last step (Pa per sample): where its next solve starts
     double grooveP[kNumDivisions][128] = {}, grooveMean[kNumDivisions][128] = {}, grooveAp[kNumDivisions][128] = {}, grooveFlow[kNumDivisions] = {}, divInflow[kNumDivisions] = {};
-    double grooveW[kNumDivisions][128];   // each key's pallet width (sizePallets)
+    double grooveW[kNumDivisions][128];   // each key's pallet windway / descent, l + w (sizePallets)
+    double grooveLoad[kNumDivisions][128] = {};   // each key's load aperture (m^2, sizePallets)
     double qG[kMaxGrooves][kControlBlock];   // each groove's pallet flow, sample by sample, this block
     double pcPrev[kNumDivisions][kControlBlock] = {}; int pcPrevN[kNumDivisions] = {};   // each chest's pressure, last block
     int ownV[kMaxFlueVoices + kMaxReedVoices];   // pipes on chests of their own, this block
@@ -910,6 +955,7 @@ private:
         }
         // the grooves: what their pallets actually let in (renderGrooves, the last block)
         // the regulators: what they drew from the main reservoir (renderGrooves, the last block)
+        wind.directM3 = (double)flow * kRefFlow;
         for (int d = 0; d < kNumDivisions; ++d) { const float f = (float)(divInflow[d] / kRefFlow); flow += f; divFlow[d] += f; }
         wind.update(dt, flow, divFlow);
         windLive = true;
@@ -1011,11 +1057,13 @@ private:
                 float bend = p.bendCents;
                 if (strict) bend = std::max(-v.bendLimit, std::min(v.bendLimit, bend));
                 // the tuner listens only in the voiced state, and only to a pipe that has settled
+                // (the chest within 1.5 mm of its 79 mm: with no regulator Opus 14's chest moves by a few Pa as a groove
+                // fills and the line rings; a pipe's pitch moves about 0.06 c per Pa, so the tuner hears it within a cent)
                 // ... and with only its own stop on its groove, as on the tuner's ladder: other stops drawn on the key
                 // share its wind and sag it (the tuner had "corrected" a full chord's bass for that sag)
                 const bool alone = !v.groove || grooveStop[v.division][v.key] == (int16_t)stopForRank(v.rank);
                 const bool voiced = !v.stopClosed && p.aperture >= 0.999f && std::fabs(bend) < 0.5f && alone
-                                    && std::fabs(chestMm - kChestNominal[v.division]) < 0.5f && p.sinceOn * v.freq > 60.f;
+                                    && std::fabs(chestMm - kChestNominal[v.division]) < 1.5f && p.sinceOn * v.freq > 60.f;
                 if ((voiced && (!v.reed || airAtTuning)) != v.tunable) { v.tunable = voiced && (!v.reed || airAtTuning); v.prevOk = false; v.winLen = v.winMin; }
                 // in tune at the tuning conditions: a flue's pitch follows the speed of sound (its body is fixed), so
                 // its target moves with it; a reed's does not follow simply, so it is only tuned in that air

@@ -214,15 +214,19 @@ int main(int argc, char** argv) {
         s.param("Tuning System", 0); s.param("Age Drift", 0);
         s.param("Reservoir Size", 1.0); s.param("Blower Coast-Down", 1.0); s.play(0.2);
         for (int k : { 48, 55, 60, 64 }) s.note(CLAP_EVENT_NOTE_ON, 1, 0, k);
-        const double on = s.play(1.5);
+        // the tuner (the organ's pipes stand tuned) hears each pipe once its chest has settled: a bellows of 1 s rings longer
+        const double on = s.play(3.0);
         const double c3 = 130.813, f0 = s.peakHz(0.5, 110, 140);
         s.param("Blower", 0.0);
-        // the reservoir (1 s of the blower's output here) and the four regulators (60 l each above their stops, which
-        // give theirs back through their inlets once the reservoir falls to their weights) feed the chord: it lasts
-        // about a minute and a half
-        double flattest = 0; double t = 0; double lvl = on, left10 = -1;
-        while (t < 180 && lvl > on - 50) { lvl = s.play(1.0); t += 1.0; if (t == 10) left10 = s.value("Wind Left"); const double f = s.peakHz(0.5, 110, 140); if (lvl > on - 30) flattest = std::min(flattest, 1200 * std::log2(f / c3)); }
-        check(left10 > 20 && left10 < 180, "blower stopped, 10 s on: the wind-left output counts down what the reservoir and regulators hold (seconds)", left10);
+        // Opus 14 has no regulators: the bellows alone (1 s of the blower's output here) feed the chord; their weights
+        // hold its pressure until the lid comes down on its stops, then the chord sinks flat and dies
+        double flattest = 0; double t = 0; double lvl = on, left10 = -1, tEmpty = -1;
+        while (t < 180 && lvl > on - 50) {
+            lvl = s.play(1.0); t += 1.0; if (t == 10) left10 = s.value("Wind Left");
+            if (tEmpty < 0 && s.value("Reservoir Lid") < 0.03) tEmpty = t;
+            const double f = s.peakHz(0.5, 110, 140); if (lvl > on - 30) flattest = std::min(flattest, 1200 * std::log2(f / c3));
+        }
+        check(tEmpty > 12 && std::fabs(left10 - (tEmpty - 10)) < 0.25 * (tEmpty - 10) + 1.0, "blower stopped, 10 s on: the wind-left output counts down to the lid reaching its stops (seconds left, lid down at s)", left10, tEmpty);
         check(std::fabs(1200 * std::log2(f0 / c3)) < 2 && flattest < -30, "blower stopped: the chord sinks flat before it dies (start, flattest cents)", 1200 * std::log2(f0 / c3), flattest);
         check(lvl < on - 50 && s.value("Reservoir Lid") < 0.03, "and the wind runs out: the reservoir lid output reads empty (seconds, lid)", t, s.value("Reservoir Lid"));
         s.param("Blower", 1.0);

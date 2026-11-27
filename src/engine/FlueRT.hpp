@@ -179,6 +179,9 @@ public:
     // Fed from a groove shared with the other drawn stops on its key (the engine's slider chest): its own
     // valve is then the slider and toe, and its foot no longer includes a groove of its own.
     void setGrooveFed(bool g) { if (g == grooveFed) return; grooveFed = g; volume = (grooveFed ? 0.0 : 0.3e-3) + footCone; }
+    // The passage the wind climbs from the groove to the foot, bored through the table, the slider and the upper
+    // board: the inertance of its air, rho l_eff / A (kg/m^4; Engine::passageL). 0: none (a chest of its own).
+    void setPassage(double L) { passL = std::max(0.0, L); steadyCount = 0; }
 
     inline void tick(double& mouthOut, double& topOut) {
         wind();
@@ -267,6 +270,7 @@ private:
     PipeAir air;
     double inAcc = 0, gAcc = 0, qiLast = 0, dqiLast = 0, footCone = 0;
     bool grooveFed = false;
+    double passL = 0;   // the passage from the groove (setPassage)
     double vortexK = 0, toeArea = 0, windR = 0, lc = 0.002, volume = 1e-4, Sm = 1e-4, deltaOut = 0, ddE = 0, driveK = 0, Gh = 0;
     double pitch = 0, transitS = 0;
     // wind path
@@ -322,11 +326,13 @@ private:
         double aa = rho / (2 * Ap * Ap);
         if (toeArea > 0) aa += rho / (2 * (kCdd * toeArea) * (kCdd * toeArea));
         const double bb = 12.0 * mu * kSeal / (kW * gl * gl * gl);
+        // the air in the passage up from the groove (table, slider, upper board) to be set moving: (L / h) (q - q0)
+        const double Lh = passL / h;
         auto qOfU = [&](double u) { const double r = std::sqrt(bb * bb + 4 * aa * std::fabs(u)); return (u >= 0 ? 1.0 : -1.0) * (-bb + r) / (2 * aa); };
         auto Gat = [&](double q, double& dG) {
-            const double Pf = chestPa - (aa * q * std::fabs(q) + bb * q);
+            const double Pf = chestPa - (aa * q * std::fabs(q) + bb * q + Lh * (q - qStart));
             const double qo = out(Pf, dqo);
-            dG = -(2 * aa * std::fabs(q) + bb) * (1.0 + k1 * dqo) - k1;   // < 0: G falls with q
+            dG = -(2 * aa * std::fabs(q) + bb + Lh) * (1.0 + k1 * dqo) - k1;   // < 0: G falls with q
             return Pf - P0 - k1 * (q - qo);
         };
         // plain Newton from the last sample's wind first (it settles in one or two steps); kept to a bracket only
@@ -339,7 +345,9 @@ private:
             q = nx;
         }
         if (!ok || !std::isfinite(q)) {
-            double qlo = qOfU(chestPa - std::max(chestPa, P0)), qhi = qOfU(chestPa);
+            double qlo = std::min(qStart, qOfU(chestPa - std::max(chestPa, P0))), qhi = std::max(qStart, qOfU(chestPa));
+            { double d; for (int it = 0; it < 60 && Gat(qlo, d) < 0; ++it) qlo -= (qhi - qlo) + 1e-9;
+                        for (int it = 0; it < 60 && Gat(qhi, d) > 0; ++it) qhi += (qhi - qlo) + 1e-9; }
             q = std::min(std::max(std::isfinite(q) ? q : qStart, qlo), qhi);
             for (int it = 0; it < 40; ++it) {
                 double dG; const double G = Gat(q, dG);
@@ -350,9 +358,9 @@ private:
                 q = nx;
             }
         }
-        qi = q; P = std::max(0.0, chestPa - (aa * q * std::fabs(q) + bb * q));
+        qi = q; P = std::max(0.0, chestPa - (aa * q * std::fabs(q) + bb * q + Lh * (q - qStart)));
         out(P, dqo);
-        const double dqi = 1.0 / (2 * aa * std::fabs(q) + bb);
+        const double dqi = 1.0 / (2 * aa * std::fabs(q) + bb + Lh);
         g = dqi * (1.0 + k1 * dqo) / (1.0 + k1 * (dqi + dqo));
     }
 
