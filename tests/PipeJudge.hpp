@@ -192,6 +192,10 @@ inline double releaseGlide(const std::vector<float>& L, const std::vector<float>
     return worst;
 }
 constexpr double kReleaseLimit = 100.0;   // cents: Pykett's semitone
+// The voicer's margin: it voices each pipe to pass within this fraction of every pitch and level limit (and of
+// the release limit), and its speech within (1 + m) / 2 of its allowance, so that a pipe passes the pipe test
+// (which holds every pipe to the limits themselves, m = 1) at either rate and from run to run with room to spare.
+inline double gMargin = 1.0;
 
 struct Verdict {
     bool played = false;          // the rank has a pipe here (in the compass, within the model's range)
@@ -211,15 +215,15 @@ struct Verdict {
     bool reed = false, tiny = false;
     std::string why;
     bool registerOk() const { return !silent && !wrongFirst && !wrongAgain && !wrongHold && !wrongVel && !wrongTrem && !wrongSag; }
-    bool firstOk() const { return std::fabs(first) <= 3.0; }
-    bool againOk() const { return std::fabs(again) <= (reed ? 3.0 : 1.5); }
-    bool holdOk() const { return holdWorst <= 3.0 && holdLevel <= 2.0; }
-    bool velOk() const { return velWorst <= (reed ? 3.0 : 1.5); }
+    bool firstOk() const { return std::fabs(first) <= 3.0 * gMargin; }
+    bool againOk() const { return std::fabs(again) <= (reed ? 3.0 : 1.5) * gMargin; }
+    bool holdOk() const { return holdWorst <= 3.0 * gMargin && holdLevel <= 2.0 * gMargin; }
+    bool velOk() const { return velWorst <= (reed ? 3.0 : 1.5) * gMargin; }
     double speechLimit = 1e9;     // periods
-    bool speechOk() const { return speechPeriods <= speechLimit; }
-    bool tremOk() const { return std::fabs(tremCents) <= 10.0 && tremLevel > -6.0; }
-    bool releaseOk() const { return release <= kReleaseLimit; }
-    bool sagOk() const { return std::fabs(sag) <= (reed ? 3.0 : 1.5); }
+    bool speechOk() const { return speechPeriods <= speechLimit * 0.5 * (1.0 + gMargin); }
+    bool tremOk() const { return std::fabs(tremCents) <= 10.0 * gMargin && tremLevel > -6.0; }
+    bool releaseOk() const { return release <= kReleaseLimit * gMargin; }
+    bool sagOk() const { return std::fabs(sag) <= (reed ? 3.0 : 1.5) * gMargin; }
     bool pass() const { return played && registerOk() && firstOk() && againOk() && speechOk() && holdOk() && velOk() && tremOk() && releaseOk() && sagOk(); }
     // how far from passing (0 = passes): register faults count most, then each margin exceeded
     double badness() const {
@@ -228,8 +232,9 @@ struct Verdict {
         if (wrongFirst || wrongAgain) return 500;
         if (wrongHold || wrongVel || wrongTrem || wrongSag) return 300;
         auto over = [](double x, double lim) { return std::max(0.0, x / lim - 1.0); };
-        return over(std::fabs(first), 3.0) + over(std::fabs(again), reed ? 3.0 : 1.5) + over(holdWorst, 3.0) + over(holdLevel, 2.0)
-             + over(speechPeriods, speechLimit) + over(velWorst, reed ? 3.0 : 1.5) + over(std::fabs(tremCents), 10.0) + over(-tremLevel, 6.0) + over(release, kReleaseLimit) + over(std::fabs(sag), reed ? 3.0 : 1.5);
+        const double m = gMargin, tol = reed ? 3.0 : 1.5;
+        return over(std::fabs(first), 3.0 * m) + over(std::fabs(again), tol * m) + over(holdWorst, 3.0 * m) + over(holdLevel, 2.0 * m)
+             + over(speechPeriods, speechLimit * 0.5 * (1 + m)) + over(velWorst, tol * m) + over(std::fabs(tremCents), 10.0 * m) + over(-tremLevel, 6.0) + over(release, kReleaseLimit * m) + over(std::fabs(sag), tol * m);
     }
     // the first thing wrong, for a report
     std::string fault() const {
@@ -244,7 +249,7 @@ struct Verdict {
         if (wrongSag) return "wrong register after a deep sag";
         if (!firstOk()) { std::snprintf(b, sizeof b, "first strike %+.1f c", first); return b; }
         if (!againOk()) { std::snprintf(b, sizeof b, "re-strike %+.1f c", again); return b; }
-        if (!speechOk()) { std::snprintf(b, sizeof b, "slow to speak%s: %.0f periods (%.0f allowed)", notePeriods >= speechPeriods ? " its note" : "", speechPeriods, speechLimit); return b; }
+        if (!speechOk()) { std::snprintf(b, sizeof b, "slow to speak%s: %.0f periods (%.0f allowed)", notePeriods >= speechPeriods ? " its note" : "", speechPeriods, speechLimit * 0.5 * (1 + gMargin)); return b; }
         if (!holdOk()) { std::snprintf(b, sizeof b, "while held: pitch %.1f c, level %.1f dB", holdWorst, holdLevel); return b; }
         if (!velOk()) { std::snprintf(b, sizeof b, "soft/hard strike %.1f c", velWorst); return b; }
         if (!tremOk()) { std::snprintf(b, sizeof b, "under the tremulant %+.1f c, %+.1f dB", tremCents, tremLevel); return b; }

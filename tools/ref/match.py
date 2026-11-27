@@ -97,9 +97,13 @@ def speaks_fundamental(params):
     return lvl[0] >= max(lvl[1:])
 
 MODE = os.environ.get('MODE', 'flue')
-if MODE == 'reed':   # tongue width / resonator lower diameter, rest opening / free length, tongue Q, boot litres (8')
-    LO = np.log(np.array([0.15, 0.004, 5.0, 0.05, 0.02])); HI = np.log(np.array([1.5, 0.12, 300.0, 4.0, 3.0]))
-    def params_of(z): z = np.clip(z, LO, HI); return list(np.exp(z))
+FIXQ = os.environ.get('FIXQ')   # reed: the tongue's Q held at a measured value (2026-11: 130, DAGA 2016/2022), not fitted
+if MODE == 'reed':   # tongue width / resonator lower diameter, gamma (the curve: p / p_M), tongue Q, boot litres (8'), closure / x0
+    LO = np.log(np.array([0.15, 0.2, 5.0, 0.05, 0.02])); HI = np.log(np.array([1.5, 0.95, 300.0, 4.0, 3.0]))
+    FREE = [0, 1, 3, 4] if FIXQ else [0, 1, 2, 3, 4]
+    def params_of(z):
+        full = np.log(np.array([1.0, 1.0, float(FIXQ or 1.0), 1.0, 1.0])); full[FREE] = z
+        full = np.clip(full, LO, HI); return list(np.exp(full))
 else:
     LO = np.array([-1.5, np.log(0.1), np.log(0.3), np.log(0.3), np.log(0.003), np.log(0.2)])
     HI = np.array([1.5, np.log(10), np.log(3), np.log(3), np.log(0.3), np.log(5)])
@@ -117,12 +121,14 @@ def cost(z):
 
 if __name__ == '__main__':
     if MODE == 'reed':
-        starts = [list(np.log([0.4, 0.02, 60, 0.6, 0.5])), list(np.log([0.6, 0.03, 30, 0.5, 1.2]))]
+        starts = [list(np.log([0.4, 0.5, 60, 0.6, 0.5])), list(np.log([0.6, 0.7, 30, 0.5, 1.2]))]
+        if os.environ.get('START'): starts = [list(np.log([float(v) for v in os.environ['START'].split()]))] + starts
+        starts = [list(np.array(z)[FREE]) for z in starts]
     else:
         starts = [[0.5, np.log(2), 0, 0, np.log(0.04), 0], [0.2, np.log(1), np.log(0.7), 0, np.log(0.04), np.log(2)], [0.8, np.log(3), 0, np.log(0.8), np.log(0.04), np.log(0.5)]]
     best = None
     for z0 in starts:
-        z0 = np.array(z0, float); step = np.array([0.5, 0.6, 0.7, 0.7, 0.8]) if MODE == 'reed' else np.array([0.4, 0.7, 0.5, 0.5, 0.7, 0.7])
+        z0 = np.array(z0, float); step = np.array([0.5, 0.6, 0.7, 0.7, 0.8])[FREE] if MODE == 'reed' else np.array([0.4, 0.7, 0.5, 0.5, 0.7, 0.7])
         nd = len(z0); simplex = np.vstack([z0] + [z0 + np.eye(nd)[i] * step[i] for i in range(nd)])
         r = minimize(cost, z0, method='Nelder-Mead', options=dict(maxfev=int(os.environ.get('MAXFEV', '200')), xatol=1e-2, fatol=0.05, initial_simplex=simplex))
         print('start', z0, '->', params_of(r.x), 'cost %.1f' % r.fun, flush=True)

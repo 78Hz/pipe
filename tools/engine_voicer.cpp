@@ -10,7 +10,10 @@
 //                                                               least that keeps its pitch within a semitone as it dies)
 //
 // Environment: ONLY=<rank name part> KEYS=a-b  THREADS=n  RATES=48000,44100  CHECKPOINT=<file> (voice:
-// each finished pipe is appended, so a stopped run resumes).
+// each finished pipe is appended, so a stopped run resumes)  MARGIN=m (voice within m of every limit,
+// judge::gMargin)  KEEP_SPEAK (voice: keep each flue pipe's speaking threshold; by default the voicing starts
+// with none and sets one, inside the search, for a pipe whose only faults are its release or its return after a
+// deep sag).
 //
 // What the voicer may change is what a voicer changes at the voicing machine. A flue pipe: the toe hole
 // (its wind), a harmonic pipe's hole at half its length, the cut-up, the flue (windway) width, the languid (the jet's height against the lip: y0/b),
@@ -130,6 +133,35 @@ static bool tune(Bench& b, const PipeRef& p, Spec& sp, std::function<void(const 
     return std::fabs(c0) <= 1.0 && std::fabs(sp.trim - 1.f) < 0.08f;   // a pipe whose reading wanders by more is left to the judge
 }
 
+// ---------------------------------------------------------------- the speaking threshold
+// The least threshold (FluePipeSpec::speak) that keeps the pipe's pitch within `aim` cents as it dies, at every
+// rate (judge::releaseGlide, Pykett's semitone), found by halving between 0 and 0.9 of the voiced wind. Returns the
+// worst glide at the threshold chosen; sp.speak is set.
+static double findSpeak(Bench& b, const PipeRef& p, FluePipeSpec& sp, double aim, double from = 0.0) {
+    const double f = judge::pipeHz(p.rank, p.key);
+    auto glide = [&](double speak) {
+        sp.speak = (float)speak; b.install(p, &sp, nullptr);
+        double worst = 0;
+        for (auto& g : b.rigs) {
+            if (f > 0.42 * g->fs) continue;
+            g->reset(); g->draw(p.rank); g->run(0.05);
+            g->send(0x90, p.key, 100); g->run(judge::holdFor(f));
+            const size_t up = g->L.size();
+            g->send(0x80, p.key, 64); g->run(0.4);
+            worst = std::max(worst, judge::releaseGlide(g->L, g->R, up, f, g->fs));
+        }
+        return worst;
+    };
+    const double g0 = glide(from);
+    if (g0 <= aim) return g0;
+    double lo = from, hi = 0, gh = g0; bool ok = false;
+    for (double t : { 0.5, 0.7, 0.9 }) { if (t <= from) continue; const double gt = glide(t); if (gt <= aim) { hi = t; gh = gt; ok = true; break; } lo = t; }
+    if (ok) for (int it = 0; it < 6; ++it) { const double m = 0.5 * (lo + hi), gm = glide(m); if (gm <= aim) { hi = m; gh = gm; } else lo = m; }
+    else { hi = 0.9; gh = glide(hi); }
+    sp.speak = (float)hi; b.install(p, &sp, nullptr);
+    return gh;
+}
+
 // ---------------------------------------------------------------- candidates
 struct Change { const char* what; std::vector<std::pair<int, float>> edits; float y0b = 0, gainX = 1, beard = -1, noiseX = 1; };
 
@@ -226,9 +258,12 @@ struct Outcome { bool ok = false; std::string how, verdict; };
 
 // Try the pipe as it is (cut to pitch), then each single change, then pairs of the six single changes
 // that came nearest to passing (of different kinds). The first that passes is kept.
+// fix: given a candidate that fails, may change it (a flue's speaking threshold) and judge it again; returns the
+// new verdicts in v (and true if it changed anything)
 template <class Spec>
 static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<Change>& ch,
-                      std::function<bool(const std::vector<const Change*>&, Spec&)> build) {
+                      std::function<bool(const std::vector<const Change*>&, Spec&)> build,
+                      std::function<bool(Spec&, std::vector<judge::Verdict>&)> fix = nullptr) {
     auto put = [&](const Spec& s) { if constexpr (std::is_same<Spec, FluePipeSpec>::value) b.install(p, &s, nullptr); else b.install(p, nullptr, &s); };
     judge::Options quick; quick.stopEarly = true;
     Outcome res;
@@ -241,7 +276,8 @@ static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<
         if (!build(cs, s)) { bad = 2000; note(cs, bad, "could not be rebuilt"); return false; }
         if (!tune<Spec>(b, p, s, put)) { bad = 1500; note(cs, bad, "could not be cut to pitch"); return false; }
         put(s);
-        const auto v = b.judgeAll(p, quick);
+        auto v = b.judgeAll(p, quick);
+        if (!allPass(v) && fix) fix(s, v);
         bad = badness(v);
         if (std::getenv("TRACE")) std::fprintf(stderr, "  %s %d [%s] bad %.1f: %s\n", kRanks[p.rank].name, p.key, label(cs).c_str(), bad, describe(v).c_str());   // every attempt, to see why a pipe will not voice
         if (!allPass(v)) { note(cs, bad, describe(v)); return false; }
@@ -273,8 +309,34 @@ static Outcome search(Bench& b, const PipeRef& p, Spec& spec, const std::vector<
     return res;
 }
 
+// A flue pipe whose only faults are how it dies (its release) or how it comes back after a deep sag gets a speaking
+// threshold: the least that brings its release within the limit, raised further (by 0.05 of its wind at a time) until
+// it comes back to its note after the sag too.
+static bool needsSpeak(const std::vector<judge::Verdict>& v) {
+    bool any = false;
+    for (auto& x : v) {
+        if (x.silent || x.wrongFirst || x.wrongAgain || x.wrongHold || x.wrongVel || x.wrongTrem) return false;
+        if (!x.firstOk() || !x.againOk() || !x.speechOk() || !x.holdOk() || !x.velOk() || !x.tremOk()) return false;
+        any |= !x.releaseOk() || !x.sagOk() || x.wrongSag;
+    }
+    return any;
+}
 static Outcome voiceFlue(Bench& b, const PipeRef& p, FluePipeSpec& spec) {
+    if (!std::getenv("KEEP_SPEAK")) spec.speak = 0;   // voiced from scratch: a threshold only where this voicing needs one
     const FluePipeSpec orig = spec;
+    judge::Options quick; quick.stopEarly = true;
+    auto fix = [&](FluePipeSpec& s, std::vector<judge::Verdict>& v) {
+        // the judge stops at the first rate that fails; the threshold is sought only for a pipe that otherwise passes
+        if (v.size() < rates().size()) { judge::Options full; v = b.judgeAll(p, full); }
+        if (!needsSpeak(v)) return false;
+        findSpeak(b, p, s, 0.95 * judge::kReleaseLimit * judge::gMargin);
+        v = b.judgeAll(p, quick);
+        while (!allPass(v) && needsSpeak(v) && s.speak < 0.9f) {
+            s.speak = std::min(0.9f, s.speak + 0.05f); b.install(p, &s, nullptr);
+            v = b.judgeAll(p, quick);
+        }
+        return true;
+    };
     return search<FluePipeSpec>(b, p, spec, flueChanges(p.rank, p.key), [&](const std::vector<const Change*>& cs, FluePipeSpec& out) {
         FluePipeSpec base = orig;
         PipeEdit e; for (auto* c : cs) for (auto& ed : c->edits) e.v[ed.first] *= ed.second;
@@ -282,7 +344,7 @@ static Outcome voiceFlue(Bench& b, const PipeRef& p, FluePipeSpec& spec) {
         if (beard >= 0) e.v[kEdBeard] = beard;
         out = base; std::string why;
         return !e.any() || edit::editFlue(p.rank, p.key, base, e, out, why);
-    });
+    }, fix);
 }
 static Outcome voiceReed(Bench& b, const PipeRef& p, ReedPipeSpec& spec) {
     const ReedPipeSpec orig = spec;
@@ -295,6 +357,7 @@ static Outcome voiceReed(Bench& b, const PipeRef& p, ReedPipeSpec& spec) {
 
 int main(int argc, char** argv) {
     setenv("OPUSXIV_THREADS", "1", 1);   // one engine per thread, each on its own core
+    if (const char* m = std::getenv("MARGIN")) judge::gMargin = std::atof(m);   // voice inside the limits (judge::gMargin)
     if (argc < 4) { std::fprintf(stderr, "usage: engine_voicer survey in.bin report | voice in.bin out.bin report\n"); return 1; }
     const std::string mode = argv[1];
     OrganBin bin; std::string why;
