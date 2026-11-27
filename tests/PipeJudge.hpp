@@ -195,7 +195,7 @@ constexpr double kReleaseLimit = 100.0;   // cents: Pykett's semitone
 
 struct Verdict {
     bool played = false;          // the rank has a pipe here (in the compass, within the model's range)
-    bool silent = false, wrongFirst = false, wrongAgain = false, wrongHold = false, wrongVel = false, wrongTrem = false;
+    bool silent = false, wrongFirst = false, wrongAgain = false, wrongHold = false, wrongVel = false, wrongTrem = false, wrongSag = false;
     double first = 0, again = 0;  // cents
     double holdWorst = 0;         // worst |cents| over the long hold's windows (first strike)
     double holdLevel = 0;         // the level's range over the hold (dB)
@@ -203,13 +203,14 @@ struct Verdict {
     double tremCents = 0;         // mean pitch under the tremulant (cents)
     double tremLevel = 0;         // its level against the pipe's own (dB)
     double release = 0;           // let go: the furthest its pitch moves while it dies (cents; flues, releaseGlide)
+    double sag = 0;               // after a deep sag (its pallet all but shut, then open again): its pitch (cents)
     double level = -300;          // the pipe's level (dB RMS)
     double rawFirst = 9999;       // first strike: the strongest partial near the note (cents), register aside
     double speechPeriods = 0;      // to its level and its note, whichever is later
     double notePeriods = 0;        // to its note (the sound repeating at the note's period)
     bool reed = false, tiny = false;
     std::string why;
-    bool registerOk() const { return !silent && !wrongFirst && !wrongAgain && !wrongHold && !wrongVel && !wrongTrem; }
+    bool registerOk() const { return !silent && !wrongFirst && !wrongAgain && !wrongHold && !wrongVel && !wrongTrem && !wrongSag; }
     bool firstOk() const { return std::fabs(first) <= 3.0; }
     bool againOk() const { return std::fabs(again) <= (reed ? 3.0 : 1.5); }
     bool holdOk() const { return holdWorst <= 3.0 && holdLevel <= 2.0; }
@@ -218,16 +219,17 @@ struct Verdict {
     bool speechOk() const { return speechPeriods <= speechLimit; }
     bool tremOk() const { return std::fabs(tremCents) <= 10.0 && tremLevel > -6.0; }
     bool releaseOk() const { return release <= kReleaseLimit; }
-    bool pass() const { return played && registerOk() && firstOk() && againOk() && speechOk() && holdOk() && velOk() && tremOk() && releaseOk(); }
+    bool sagOk() const { return std::fabs(sag) <= (reed ? 3.0 : 1.5); }
+    bool pass() const { return played && registerOk() && firstOk() && againOk() && speechOk() && holdOk() && velOk() && tremOk() && releaseOk() && sagOk(); }
     // how far from passing (0 = passes): register faults count most, then each margin exceeded
     double badness() const {
         if (!played) return 0;
         if (silent) return 1000;
         if (wrongFirst || wrongAgain) return 500;
-        if (wrongHold || wrongVel || wrongTrem) return 300;
+        if (wrongHold || wrongVel || wrongTrem || wrongSag) return 300;
         auto over = [](double x, double lim) { return std::max(0.0, x / lim - 1.0); };
         return over(std::fabs(first), 3.0) + over(std::fabs(again), reed ? 3.0 : 1.5) + over(holdWorst, 3.0) + over(holdLevel, 2.0)
-             + over(speechPeriods, speechLimit) + over(velWorst, reed ? 3.0 : 1.5) + over(std::fabs(tremCents), 10.0) + over(-tremLevel, 6.0) + over(release, kReleaseLimit);
+             + over(speechPeriods, speechLimit) + over(velWorst, reed ? 3.0 : 1.5) + over(std::fabs(tremCents), 10.0) + over(-tremLevel, 6.0) + over(release, kReleaseLimit) + over(std::fabs(sag), reed ? 3.0 : 1.5);
     }
     // the first thing wrong, for a report
     std::string fault() const {
@@ -239,6 +241,7 @@ struct Verdict {
         if (wrongVel) return "wrong register (soft or hard strike)";
         if (wrongHold) return "leaves its register while held";
         if (wrongTrem) return "wrong register under the tremulant";
+        if (wrongSag) return "wrong register after a deep sag";
         if (!firstOk()) { std::snprintf(b, sizeof b, "first strike %+.1f c", first); return b; }
         if (!againOk()) { std::snprintf(b, sizeof b, "re-strike %+.1f c", again); return b; }
         if (!speechOk()) { std::snprintf(b, sizeof b, "slow to speak%s: %.0f periods (%.0f allowed)", notePeriods >= speechPeriods ? " its note" : "", speechPeriods, speechLimit); return b; }
@@ -246,6 +249,7 @@ struct Verdict {
         if (!velOk()) { std::snprintf(b, sizeof b, "soft/hard strike %.1f c", velWorst); return b; }
         if (!tremOk()) { std::snprintf(b, sizeof b, "under the tremulant %+.1f c, %+.1f dB", tremCents, tremLevel); return b; }
         if (!releaseOk()) { std::snprintf(b, sizeof b, "let go: its pitch moves %.0f c as it dies", release); return b; }
+        if (!sagOk()) { std::snprintf(b, sizeof b, "after a deep sag %+.1f c", sag); return b; }
         return "ok";
     }
 };
@@ -385,6 +389,25 @@ inline Verdict judgePipe(Rig& g, int r, int key, const Options& o = Options()) {
         g.en->setParameter(kNumStops - 1, 0.f);
         if (c > 9000) { v.wrongTrem = true; return v; }
         v.tremCents = c; v.tremLevel = rmsDb(x.data(), (int)x.size()) - v.level;
+    }
+    if (o.stopEarly && !v.tremOk()) return v;
+    // after a deep sag: a pressure key let back to a tenth of its travel, so the pallet all but shuts and the groove
+    // sinks under the pipe, then pressed home again. The pipe must come back to its own note, as it does on a real
+    // chest: a jet model can be caught in another regime when the wind returns (Fletcher 1976); the speaking threshold
+    // lets the jet go below it, so the pipe restarts on its note.
+    {
+        g.send(0x80, key, 64); g.run(0.3);
+        g.send(0xB0, 101, 0); g.send(0xB0, 100, 6); g.send(0xB0, 6, 15);   // MPE, lower zone: pressure opens the pallet
+        g.send(0xD1, 127); g.send(0x91, key, 100);
+        g.run(hold);
+        g.send(0xD1, 13); g.run(std::max(0.3, 20.0 / f));
+        g.send(0xD1, 127);
+        const double back = v.reed ? holdFor(f) : std::max(0.6, 50.0 / f);
+        g.run(back);
+        const auto x = g.tail(v.reed ? std::max(std::min(0.4, back / 3), std::min(20.0 / f, back / 2)) : back * 0.4);
+        const double c = cents(x);
+        g.send(0x81, key, 64); g.send(0xB0, 101, 0); g.send(0xB0, 100, 6); g.send(0xB0, 6, 0);   // MPE off again
+        if (c > 9000) v.wrongSag = true; else v.sag = c;
     }
     return v;
 }

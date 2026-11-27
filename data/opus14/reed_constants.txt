@@ -9,6 +9,11 @@
 #           wrong way and drove the tongue; with it corrected, the widened tongues swept so much air that the shallot
 #           held the treble 200 - 700 c flat and no tuning brought it up (Trichterregal 8' c#3: widened, no setting
 #           speaks within 100 c; at the Pasi width it voices at -0.02 c and holds every check). Kept as a column.
+# tongue-Q = 130 since 2026-11-27: the tongues' own damping as measured (free brass tongues ringing down, laser
+#           vibrometer: Q 152, 219, 108 (DAGA 2016) and 108 (DAGA 2022); 130 their median). Against the references
+#           (tools/ref/match.py features, keys 42 43 54 55 66 67 79) it scores as well as the fitted 61 / 96 or better:
+#           trumpet 6317 against 6496, oboe 10173 against 18473. The beating on the shallot is the contact's own loss
+#           (a stiff, critically damped face: the impact is inelastic), already in the model.
 # family   width/lowerD  gamma    tongue-Q  boot-litres(8')  closure/x0  shallot  zetaMin
-trumpet    0.6266        0.529    61.38     0.5789           0.5777      2.0      0
-oboe       0.5655        0.685    95.75     0.8926           0.5278      2.0      0
+trumpet    0.6266        0.529    130       0.5789           0.5777      2.0      0
+oboe       0.5655        0.685    130       0.8926           0.5278      2.0      0
